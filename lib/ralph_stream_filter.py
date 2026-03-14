@@ -15,6 +15,7 @@ signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 # Optional narration socket forwarding
 NARRATE_SOCKET = os.environ.get("RALPH_NARRATE_SOCKET", "")
+TASK_CONTEXT = os.environ.get("RALPH_TASK_CONTEXT", "")
 
 
 def send_to_narrate(text):
@@ -123,10 +124,13 @@ for line in sys.stdin:
             if bt == "tool_use":
                 print(f"  > {fmt_tool(block)}", flush=True)
                 # Forward tool use to narration server
-                send_to_narrate(json.dumps({
+                narrate_payload = {
                     "tool": block.get("name", ""),
                     "input": json.dumps(block.get("input", {}))[:500],
-                }))
+                }
+                if TASK_CONTEXT:
+                    narrate_payload["task"] = TASK_CONTEXT
+                send_to_narrate(json.dumps(narrate_payload))
             elif bt == "text":
                 text = block.get("text", "").strip()
                 if text:
@@ -136,7 +140,10 @@ for line in sys.stdin:
                         first_line = first_line[:77] + "..."
                     print(f"  {YELLOW}{first_line}{RESET}", flush=True)
                     # Forward assistant text to narration server
-                    send_to_narrate(text[:1000])
+                    if TASK_CONTEXT:
+                        send_to_narrate(f"[Task: {TASK_CONTEXT}]\n{text[:1000]}")
+                    else:
+                        send_to_narrate(text[:1000])
 
     elif t == "result":
         print(f"  {fmt_result(e)}", flush=True)

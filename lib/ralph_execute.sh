@@ -71,20 +71,26 @@ echo "" >> "$ITERATION_LOG"
 
 # ── Start narration server if enabled ────────────────────────────────
 if [[ "${RALPH_NARRATION_ENABLED:-false}" == "true" ]]; then
-    echo "Starting narration server (voice: ${RALPH_NARRATION_VOICE:-bf_emma})..."
-    "$RALPH_NARRATE_PYTHON" "$RALPH_LIB_DIR/ralph_narrate_server.py" \
-        --voice "${RALPH_NARRATION_VOICE:-bf_emma}" \
-        --socket "$NARRATE_SOCKET" &
-    NARRATE_PID=$!
-    export RALPH_NARRATE_SOCKET="$NARRATE_SOCKET"
-    # Give server a moment to bind the socket
-    sleep 1
-    if kill -0 "$NARRATE_PID" 2>/dev/null; then
-        echo "Narration server started (PID: $NARRATE_PID)"
+    # Check if a narration server is already running (e.g. from `ralph narrate on`)
+    if [[ -S "$NARRATE_SOCKET" ]]; then
+        echo "Using existing narration server (socket: $NARRATE_SOCKET)"
+        export RALPH_NARRATE_SOCKET="$NARRATE_SOCKET"
     else
-        echo "⚠ Narration server failed to start — continuing without narration"
-        NARRATE_PID=""
-        unset RALPH_NARRATE_SOCKET
+        echo "Starting narration server (voice: ${RALPH_NARRATION_VOICE:-bf_emma})..."
+        "$RALPH_NARRATE_PYTHON" "$RALPH_LIB_DIR/ralph_narrate_server.py" \
+            --voice "${RALPH_NARRATION_VOICE:-bf_emma}" \
+            --socket "$NARRATE_SOCKET" &
+        NARRATE_PID=$!
+        export RALPH_NARRATE_SOCKET="$NARRATE_SOCKET"
+        # Give server a moment to bind the socket
+        sleep 1
+        if kill -0 "$NARRATE_PID" 2>/dev/null; then
+            echo "Narration server started (PID: $NARRATE_PID)"
+        else
+            echo "⚠ Narration server failed to start — continuing without narration"
+            NARRATE_PID=""
+            unset RALPH_NARRATE_SOCKET
+        fi
     fi
     echo ""
 fi
@@ -327,6 +333,7 @@ with open(prompt_file, 'w') as f:
 with open(meta_file, 'w') as f:
     json.dump({
         'id': chosen['id'],
+        'title': chosen.get('title', ''),
         'tests': chosen.get('tests', []),
         'directory': chosen.get('directory', ''),
         'scope': chosen.get('scope', 'internal'),
@@ -359,7 +366,9 @@ PYEOF
   TASK_DIR_REL=$(python3 -c "import json; m=json.load(open('$TASK_META_FILE')); print(m.get('directory',''))")
   TASK_SCOPE=$(python3 -c "import json; m=json.load(open('$TASK_META_FILE')); print(m.get('scope','internal'))")
   TASK_AGENT=$(python3 -c "import json; m=json.load(open('$TASK_META_FILE')); print(m.get('agent',''))")
+  TASK_TITLE=$(python3 -c "import json; m=json.load(open('$TASK_META_FILE')); print(m.get('title',''))")
   TASK_DIR_ABS=$(resolve_task_dir "$TASK_DIR_REL")
+  export RALPH_TASK_CONTEXT="$TASK_TITLE"
 
   echo "Model: $TASK_MODEL"
   echo "Directory: ${TASK_DIR_REL:-<project root>}"
