@@ -3,6 +3,33 @@ set -euo pipefail
 
 source "$RALPH_LIB_DIR/ralph_common.sh"
 
+# ── Narration helper ──────────────────────────────────────────────────
+NARRATE_SOCKET="/tmp/ralph-tts.sock"
+
+send_narration() {
+    local text="$1"
+    if [[ "${RALPH_NARRATION_ENABLED:-false}" != "true" ]]; then
+        return
+    fi
+    if [[ ! -S "$NARRATE_SOCKET" ]]; then
+        return
+    fi
+    # Best-effort, non-blocking send via Python (same approach as stream filter)
+    python3 -c "
+import socket, sys, os
+path = sys.argv[1]
+text = sys.argv[2]
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(1)
+    s.connect(path)
+    s.sendall(text.encode('utf-8'))
+    s.close()
+except (OSError, socket.error):
+    pass
+" "$NARRATE_SOCKET" "$text" 2>/dev/null &
+}
+
 TASKS_FILE="$RALPH_DATA_DIR/tasks.json"
 TASKS_SCHEMA="$RALPH_LIB_DIR/tasks.schema.json"
 PLANNING_NOTES="$RALPH_DATA_DIR/planning-notes.md"
@@ -231,10 +258,14 @@ launch_planning_session() {
     echo "Exit the session (Ctrl+C or /exit) when done."
     echo ""
 
+    send_narration "Starting the planning discussion for project $(basename "$RALPH_PROJECT_ROOT"). Time to figure out what we're building next."
+
     cd "$RALPH_PROJECT_ROOT"
     claude --append-system-prompt "$PLANNING_PROMPT" \
         --allowedTools "Read,Glob,Grep,Write,Edit"
     cd - > /dev/null
+
+    send_narration "Planning discussion wrapped up. Let's see what we came up with."
 }
 
 launch_task_generation() {
@@ -243,10 +274,15 @@ launch_task_generation() {
     echo "Exit the session (Ctrl+C or /exit) when done."
     echo ""
 
+    send_narration "Switching to task generation mode. Turning the plan into a concrete task list."
+
     cd "$RALPH_PROJECT_ROOT"
     claude --append-system-prompt "$TASK_GEN_PROMPT" \
-        --allowedTools "Read,Glob,Grep,Write,Edit"
+        --allowedTools "Read,Glob,Grep,Write,Edit" \
+        "Read planning-notes.md and generate the task breakdown. Show me the proposed tasks for approval before writing tasks.json."
     cd - > /dev/null
+
+    send_narration "Task generation complete. Let's review what we've got."
 }
 
 show_planning_notes() {
@@ -391,6 +427,7 @@ while true; do
             fi
             echo ""
             echo "Starting execution loop..."
+            send_narration "Alright, kicking off the execution loop. Let's get to work."
             exec "$RALPH_LIB_DIR/ralph_loop.sh"
             ;;
         [eE]|edit)
