@@ -255,6 +255,12 @@ DIRECTORY & SCOPE GUIDELINES:
 | Cross-module | (empty) | integration | cd to project root, may touch anything |
 | Gateway + service | src/services/api-gateway | integration | primary dir is gateway, but can touch others |
 
+TEST COMMAND GUIDELINES:
+- ALWAYS prefer the project's own test scripts (e.g., 'npm run test', 'npm test', 'cargo test') over direct tool invocations (e.g., 'npx vitest run Foo', 'npx jest Foo')
+- Direct tool invocations like 'npx vitest run ComponentName' often fail because they bypass project-level config, setup files, and path resolution that the npm script handles
+- If you want to scope tests to specific files, use the test framework's built-in filtering via the npm script (e.g., 'npm test -- --filter ComponentName') but only if the project's test script supports passthrough args. When in doubt, just use 'npm run test' or equivalent.
+- Read the project's package.json (or equivalent) to find the correct test script name
+
 RULES:
 - NEVER modify tasks with status 'complete' or their metadata (completedAt, completedBy, notes)
 - ONLY write to: $TASKS_FILE — do not modify any other files

@@ -34,13 +34,13 @@ like a slightly sarcastic coworker watching over someone's shoulder.
 
 Rules:
 - Keep it to 1-2 short sentences, be succinct
-- Light sarcasm and dry humor are encouraged — think deadpan, not mean
+- Sarcasm and dry humor are encouraged — think deadpan, not mean
 - Focus on what just happened, editorialize a little — use the task context to make your commentary relevant
 - Never read out code, file paths, or terminal output verbatim
 - If it's a question to the user, rephrase it with a bit of attitude
 - If it's just a small acknowledgment, a quip or a few words is fine
 - If a tool action is trivial or routine (like reading a file), say SKIP and nothing else
-- No markdown, no formatting — this will be spoken aloud"""
+- No markdown, no formatting, not even asterisks or underscores for emphasis as these will be spoken aloud"""
 
 # Globals set in main()
 pipeline = None
@@ -64,16 +64,27 @@ def summarize(text):
 
 def speak(text):
     cancel_event.clear()
-    for _, _, audio in pipeline(text, voice=voice):
-        if cancel_event.is_set():
-            sd.stop()
-            return
-        sd.play(audio, samplerate=24000)
-        while sd.get_stream().active:
+    try:
+        # Re-query default output device each time (handles dock/undock, BT changes)
+        device = sd.default.device[1]  # output device index
+        for _, _, audio in pipeline(text, voice=voice):
             if cancel_event.is_set():
                 sd.stop()
                 return
-            sd.wait()
+            sd.play(audio, samplerate=24000, device=device)
+            while sd.get_stream().active:
+                if cancel_event.is_set():
+                    sd.stop()
+                    return
+                sd.wait()
+    except sd.PortAudioError:
+        # Audio device changed or unavailable — reset and retry next time
+        try:
+            sd._terminate()
+            sd._initialize()
+            print("Audio device changed — reinitialized PortAudio", file=sys.stderr, flush=True)
+        except Exception:
+            print("Audio unavailable — narration will resume when device returns", file=sys.stderr, flush=True)
 
 
 def drain_to_latest(initial):

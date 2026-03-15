@@ -7,6 +7,7 @@ Ralph turns Claude Code into an autonomous development loop. You plan features i
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude` on your PATH)
 - Python 3 (for task parsing and stream formatting)
 - `coreutils` recommended on macOS (`brew install coreutils`) for per-iteration timeouts
+- [ntfy](https://ntfy.sh) (optional) — free push notification service for remote status updates on your phone/desktop
 
 ### API Key
 
@@ -168,6 +169,24 @@ ralph narrate "Hello, world"
 
 Speaks text directly via Kokoro TTS without needing the server.
 
+## Push Notifications (ntfy)
+
+Ralph can send push notifications to your phone or desktop via [ntfy.sh](https://ntfy.sh) so you can walk away from the terminal and still know what's happening. You'll get notified when tasks start, complete, fail, and when the entire run finishes.
+
+ntfy is a free, open-source pub/sub notification service — no account required. Just pick a unique topic name (it's public, so make it hard to guess) and subscribe to it in the [ntfy app](https://ntfy.sh/#subscribe) (iOS, Android, or web).
+
+To enable, add `ntfyTopic` to your `ralph.json`:
+
+```json
+{
+  "narration": {
+    "ntfyTopic": "ralph-your-secret-topic-name"
+  }
+}
+```
+
+Notifications work independently of voice narration — you don't need `narration.enabled` set to `true` or Kokoro installed. Just set the topic and you'll get push updates.
+
 ## Configuration
 
 `ralph.json` at your project root. Every field is optional with sensible defaults.
@@ -184,7 +203,8 @@ Speaks text directly via Kokoro TTS without needing the server.
   },
   "narration": {
     "enabled": false,
-    "voice": "bf_emma"
+    "voice": "bf_emma",
+    "ntfyTopic": ""
   }
 }
 ```
@@ -199,6 +219,7 @@ Speaks text directly via Kokoro TTS without needing the server.
 | `summarize.claudeMdPattern` | (empty)             | Glob for CLAUDE.md files to prune during summarization |
 | `narration.enabled`         | `false`             | Enable voice narration during `ralph run`              |
 | `narration.voice`           | `bf_emma`           | Kokoro TTS voice to use                                |
+| `narration.ntfyTopic`       | (empty)             | ntfy.sh topic for push notifications (no account needed) |
 
 ### Health Check Auto-Detection
 
