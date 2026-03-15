@@ -3,15 +3,20 @@
 Ralph narration server — listens on a Unix socket, summarizes events via
 Claude Haiku, and speaks them aloud using Kokoro TTS.
 
+Uses a single worker thread with debounce so rapid events collapse into
+one narration instead of piling up.
+
 Usage:
     python3 ralph_narrate_server.py [--voice VOICE] [--socket PATH]
 """
 import json
 import os
+import queue
 import signal
 import socket
 import sys
 import threading
+import time
 
 import sounddevice as sd
 from kokoro import KPipeline
@@ -19,6 +24,7 @@ from anthropic import Anthropic
 
 DEFAULT_SOCKET = "/tmp/ralph-tts.sock"
 DEFAULT_VOICE = "bf_emma"
+DEBOUNCE_SECONDS = 1.5
 
 COMPANION_PROMPT = """\
 You are a sassy programming companion with a dry wit, narrating what's happening in a coding session. \
@@ -41,8 +47,8 @@ pipeline = None
 client = None
 voice = DEFAULT_VOICE
 
-# Lock so only one narration plays at a time
-speak_lock = threading.Lock()
+# Single narration queue — new events replace pending ones
+narration_queue = queue.Queue()
 cancel_event = threading.Event()
 
 
@@ -70,7 +76,41 @@ def speak(text):
             sd.wait()
 
 
+def drain_to_latest(initial):
+    """Drain the queue, returning the most recent item."""
+    latest = initial
+    while not narration_queue.empty():
+        try:
+            latest = narration_queue.get_nowait()
+        except queue.Empty:
+            break
+    return latest
+
+
+def narration_worker():
+    """Single worker thread: debounce, then summarize and speak the latest event."""
+    while True:
+        text = narration_queue.get()
+
+        # Debounce — wait briefly for more events to arrive
+        time.sleep(DEBOUNCE_SECONDS)
+        text = drain_to_latest(text)
+
+        try:
+            commentary = summarize(text)
+            cleaned = commentary.strip().upper()
+            if cleaned and cleaned != "SKIP":
+                # Check if newer events arrived during summarization
+                if not narration_queue.empty():
+                    # Skip speaking — we're already behind
+                    continue
+                speak(commentary)
+        except Exception as e:
+            print(f"Narration error: {e}", file=sys.stderr, flush=True)
+
+
 def handle_client(conn):
+    """Read data from socket connection and enqueue for narration."""
     try:
         data = b""
         while True:
@@ -84,15 +124,12 @@ def handle_client(conn):
         if not text:
             return
 
-        # Cancel any current narration
+        # Cancel any current speech — the worker will pick up the new event
+        print(f"[narrate] received {len(text)} bytes: {text[:80]}...", file=sys.stderr, flush=True)
         cancel_event.set()
-        with speak_lock:
-            commentary = summarize(text)
-            cleaned = commentary.strip().upper()
-            if cleaned and cleaned != "SKIP":
-                speak(commentary)
+        narration_queue.put(text)
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr, flush=True)
+        print(f"Socket error: {e}", file=sys.stderr, flush=True)
 
 
 def cleanup(signum, frame):
@@ -116,10 +153,15 @@ if __name__ == "__main__":
 
     # Initialize heavy resources
     pipeline = KPipeline(lang_code="a" if voice.startswith("a") else "b")
-    client = Anthropic()
+    # Use RALPH_ANTHROPIC_API_KEY if set, otherwise fall back to ANTHROPIC_API_KEY
+    api_key = os.environ.get("RALPH_ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    client = Anthropic(api_key=api_key)
 
     signal.signal(signal.SIGTERM, cleanup)
     signal.signal(signal.SIGINT, cleanup)
+
+    # Start the single narration worker
+    threading.Thread(target=narration_worker, daemon=True).start()
 
     # Clean up stale socket
     try:

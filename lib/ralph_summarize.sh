@@ -122,7 +122,7 @@ PROMPT="Update $RALPH_IMPL_FILE with the current state of the entire system. Rea
 
 if [[ -n "$TIMEOUT_CMD" ]]; then
     printf '%s' "$PROMPT" \
-        | "$TIMEOUT_CMD" "$TIMEOUT_SECS" claude -p \
+        | ANTHROPIC_API_KEY= "$TIMEOUT_CMD" "$TIMEOUT_SECS" claude -p \
             --append-system-prompt "$SYSTEM_PROMPT" \
             --dangerously-skip-permissions \
             --output-format stream-json \
@@ -131,7 +131,7 @@ if [[ -n "$TIMEOUT_CMD" ]]; then
         | python3 "$FILTER"
 else
     printf '%s' "$PROMPT" \
-        | claude -p \
+        | ANTHROPIC_API_KEY= claude -p \
             --append-system-prompt "$SYSTEM_PROMPT" \
             --dangerously-skip-permissions \
             --output-format stream-json \

@@ -5,8 +5,20 @@ source "$RALPH_LIB_DIR/ralph_common.sh"
 
 NARRATE_SOCKET="/tmp/ralph-tts.sock"
 NARRATE_PID=""
+CLAUDE_PID=""
 
-_cleanup_narrate() {
+_cleanup() {
+    # Kill the running claude pipeline (job PID is the pipeline leader)
+    if [[ -n "$CLAUDE_PID" ]]; then
+        # Kill the process group if possible, then the process itself
+        kill -- -"$CLAUDE_PID" 2>/dev/null || true
+        kill "$CLAUDE_PID" 2>/dev/null || true
+        # Also kill any child claude processes we spawned
+        pkill -P "$CLAUDE_PID" 2>/dev/null || true
+        wait "$CLAUDE_PID" 2>/dev/null || true
+        CLAUDE_PID=""
+    fi
+    # Kill narration server if we started it
     if [[ -n "$NARRATE_PID" ]] && kill -0 "$NARRATE_PID" 2>/dev/null; then
         kill "$NARRATE_PID" 2>/dev/null || true
         wait "$NARRATE_PID" 2>/dev/null || true
@@ -14,7 +26,7 @@ _cleanup_narrate() {
     fi
 }
 
-trap '_cleanup_narrate; echo ""; echo "Interrupted."; exit 130' INT
+trap '_cleanup; echo ""; echo "Interrupted."; exit 130' INT TERM HUP
 
 MAX_ITERATIONS=${1:-30}
 ITERATION_TIMEOUT=${2:-900}  # seconds per iteration, default 15 minutes
@@ -449,25 +461,32 @@ $ITER_PROMPT"
 
   # ── Run the agent from the task directory ──────────────────────
   run_claude() {
+      # Unset ANTHROPIC_API_KEY for claude CLI so it uses the Max plan.
+      # The narration server (already running) retains its own copy.
       if [[ -n "$TIMEOUT_CMD" ]]; then
           printf '%s' "$ITER_PROMPT" \
-              | "$TIMEOUT_CMD" "$ITERATION_TIMEOUT" claude -p \
+              | ANTHROPIC_API_KEY= "$TIMEOUT_CMD" "$ITERATION_TIMEOUT" claude -p \
                   --append-system-prompt "$SYSTEM_PROMPT" \
                   --dangerously-skip-permissions \
                   --output-format stream-json \
                   --model "$TASK_MODEL" \
                   --verbose \
-              | python3 "$FILTER"
+              | python3 "$FILTER" &
       else
           printf '%s' "$ITER_PROMPT" \
-              | claude -p \
+              | ANTHROPIC_API_KEY= claude -p \
                   --append-system-prompt "$SYSTEM_PROMPT" \
                   --dangerously-skip-permissions \
                   --output-format stream-json \
                   --model "$TASK_MODEL" \
                   --verbose \
-              | python3 "$FILTER"
+              | python3 "$FILTER" &
       fi
+      CLAUDE_PID=$!
+      wait "$CLAUDE_PID"
+      local rc=$?
+      CLAUDE_PID=""
+      return $rc
   }
 
   if run_claude; then
@@ -633,7 +652,7 @@ PYEOF
 done
 
 # Stop narration server if we started it
-_cleanup_narrate
+_cleanup
 
 # Final summary
 echo ""
@@ -645,10 +664,36 @@ echo ""
 
 if [[ -f "$COMPLETE_FLAG" ]]; then
     echo "✓ Status: ALL TASKS COMPLETE"
+    # Send ntfy notification for loop completion
+    if [[ -n "${RALPH_NTFY_TOPIC:-}" ]]; then
+        python3 -c "
+import urllib.request
+req = urllib.request.Request(
+    'https://ntfy.sh/${RALPH_NTFY_TOPIC}',
+    data=b'All tasks complete after $ITERATIONS_RUN iterations',
+    headers={'Title': 'Ralph - Complete', 'Tags': 'tada', 'Priority': '4'},
+)
+try: urllib.request.urlopen(req, timeout=5)
+except: pass
+" 2>/dev/null &
+    fi
 else
     echo "⚠ Status: INCOMPLETE (reached max iterations or errors)"
     echo ""
     echo "Remaining tasks can be found in $TASKS_FILE"
+    # Send ntfy notification for incomplete loop
+    if [[ -n "${RALPH_NTFY_TOPIC:-}" ]]; then
+        python3 -c "
+import urllib.request
+req = urllib.request.Request(
+    'https://ntfy.sh/${RALPH_NTFY_TOPIC}',
+    data=b'Loop stopped after $ITERATIONS_RUN iterations — tasks remaining',
+    headers={'Title': 'Ralph - Stopped', 'Tags': 'warning', 'Priority': '4'},
+)
+try: urllib.request.urlopen(req, timeout=5)
+except: pass
+" 2>/dev/null &
+    fi
 fi
 
 # Clean up temp files

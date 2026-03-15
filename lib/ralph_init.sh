@@ -50,6 +50,16 @@ if [[ -f "$CONFIG_FILE" ]]; then
     echo "  ralph.json already exists."
 else
     PROJECT_NAME="$(basename "$RALPH_PROJECT_ROOT")"
+
+    # Ask about narration during initial setup
+    echo ""
+    read -r -p "  Enable TTS narration? [y/N] " ENABLE_NARRATION
+    if [[ "$ENABLE_NARRATION" =~ ^[Yy] ]]; then
+        NARRATION_ENABLED="true"
+    else
+        NARRATION_ENABLED="false"
+    fi
+
     cat > "$CONFIG_FILE" <<EOF
 {
   "projectName": "$PROJECT_NAME",
@@ -59,11 +69,18 @@ else
   "implementationFile": "IMPLEMENTATION.md",
   "summarize": {
     "claudeMdPattern": ""
+  },
+  "narration": {
+    "enabled": $NARRATION_ENABLED,
+    "ntfyTopic": ""
   }
 }
 EOF
     echo "  Created: ralph.json (edit to configure)"
 fi
+
+# Reload config so RALPH_NARRATION_ENABLED reflects what we just wrote
+source "$RALPH_LIB_DIR/ralph_config.sh"
 
 # Offer to install Claude Code narration hooks
 if [[ "${RALPH_NARRATION_ENABLED:-false}" == "true" ]]; then

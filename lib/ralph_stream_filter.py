@@ -9,6 +9,7 @@ import socket
 import sys
 import json
 import signal
+import urllib.request
 
 signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
@@ -16,6 +17,31 @@ signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 # Optional narration socket forwarding
 NARRATE_SOCKET = os.environ.get("RALPH_NARRATE_SOCKET", "")
 TASK_CONTEXT = os.environ.get("RALPH_TASK_CONTEXT", "")
+
+# Optional ntfy push notifications
+NTFY_TOPIC = os.environ.get("RALPH_NTFY_TOPIC", "")
+
+
+def send_ntfy(message, title=None, priority=None, tags=None):
+    """Send a push notification via ntfy.sh (best-effort, non-blocking)."""
+    if not NTFY_TOPIC:
+        return
+    try:
+        headers = {}
+        if title:
+            headers["Title"] = title
+        if priority:
+            headers["Priority"] = str(priority)
+        if tags:
+            headers["Tags"] = tags
+        req = urllib.request.Request(
+            f"https://ntfy.sh/{NTFY_TOPIC}",
+            data=message.encode("utf-8"),
+            headers=headers,
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass
 
 
 def send_to_narrate(text):
@@ -116,6 +142,10 @@ for line in sys.stdin:
         model = e.get("model", "?")
         mode = e.get("permissionMode", "?")
         print(f"  {DIM}[init]{RESET} {model} | {mode}", flush=True)
+        # Narrate iteration start
+        if TASK_CONTEXT:
+            send_to_narrate(f"Starting work on: {TASK_CONTEXT}")
+            send_ntfy(f"Starting: {TASK_CONTEXT}", title="Ralph", tags="hammer")
 
     elif t == "assistant":
         content = e.get("message", {}).get("content", [])
@@ -123,14 +153,8 @@ for line in sys.stdin:
             bt = block.get("type", "")
             if bt == "tool_use":
                 print(f"  > {fmt_tool(block)}", flush=True)
-                # Forward tool use to narration server
-                narrate_payload = {
-                    "tool": block.get("name", ""),
-                    "input": json.dumps(block.get("input", {}))[:500],
-                }
-                if TASK_CONTEXT:
-                    narrate_payload["task"] = TASK_CONTEXT
-                send_to_narrate(json.dumps(narrate_payload))
+                # Tool events not forwarded to narration in the loop —
+                # only assistant text and milestones get narrated.
             elif bt == "text":
                 text = block.get("text", "").strip()
                 if text:
@@ -147,3 +171,21 @@ for line in sys.stdin:
 
     elif t == "result":
         print(f"  {fmt_result(e)}", flush=True)
+        # Narrate and notify iteration end
+        dur = e.get("duration_ms", 0) / 1000
+        turns = e.get("num_turns", 0)
+        cost = e.get("total_cost_usd", 0)
+        is_error = e.get("is_error", False)
+        if is_error:
+            status = "failed"
+            tags = "x"
+            priority = "4"
+        else:
+            status = "finished"
+            tags = "white_check_mark"
+            priority = "3"
+        summary = f"Task {status} after {turns} turns in {dur:.0f} seconds."
+        if TASK_CONTEXT:
+            summary = f"{TASK_CONTEXT}: {summary}"
+        send_to_narrate(summary)
+        send_ntfy(summary, title=f"Ralph - {status.title()}", tags=tags, priority=priority)

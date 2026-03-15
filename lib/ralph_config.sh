@@ -30,6 +30,7 @@ emit("RALPH_CLAUDE_MD_PATTERN", cfg.get("summarize", {}).get("claudeMdPattern", 
 narration = cfg.get("narration", {})
 emit("RALPH_NARRATION_ENABLED", str(narration.get("enabled", False)).lower())
 emit("RALPH_NARRATION_VOICE", narration.get("voice", ""))
+emit("RALPH_NTFY_TOPIC", narration.get("ntfyTopic", ""))
 PYEOF
         )"
     fi
@@ -43,10 +44,11 @@ PYEOF
     : "${RALPH_CLAUDE_MD_PATTERN:=}"
     : "${RALPH_NARRATION_ENABLED:=false}"
     : "${RALPH_NARRATION_VOICE:=bf_emma}"
+    : "${RALPH_NTFY_TOPIC:=}"
 
     export RALPH_PROJECT_NAME RALPH_PROJECT_DESC RALPH_HEALTH_CHECK
     export RALPH_TEST_CMD RALPH_IMPL_FILE RALPH_CLAUDE_MD_PATTERN
-    export RALPH_NARRATION_ENABLED RALPH_NARRATION_VOICE
+    export RALPH_NARRATION_ENABLED RALPH_NARRATION_VOICE RALPH_NTFY_TOPIC
 
     # Auto-detect health check if not configured
     if [[ -z "$RALPH_HEALTH_CHECK" ]]; then

@@ -30,6 +30,27 @@ except (OSError, socket.error):
 " "$NARRATE_SOCKET" "$text" 2>/dev/null &
 }
 
+send_ntfy() {
+    local message="$1"
+    local title="${2:-Ralph}"
+    local tags="${3:-}"
+    if [[ -z "${RALPH_NTFY_TOPIC:-}" ]]; then
+        return
+    fi
+    python3 -c "
+import urllib.request, sys
+topic, message, title, tags = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+headers = {'Title': title}
+if tags:
+    headers['Tags'] = tags
+req = urllib.request.Request(f'https://ntfy.sh/{topic}', data=message.encode(), headers=headers)
+try:
+    urllib.request.urlopen(req, timeout=5)
+except Exception:
+    pass
+" "$RALPH_NTFY_TOPIC" "$message" "$title" "$tags" 2>/dev/null &
+}
+
 TASKS_FILE="$RALPH_DATA_DIR/tasks.json"
 TASKS_SCHEMA="$RALPH_LIB_DIR/tasks.schema.json"
 PLANNING_NOTES="$RALPH_DATA_DIR/planning-notes.md"
@@ -259,13 +280,15 @@ launch_planning_session() {
     echo ""
 
     send_narration "Starting the planning discussion for project $(basename "$RALPH_PROJECT_ROOT"). Time to figure out what we're building next."
+    send_ntfy "Planning session started for $(basename "$RALPH_PROJECT_ROOT")" "Ralph - Planning" "memo"
 
     cd "$RALPH_PROJECT_ROOT"
-    claude --append-system-prompt "$PLANNING_PROMPT" \
+    ANTHROPIC_API_KEY= claude --append-system-prompt "$PLANNING_PROMPT" \
         --allowedTools "Read,Glob,Grep,Write,Edit"
     cd - > /dev/null
 
     send_narration "Planning discussion wrapped up. Let's see what we came up with."
+    send_ntfy "Planning discussion complete" "Ralph - Planning" "white_check_mark"
 }
 
 launch_task_generation() {
@@ -275,14 +298,16 @@ launch_task_generation() {
     echo ""
 
     send_narration "Switching to task generation mode. Turning the plan into a concrete task list."
+    send_ntfy "Task generation started" "Ralph - Tasks" "gear"
 
     cd "$RALPH_PROJECT_ROOT"
-    claude --append-system-prompt "$TASK_GEN_PROMPT" \
+    ANTHROPIC_API_KEY= claude --append-system-prompt "$TASK_GEN_PROMPT" \
         --allowedTools "Read,Glob,Grep,Write,Edit" \
         "Read planning-notes.md and generate the task breakdown. Show me the proposed tasks for approval before writing tasks.json."
     cd - > /dev/null
 
     send_narration "Task generation complete. Let's review what we've got."
+    send_ntfy "Task generation complete" "Ralph - Tasks" "white_check_mark"
 }
 
 show_planning_notes() {
@@ -428,6 +453,7 @@ while true; do
             echo ""
             echo "Starting execution loop..."
             send_narration "Alright, kicking off the execution loop. Let's get to work."
+            send_ntfy "Execution loop started" "Ralph - Running" "rocket"
             exec "$RALPH_LIB_DIR/ralph_loop.sh"
             ;;
         [eE]|edit)
