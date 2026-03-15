@@ -88,10 +88,12 @@ if [[ "${RALPH_NARRATION_ENABLED:-false}" == "true" ]]; then
         echo "Using existing narration server (socket: $NARRATE_SOCKET)"
         export RALPH_NARRATE_SOCKET="$NARRATE_SOCKET"
     else
+        local avatar_flag=""
+        [[ "${RALPH_NARRATION_AVATAR:-false}" == "true" ]] && avatar_flag="--avatar"
         echo "Starting narration server (voice: ${RALPH_NARRATION_VOICE:-bf_emma})..."
         "$RALPH_NARRATE_PYTHON" "$RALPH_LIB_DIR/ralph_narrate_server.py" \
             --voice "${RALPH_NARRATION_VOICE:-bf_emma}" \
-            --socket "$NARRATE_SOCKET" &
+            --socket "$NARRATE_SOCKET" $avatar_flag &
         NARRATE_PID=$!
         export RALPH_NARRATE_SOCKET="$NARRATE_SOCKET"
         # Give server a moment to bind the socket

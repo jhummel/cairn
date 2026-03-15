@@ -204,6 +204,7 @@ Notifications work independently of voice narration — you don't need `narratio
   "narration": {
     "enabled": false,
     "voice": "bf_emma",
+    "avatar": false,
     "ntfyTopic": ""
   }
 }
@@ -219,6 +220,7 @@ Notifications work independently of voice narration — you don't need `narratio
 | `summarize.claudeMdPattern` | (empty)             | Glob for CLAUDE.md files to prune during summarization |
 | `narration.enabled`         | `false`             | Enable voice narration during `ralph run`              |
 | `narration.voice`           | `bf_emma`           | Kokoro TTS voice to use                                |
+| `narration.avatar`          | `false`             | Show animated companion avatar window during narration |
 | `narration.ntfyTopic`       | (empty)             | ntfy.sh topic for push notifications (no account needed) |
 
 ### Health Check Auto-Detection

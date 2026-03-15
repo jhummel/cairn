@@ -7,7 +7,7 @@ Uses a single worker thread with debounce so rapid events collapse into
 one narration instead of piling up.
 
 Usage:
-    python3 ralph_narrate_server.py [--voice VOICE] [--socket PATH]
+    python3 ralph_narrate_server.py [--voice VOICE] [--socket PATH] [--avatar]
 """
 import json
 import os
@@ -46,6 +46,7 @@ Rules:
 pipeline = None
 client = None
 voice = DEFAULT_VOICE
+avatar = None  # AvatarWindow instance when --avatar is used
 
 # Single narration queue — new events replace pending ones
 narration_queue = queue.Queue()
@@ -64,17 +65,24 @@ def summarize(text):
 
 def speak(text):
     cancel_event.clear()
+    if avatar:
+        avatar.set_state("speaking")
+        avatar.set_text(text)
     try:
         # Re-query default output device each time (handles dock/undock, BT changes)
         device = sd.default.device[1]  # output device index
         for _, _, audio in pipeline(text, voice=voice):
             if cancel_event.is_set():
                 sd.stop()
+                if avatar:
+                    avatar.set_state("idle")
                 return
             sd.play(audio, samplerate=24000, device=device)
             while sd.get_stream().active:
                 if cancel_event.is_set():
                     sd.stop()
+                    if avatar:
+                        avatar.set_state("idle")
                     return
                 sd.wait()
     except sd.PortAudioError:
@@ -85,6 +93,9 @@ def speak(text):
             print("Audio device changed — reinitialized PortAudio", file=sys.stderr, flush=True)
         except Exception:
             print("Audio unavailable — narration will resume when device returns", file=sys.stderr, flush=True)
+    finally:
+        if avatar:
+            avatar.set_state("idle")
 
 
 def drain_to_latest(initial):
@@ -108,16 +119,25 @@ def narration_worker():
         text = drain_to_latest(text)
 
         try:
+            if avatar:
+                avatar.set_state("thinking")
+                avatar.set_text("thinking...")
             commentary = summarize(text)
             cleaned = commentary.strip().upper()
             if cleaned and cleaned != "SKIP":
                 # Check if newer events arrived during summarization
                 if not narration_queue.empty():
-                    # Skip speaking — we're already behind
+                    if avatar:
+                        avatar.set_state("idle")
                     continue
                 speak(commentary)
+            elif avatar:
+                avatar.set_state("idle")
+                avatar.set_text("")
         except Exception as e:
             print(f"Narration error: {e}", file=sys.stderr, flush=True)
+            if avatar:
+                avatar.set_state("idle")
 
 
 def handle_client(conn):
@@ -151,12 +171,32 @@ def cleanup(signum, frame):
     sys.exit(0)
 
 
+def run_socket_server():
+    """Accept loop for the Unix socket server."""
+    # Clean up stale socket
+    try:
+        os.unlink(socket_path)
+    except OSError:
+        pass
+
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(socket_path)
+    server.listen(5)
+    print(f"Ralph narration server listening on {socket_path}", flush=True)
+
+    while True:
+        conn, _ = server.accept()
+        threading.Thread(target=handle_client, args=(conn,), daemon=True).start()
+
+
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Ralph narration TTS server")
     parser.add_argument("--voice", default=os.environ.get("RALPH_NARRATION_VOICE", DEFAULT_VOICE))
     parser.add_argument("--socket", default=os.environ.get("RALPH_NARRATE_SOCKET", DEFAULT_SOCKET))
+    parser.add_argument("--avatar", action="store_true", default=False)
+    parser.add_argument("--assets-dir", default=os.environ.get("RALPH_ASSETS_DIR"))
     args = parser.parse_args()
 
     socket_path = args.socket
@@ -174,17 +214,18 @@ if __name__ == "__main__":
     # Start the single narration worker
     threading.Thread(target=narration_worker, daemon=True).start()
 
-    # Clean up stale socket
-    try:
-        os.unlink(socket_path)
-    except OSError:
-        pass
+    if args.avatar:
+        # tkinter must run on the main thread (macOS requirement)
+        # so move the socket server to a background thread
+        from ralph_avatar import AvatarWindow
 
-    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    server.bind(socket_path)
-    server.listen(5)
-    print(f"Ralph narration server listening on {socket_path}", flush=True)
-
-    while True:
-        conn, _ = server.accept()
-        threading.Thread(target=handle_client, args=(conn,), daemon=True).start()
+        threading.Thread(target=run_socket_server, daemon=True).start()
+        avatar = AvatarWindow(assets_dir=args.assets_dir)
+        avatar.run()
+        # Avatar window was closed — continue running headless
+        avatar = None
+        print("Avatar window closed — continuing without avatar", file=sys.stderr, flush=True)
+        run_socket_server_event = threading.Event()
+        run_socket_server_event.wait()  # block main thread forever
+    else:
+        run_socket_server()
