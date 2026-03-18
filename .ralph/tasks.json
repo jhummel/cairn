@@ -2,30 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 4,
-      "priority": 1,
-      "title": "Delete avatar files and assets",
-      "description": "Delete `lib/ralph_avatar.py` entirely (the tkinter-based animated companion window). Delete the entire `assets/` directory which contains sprite PNGs: idle.png, thinking.png, speaking_open.png, speaking_closed.png. Use rm to remove these files and directories.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-17T00:00:00Z",
-      "completedBy": "iteration-4",
-      "notes": "Deleted lib/ralph_avatar.py and assets/ directory (idle.png, thinking.png, speaking_open.png, speaking_closed.png). Both paths confirmed removed.",
-      "files": [
-        "lib/ralph_avatar.py",
-        "assets/"
-      ],
-      "tests": [],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 5,
       "priority": 2,
       "title": "Strip avatar from narration server",
       "description": "In `lib/ralph_narrate_server.py`:\n- Remove `--avatar` flag from usage docs (~line 10)\n- Remove `avatar = None` global variable (~line 49)\n- Remove all avatar state transitions \u2014 any `avatar.set_state()` or similar calls for 'speaking', 'thinking', 'idle' (~lines 69-99)\n- Remove `--avatar` and `--assets-dir` argparse arguments (~lines 199-200)\n- Remove avatar initialization and main-thread tkinter logic (~lines 218-230)\n\nThe narration/TTS functionality must remain fully intact. The server should still work cleanly \u2014 just without any avatar window support.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-17T00:00:00Z",
+      "completedBy": "iteration-5",
+      "notes": "Removed all avatar code: usage doc, avatar global, speak/narration_worker avatar state transitions, --avatar and --assets-dir argparse args, and avatar initialization block. Also removed unused `import json`. TTS/socket server fully intact.",
       "files": [
         "lib/ralph_narrate_server.py"
       ],
