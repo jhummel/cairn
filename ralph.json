@@ -1,0 +1,14 @@
+{
+  "projectName": "ralph-cli-tool",
+  "projectDescription": "",
+  "healthCheck": "",
+  "defaultTestCommand": "",
+  "implementationFile": "IMPLEMENTATION.md",
+  "summarize": {
+    "claudeMdPattern": ""
+  },
+  "narration": {
+    "enabled": true,
+    "ntfyTopic": "jhummel-ralph-cli-tool"
+  }
+}

@@ -57,6 +57,7 @@ def summarize(text):
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=200,
+        timeout=15,
         system=COMPANION_PROMPT,
         messages=[{"role": "user", "content": text}],
     )

@@ -1,0 +1,57 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "priority": 1,
+      "title": "Remove scope from schema and execution logic",
+      "description": "Remove the `scope` field from `lib/tasks.schema.json` (lines 24-28). In `lib/ralph_execute.sh`, remove scope branching in `build_system_prompt()` \u2014 replace the if/else that checks internal vs integration with a single set of directory instructions that always allows the agent to work wherever needed. Remove scope extraction from task metadata (~lines 323-325, 353, 379-381), and remove scope from the function's parameter/comment block (~line 115-116). The agent should still receive directory context (TASK_DIR) but without any scope-based restrictions.",
+      "directory": "",
+      "status": "complete",
+      "completedAt": "2026-03-17T00:00:00Z",
+      "completedBy": "iteration-1",
+      "notes": "Removed scope field from schema. Replaced scope if/else in build_system_prompt() with a single DIRECTORY block. Removed TASK_SCOPE extraction from meta reading. Removed scope from iteration prompt and meta JSON. Updated build_system_prompt() signature from 3 args to 2 (dropped scope). Also cleaned up discover-tasks instruction to remove 'scope' from required fields list.",
+      "files": [
+        "lib/tasks.schema.json",
+        "lib/ralph_execute.sh"
+      ],
+      "tests": [],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 2,
+      "priority": 1,
+      "title": "Remove scope from planning prompts",
+      "description": "In `lib/ralph_plan.sh`, remove scope from the task breakdown presentation (~line 229 mentions 'scope'), remove the scope property from the TASKS.JSON SCHEMA section (~line 242), and remove the 'DIRECTORY & SCOPE GUIDELINES' table (~lines 251-257). Keep directory guidance but drop the scope column from any remaining tables. Ensure the surrounding text still reads naturally after removals.",
+      "directory": "",
+      "status": "complete",
+      "completedAt": "2026-03-17T00:00:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Removed 'scope' from step 4 of task breakdown presentation. Removed scope property from TASK STRUCTURE bullet list. Replaced 'DIRECTORY & SCOPE GUIDELINES' table (4 columns) with 'DIRECTORY GUIDELINES' table (3 columns, dropped scope column and the gateway+service row which was scope-specific). Text reads naturally after all removals.",
+      "files": [
+        "lib/ralph_plan.sh"
+      ],
+      "tests": [],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 3,
+      "priority": 1,
+      "title": "Clean up service terminology",
+      "description": "Replace 'service' terminology with generic language ('module', 'directory', 'subdirectory') in these specific locations:\n- `lib/ralph_execute.sh` ~line 135: 'service boundaries' \u2192 'module boundaries' or similar\n- `lib/ralph_execute.sh` ~line 193: 'service-level CLAUDE.md' \u2192 'module-level CLAUDE.md' or 'directory-level CLAUDE.md'\n- `lib/ralph_execute.sh` ~line 217: update 'service' reference\n- `lib/ralph_execute.sh` ~line 423: 'new services' \u2192 'new modules' or 'new directories'\n- `lib/ralph_summarize.sh` ~line 49: 'service-level CLAUDE.md files' \u2192 'module-level CLAUDE.md files'\n\nOnly change 'service' when it refers to the old monorepo/scope concept \u2014 not general usage of the word.",
+      "directory": "",
+      "status": "complete",
+      "completedAt": "2026-03-17T00:00:00Z",
+      "completedBy": "iteration-3",
+      "notes": "Replaced all service-as-monorepo-concept references: 'service-level CLAUDE.md' \u2192 'directory-level CLAUDE.md' (line 183), 'service (config quirk...)...service CLAUDE.md' \u2192 'module...directory-level CLAUDE.md' (line 207), 'new services' \u2192 'new modules' (line 408 comment). In ralph_summarize.sh: 'module-level or service-level' \u2192 'module-level' (line 49). The task description mentioned ~line 135 'service boundaries' but no such text existed \u2014 likely already removed or line numbers shifted.",
+      "files": [
+        "lib/ralph_execute.sh",
+        "lib/ralph_summarize.sh"
+      ],
+      "tests": [],
+      "dependencies": [],
+      "model": "sonnet"
+    }
+  ]
+}

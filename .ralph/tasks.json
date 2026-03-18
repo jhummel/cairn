@@ -2,30 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 3,
-      "priority": 1,
-      "title": "Clean up service terminology",
-      "description": "Replace 'service' terminology with generic language ('module', 'directory', 'subdirectory') in these specific locations:\n- `lib/ralph_execute.sh` ~line 135: 'service boundaries' \u2192 'module boundaries' or similar\n- `lib/ralph_execute.sh` ~line 193: 'service-level CLAUDE.md' \u2192 'module-level CLAUDE.md' or 'directory-level CLAUDE.md'\n- `lib/ralph_execute.sh` ~line 217: update 'service' reference\n- `lib/ralph_execute.sh` ~line 423: 'new services' \u2192 'new modules' or 'new directories'\n- `lib/ralph_summarize.sh` ~line 49: 'service-level CLAUDE.md files' \u2192 'module-level CLAUDE.md files'\n\nOnly change 'service' when it refers to the old monorepo/scope concept \u2014 not general usage of the word.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-17T00:00:00Z",
-      "completedBy": "iteration-3",
-      "notes": "Replaced all service-as-monorepo-concept references: 'service-level CLAUDE.md' → 'directory-level CLAUDE.md' (line 183), 'service (config quirk...)...service CLAUDE.md' → 'module...directory-level CLAUDE.md' (line 207), 'new services' → 'new modules' (line 408 comment). In ralph_summarize.sh: 'module-level or service-level' → 'module-level' (line 49). The task description mentioned ~line 135 'service boundaries' but no such text existed — likely already removed or line numbers shifted.",
-      "files": [
-        "lib/ralph_execute.sh",
-        "lib/ralph_summarize.sh"
-      ],
-      "tests": [],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 4,
       "priority": 1,
       "title": "Delete avatar files and assets",
       "description": "Delete `lib/ralph_avatar.py` entirely (the tkinter-based animated companion window). Delete the entire `assets/` directory which contains sprite PNGs: idle.png, thinking.png, speaking_open.png, speaking_closed.png. Use rm to remove these files and directories.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-17T00:00:00Z",
+      "completedBy": "iteration-4",
+      "notes": "Deleted lib/ralph_avatar.py and assets/ directory (idle.png, thinking.png, speaking_open.png, speaking_closed.png). Both paths confirmed removed.",
       "files": [
         "lib/ralph_avatar.py",
         "assets/"
