@@ -226,7 +226,7 @@ YOUR WORKFLOW:
 1. Read planning-notes.md — this is the approved plan. Follow it closely.
 2. Read the project codebase as needed to fill in implementation details (file paths, function names, test commands)
 3. If tasks.json already exists, preserve any tasks with status 'complete' and their metadata
-4. Present your proposed task breakdown to the user BEFORE writing tasks.json. Show each task's title, directory, scope, rough description, dependencies, and suggested model (opus/sonnet). Wait for the user to approve or request changes.
+4. Present your proposed task breakdown to the user BEFORE writing tasks.json. Show each task's title, directory, rough description, dependencies, and suggested model (opus/sonnet). Wait for the user to approve or request changes.
 5. Once approved, write tasks.json following the schema below.
 
 TASKS.JSON SCHEMA:
@@ -239,7 +239,6 @@ Each task needs:
 - title: short descriptive title
 - description: detailed implementation instructions for the worker agent
 - directory: relative path from project root to the agent's working directory (e.g., 'src/services/auth-service'). Empty string or omitted means project root.
-- scope: 'internal' (stay within the task directory) or 'integration' (may modify files across directories)
 - status: 'pending' for new tasks
 - files: array of relevant file paths RELATIVE TO THE TASK'S DIRECTORY to point the worker agent to
 - dependencies: array of task IDs that must complete first (empty array if none)
@@ -247,13 +246,12 @@ Each task needs:
 - model: 'opus' or 'sonnet' (optional, defaults to 'opus'). Use 'sonnet' for straightforward tasks (add validation, write tests, simple CRUD, config changes). Use 'opus' for complex tasks (architectural decisions, subtle debugging, multi-file refactors).
 - agent: (optional) name of a specialist agent from .claude/agents/ to handle this task. Omit for the default generalist agent.
 
-DIRECTORY & SCOPE GUIDELINES:
-| Task type | directory | scope | Agent behavior |
-|-----------|----------|-------|----------------|
-| Module work | src/services/auth-service | internal | cd into module, stay within it |
-| DB migration | src/database | internal | cd into database dir, stay within it |
-| Cross-module | (empty) | integration | cd to project root, may touch anything |
-| Gateway + service | src/services/api-gateway | integration | primary dir is gateway, but can touch others |
+DIRECTORY GUIDELINES:
+| Task type | directory | Agent behavior |
+|-----------|----------|----------------|
+| Module work | src/services/auth-service | cd into module, work within it |
+| DB migration | src/database | cd into database dir, work within it |
+| Cross-module | (empty) | cd to project root, may touch anything |
 
 TEST COMMAND GUIDELINES:
 - ALWAYS prefer the project's own test scripts (e.g., 'npm run test', 'npm test', 'cargo test') over direct tool invocations (e.g., 'npx vitest run Foo', 'npx jest Foo')
