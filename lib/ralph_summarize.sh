@@ -46,7 +46,7 @@ Do NOT remove entries you're unsure about — when in doubt, keep them."
 else
     CLAUDE_MD_PRUNING="
 CLAUDE.MD PRUNING:
-After updating $RALPH_IMPL_FILE, look for any module-level or service-level CLAUDE.md files in the project.
+After updating $RALPH_IMPL_FILE, look for any module-level CLAUDE.md files in the project.
 If you find any, review them for accumulated noise from worker agents:
 - Remove entries that are no longer accurate
 - Deduplicate entries that say the same thing in different words

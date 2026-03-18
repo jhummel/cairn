@@ -180,7 +180,7 @@ $dir_instructions
 CONTEXT:
 - This is a FRESH agent instance with no memory of previous iterations
 - The root CLAUDE.md is already loaded in your system prompt — do NOT re-read it
-- If a service-level CLAUDE.md or README.md exists in your working directory, read it before starting work
+- If a directory-level CLAUDE.md or README.md exists in your working directory, read it before starting work
 
 SUBAGENT STRATEGY:
 - Use up to 10 parallel Sonnet subagents for codebase exploration, reading multiple files, and searching. Prefer targeted reads over broad sweeps.
@@ -204,7 +204,7 @@ $test_instruction
 DISCOVER AND DOCUMENT:
 - If you discover bugs or missing functionality UNRELATED to your task, add them as new pending tasks in '$TASKS_FILE' (next available ID, low priority). Include a 'directory' field indicating where the work should happen. Max 3 discovered tasks per iteration.
 - New tasks need at minimum: id, priority, title, description, directory, status ('pending'), files (array), dependencies (array), tests (array).
-- If you learn something operational about a service (config quirk, undocumented dependency), add a brief note to the service CLAUDE.md.
+- If you learn something operational about a module (config quirk, undocumented dependency), add a brief note to the directory-level CLAUDE.md.
 - Keep CLAUDE.md strictly operational (build commands, config quirks, gotchas). No status updates, no progress notes, no task history.
 
 CRITICAL RULES:
@@ -405,7 +405,7 @@ for line in content[3:end].strip().splitlines():
   # Build per-task system prompt
   SYSTEM_PROMPT=$(build_system_prompt "$TASK_DIR_REL" "$TASK_AGENT")
 
-  # ── cd into the task directory (create if needed for new services) ──
+  # ── cd into the task directory (create if needed for new modules) ──
   mkdir -p "$TASK_DIR_ABS"
   pushd "$TASK_DIR_ABS" > /dev/null
 
