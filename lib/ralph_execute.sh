@@ -81,30 +81,52 @@ with open('$COMPLETED_IDS_FILE', 'w') as f:
 echo "Ralph Execution Loop Started: $(date)" > "$ITERATION_LOG"
 echo "" >> "$ITERATION_LOG"
 
-# ── Start narration server if enabled ────────────────────────────────
+# ── Narration server management ──────────────────────────────────────
+start_narration_server() {
+    echo "Starting narration server (voice: ${RALPH_NARRATION_VOICE:-bf_emma})..."
+    "$RALPH_NARRATE_PYTHON" "$RALPH_LIB_DIR/ralph_narrate_server.py" \
+        --voice "${RALPH_NARRATION_VOICE:-bf_emma}" \
+        --socket "$NARRATE_SOCKET" &
+    NARRATE_PID=$!
+    export RALPH_NARRATE_SOCKET="$NARRATE_SOCKET"
+    sleep 1
+    if kill -0 "$NARRATE_PID" 2>/dev/null; then
+        echo "Narration server started (PID: $NARRATE_PID)"
+        return 0
+    else
+        echo "⚠ Narration server failed to start — continuing without narration"
+        NARRATE_PID=""
+        unset RALPH_NARRATE_SOCKET
+        return 1
+    fi
+}
+
+check_narration_health() {
+    # Quick socket-level ping to verify the server is actually responsive
+    python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(2)
+try:
+    s.connect('$NARRATE_SOCKET')
+    s.sendall(b'PING')
+    s.shutdown(socket.SHUT_WR)
+    resp = s.recv(16)
+    s.close()
+    sys.exit(0 if resp == b'PONG' else 1)
+except Exception:
+    s.close()
+    sys.exit(1)
+" 2>/dev/null
+}
+
 if [[ "${RALPH_NARRATION_ENABLED:-false}" == "true" ]]; then
     # Check if a narration server is already running (e.g. from `ralph narrate on`)
-    if [[ -S "$NARRATE_SOCKET" ]]; then
+    if [[ -S "$NARRATE_SOCKET" ]] && check_narration_health; then
         echo "Using existing narration server (socket: $NARRATE_SOCKET)"
         export RALPH_NARRATE_SOCKET="$NARRATE_SOCKET"
     else
-        avatar_flag=""
-        [[ "${RALPH_NARRATION_AVATAR:-false}" == "true" ]] && avatar_flag="--avatar"
-        echo "Starting narration server (voice: ${RALPH_NARRATION_VOICE:-bf_emma})..."
-        "$RALPH_NARRATE_PYTHON" "$RALPH_LIB_DIR/ralph_narrate_server.py" \
-            --voice "${RALPH_NARRATION_VOICE:-bf_emma}" \
-            --socket "$NARRATE_SOCKET" $avatar_flag &
-        NARRATE_PID=$!
-        export RALPH_NARRATE_SOCKET="$NARRATE_SOCKET"
-        # Give server a moment to bind the socket
-        sleep 1
-        if kill -0 "$NARRATE_PID" 2>/dev/null; then
-            echo "Narration server started (PID: $NARRATE_PID)"
-        else
-            echo "⚠ Narration server failed to start — continuing without narration"
-            NARRATE_PID=""
-            unset RALPH_NARRATE_SOCKET
-        fi
+        start_narration_server
     fi
     echo ""
 fi
@@ -230,6 +252,17 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
   echo "--- ITERATION $i/$MAX_ITERATIONS ---"
 
   echo "Iteration $i started: $(date)" >> "$ITERATION_LOG"
+
+  # ── Check narration server health and restart if needed ──────────
+  if [[ "${RALPH_NARRATION_ENABLED:-false}" == "true" && -n "${NARRATE_PID:-}" ]]; then
+      if ! check_narration_health; then
+          echo "⚠ Narration server unresponsive — restarting..."
+          kill "$NARRATE_PID" 2>/dev/null || true
+          rm -f "$NARRATE_SOCKET"
+          sleep 1
+          start_narration_server || true
+      fi
+  fi
 
   # Exit if completion flag exists
   if [[ -f "$COMPLETE_FLAG" ]]; then

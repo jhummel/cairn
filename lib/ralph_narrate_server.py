@@ -128,9 +128,20 @@ def handle_client(conn):
             if not chunk:
                 break
             data += chunk
-        conn.close()
 
         text = data.decode("utf-8").strip()
+
+        # Health check — respond with PONG so callers can verify we're alive
+        if text == "PING":
+            try:
+                conn.sendall(b"PONG")
+            except OSError:
+                pass
+            conn.close()
+            return
+
+        conn.close()
+
         if not text:
             return
 
@@ -150,9 +161,8 @@ def cleanup(signum, frame):
     sys.exit(0)
 
 
-def run_socket_server():
-    """Accept loop for the Unix socket server."""
-    # Clean up stale socket
+def create_server_socket():
+    """Create and bind the Unix socket, removing any stale one first."""
     try:
         os.unlink(socket_path)
     except OSError:
@@ -161,11 +171,37 @@ def run_socket_server():
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(socket_path)
     server.listen(5)
+    server.settimeout(5)  # Wake periodically so we can recover from sleep
+    return server
+
+
+def run_socket_server():
+    """Accept loop for the Unix socket server, with auto-recovery."""
+    server = create_server_socket()
     print(f"Ralph narration server listening on {socket_path}", flush=True)
 
     while True:
-        conn, _ = server.accept()
-        threading.Thread(target=handle_client, args=(conn,), daemon=True).start()
+        try:
+            conn, _ = server.accept()
+            threading.Thread(target=handle_client, args=(conn,), daemon=True).start()
+        except socket.timeout:
+            # Normal timeout — loop back to accept. Keeps us from blocking
+            # forever if the socket fd goes stale after system sleep.
+            continue
+        except OSError as e:
+            # Socket broke (common after macOS sleep) — rebuild it
+            print(f"Socket error in accept loop: {e} — rebuilding socket", file=sys.stderr, flush=True)
+            try:
+                server.close()
+            except OSError:
+                pass
+            time.sleep(1)
+            try:
+                server = create_server_socket()
+                print("Socket rebuilt successfully", file=sys.stderr, flush=True)
+            except OSError as e2:
+                print(f"Failed to rebuild socket: {e2} — retrying in 5s", file=sys.stderr, flush=True)
+                time.sleep(5)
 
 
 if __name__ == "__main__":
