@@ -1,30 +1,4 @@
 {
   "project": "ralph-cli-tool",
-  "tasks": [
-    {
-      "id": 7,
-      "priority": 3,
-      "title": "Update documentation",
-      "description": "In `README.md`:\n- Remove `\"scope\": \"internal\"` from the example task (~line 289)\n- Remove the scope row from the field table (~line 302)\n- Remove 'Scope carefully \u2014 internal scope prevents...' recommendation (~line 312)\n- Remove any avatar/companion references from narration documentation\n\nIn `CLAUDE.md`:\n- Update the 'System prompt construction' bullet to remove 'scope (internal/integration)' (~line 37)\n- Remove any avatar references\n\nEnsure remaining text reads naturally after all removals \u2014 no dangling references to scope or avatar concepts.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-17T00:00:00Z",
-      "completedBy": "iteration-7",
-      "notes": "Removed scope field from JSON example, scope row from field table, scope tip from Tips section, avatar field from config example, avatar row from config table, and scope (internal/integration) from CLAUDE.md system prompt construction bullet. All text reads naturally after removals.",
-      "files": [
-        "README.md",
-        "CLAUDE.md"
-      ],
-      "tests": [],
-      "dependencies": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "model": "sonnet"
-    }
-  ]
+  "tasks": []
 }

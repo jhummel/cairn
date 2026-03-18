@@ -1,0 +1,6 @@
+# Ralph temp files (tasks.json and planning-notes.md are tracked)
+.ralph_complete
+.ralph_iterations.log
+.ralph_prev_notes
+.ralph_task_meta
+.ralph_completed_ids
