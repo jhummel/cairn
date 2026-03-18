@@ -2,32 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 6,
-      "priority": 2,
-      "title": "Remove avatar config from CLI and config loader",
-      "description": "In `bin/ralph`:\n- Remove `avatar_flag=\"\"` variable (~line 124)\n- Remove the `RALPH_NARRATION_AVATAR` environment variable check (~line 125)\n- Remove passing `$avatar_flag` to the narration server command (~line 129)\n\nIn `lib/ralph_config.sh`:\n- Remove the `RALPH_NARRATION_AVATAR` emission line (~line 33) that loads avatar config from ralph.json\n\nEnsure the narration server launch command still works correctly without the avatar flag.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-17T00:00:00Z",
-      "completedBy": "iteration-6",
-      "notes": "Removed avatar_flag variable, RALPH_NARRATION_AVATAR env check, and $avatar_flag from narration server launch in bin/ralph. Removed RALPH_NARRATION_AVATAR emission line from lib/ralph_config.sh. Narration server launch command intact.",
-      "files": [
-        "bin/ralph",
-        "lib/ralph_config.sh"
-      ],
-      "tests": [],
-      "dependencies": [
-        4
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 7,
       "priority": 3,
       "title": "Update documentation",
       "description": "In `README.md`:\n- Remove `\"scope\": \"internal\"` from the example task (~line 289)\n- Remove the scope row from the field table (~line 302)\n- Remove 'Scope carefully \u2014 internal scope prevents...' recommendation (~line 312)\n- Remove any avatar/companion references from narration documentation\n\nIn `CLAUDE.md`:\n- Update the 'System prompt construction' bullet to remove 'scope (internal/integration)' (~line 37)\n- Remove any avatar references\n\nEnsure remaining text reads naturally after all removals \u2014 no dangling references to scope or avatar concepts.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-17T00:00:00Z",
+      "completedBy": "iteration-7",
+      "notes": "Removed scope field from JSON example, scope row from field table, scope tip from Tips section, avatar field from config example, avatar row from config table, and scope (internal/integration) from CLAUDE.md system prompt construction bullet. All text reads naturally after removals.",
       "files": [
         "README.md",
         "CLAUDE.md"

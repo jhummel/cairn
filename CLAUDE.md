@@ -34,7 +34,7 @@ There are no linting, formatting, or test commands — validation is manual.
 ### Key design patterns
 
 - **Fresh agents per task**: Each execution iteration spawns a new `claude -p` process with no memory of previous iterations. Cross-iteration context is passed via `notes` fields in `tasks.json` and a `PREV_NOTES` mechanism.
-- **System prompt construction**: `build_system_prompt()` in `ralph_execute.sh` generates per-task prompts based on directory, scope (internal/integration), and project config. The agent is told its task via the user prompt, not by reading `tasks.json`.
+- **System prompt construction**: `build_system_prompt()` in `ralph_execute.sh` generates per-task prompts based on directory and project config. The agent is told its task via the user prompt, not by reading `tasks.json`.
 - **Task lifecycle**: pending → in-progress (set by agent) → complete (set by agent) → archived (moved to `tasks.completed.json` by the loop). Post-iteration test validation can revert a task to in-progress.
 - **Stream filtering**: `ralph_stream_filter.py` parses `stream-json` output from Claude and renders colored one-line summaries of tool calls and results.
 - **Config loading**: `ralph_config.sh` reads `ralph.json` via inline Python, exports `RALPH_*` env vars, and auto-detects health checks from `package.json`/`Cargo.toml`/`Makefile`.

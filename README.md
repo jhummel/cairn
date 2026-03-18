@@ -204,7 +204,6 @@ Notifications work independently of voice narration — you don't need `narratio
   "narration": {
     "enabled": false,
     "voice": "bf_emma",
-    "avatar": false,
     "ntfyTopic": ""
   }
 }
@@ -220,7 +219,6 @@ Notifications work independently of voice narration — you don't need `narratio
 | `summarize.claudeMdPattern` | (empty)             | Glob for CLAUDE.md files to prune during summarization |
 | `narration.enabled`         | `false`             | Enable voice narration during `ralph run`              |
 | `narration.voice`           | `bf_emma`           | Kokoro TTS voice to use                                |
-| `narration.avatar`          | `false`             | Show animated companion avatar window during narration |
 | `narration.ntfyTopic`       | (empty)             | ntfy.sh topic for push notifications (no account needed) |
 
 ### Health Check Auto-Detection
@@ -286,7 +284,6 @@ Each task in `tasks.json`:
   "title": "Add user validation endpoint",
   "description": "Detailed instructions the agent follows...",
   "directory": "src/services/auth-service",
-  "scope": "internal",
   "status": "pending",
   "files": ["src/api/users/users.controller.ts"],
   "dependencies": [],
@@ -299,7 +296,6 @@ Each task in `tasks.json`:
 | -------------- | ----------------------------------------------------------------------------------- |
 | `priority`     | Lower = higher priority                                                             |
 | `directory`    | Working directory relative to project root. Empty = project root.                   |
-| `scope`        | `internal` = stay within directory. `integration` = can touch multiple directories. |
 | `dependencies` | Array of task IDs that must complete first                                          |
 | `model`        | `opus` (default, complex work) or `sonnet` (straightforward tasks)                  |
 | `tests`        | Commands run from the task's directory to validate completion                       |
@@ -309,5 +305,4 @@ Each task in `tasks.json`:
 - **Edit tasks.json directly** — it's just JSON. Add, reorder, or reword tasks anytime between runs.
 - **Resume after interruption** — `ralph run` picks up where it left off. In-progress tasks are retried automatically.
 - **Cost control** — set `model: "sonnet"` on straightforward tasks. Reserve `opus` for complex work.
-- **Scope carefully** — `internal` scope prevents agents from wandering into other modules. Use `integration` only when cross-module changes are needed.
 - **CLAUDE.md matters** — the execution engine loads your project's `CLAUDE.md` as system prompt context. Keep it current with conventions and patterns so agents follow your standards.
