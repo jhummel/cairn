@@ -30,7 +30,6 @@ emit("RALPH_CLAUDE_MD_PATTERN", cfg.get("summarize", {}).get("claudeMdPattern", 
 narration = cfg.get("narration", {})
 emit("RALPH_NARRATION_ENABLED", str(narration.get("enabled", False)).lower())
 emit("RALPH_NARRATION_VOICE", narration.get("voice", ""))
-emit("RALPH_NARRATION_AVATAR", str(narration.get("avatar", False)).lower())
 emit("RALPH_NTFY_TOPIC", narration.get("ntfyTopic", ""))
 PYEOF
         )"

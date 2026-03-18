@@ -121,12 +121,10 @@ case "$SUBCOMMAND" in
                     echo "Narration server already running (PID: $(cat "$NARRATE_PID_FILE"))"
                     exit 0
                 fi
-                avatar_flag=""
-                [[ "${RALPH_NARRATION_AVATAR:-false}" == "true" ]] && avatar_flag="--avatar"
                 echo "Starting narration server (voice: ${RALPH_NARRATION_VOICE:-bf_emma})..."
                 "$RALPH_NARRATE_PYTHON" "$RALPH_LIB_DIR/ralph_narrate_server.py" \
                     --voice "${RALPH_NARRATION_VOICE:-bf_emma}" \
-                    --socket "$NARRATE_SOCKET" $avatar_flag &
+                    --socket "$NARRATE_SOCKET" &
                 NARRATE_PID=$!
                 echo "$NARRATE_PID" > "$NARRATE_PID_FILE"
                 disown "$NARRATE_PID"

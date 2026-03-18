@@ -2,31 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 5,
-      "priority": 2,
-      "title": "Strip avatar from narration server",
-      "description": "In `lib/ralph_narrate_server.py`:\n- Remove `--avatar` flag from usage docs (~line 10)\n- Remove `avatar = None` global variable (~line 49)\n- Remove all avatar state transitions \u2014 any `avatar.set_state()` or similar calls for 'speaking', 'thinking', 'idle' (~lines 69-99)\n- Remove `--avatar` and `--assets-dir` argparse arguments (~lines 199-200)\n- Remove avatar initialization and main-thread tkinter logic (~lines 218-230)\n\nThe narration/TTS functionality must remain fully intact. The server should still work cleanly \u2014 just without any avatar window support.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-17T00:00:00Z",
-      "completedBy": "iteration-5",
-      "notes": "Removed all avatar code: usage doc, avatar global, speak/narration_worker avatar state transitions, --avatar and --assets-dir argparse args, and avatar initialization block. Also removed unused `import json`. TTS/socket server fully intact.",
-      "files": [
-        "lib/ralph_narrate_server.py"
-      ],
-      "tests": [],
-      "dependencies": [
-        4
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 6,
       "priority": 2,
       "title": "Remove avatar config from CLI and config loader",
       "description": "In `bin/ralph`:\n- Remove `avatar_flag=\"\"` variable (~line 124)\n- Remove the `RALPH_NARRATION_AVATAR` environment variable check (~line 125)\n- Remove passing `$avatar_flag` to the narration server command (~line 129)\n\nIn `lib/ralph_config.sh`:\n- Remove the `RALPH_NARRATION_AVATAR` emission line (~line 33) that loads avatar config from ralph.json\n\nEnsure the narration server launch command still works correctly without the avatar flag.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-17T00:00:00Z",
+      "completedBy": "iteration-6",
+      "notes": "Removed avatar_flag variable, RALPH_NARRATION_AVATAR env check, and $avatar_flag from narration server launch in bin/ralph. Removed RALPH_NARRATION_AVATAR emission line from lib/ralph_config.sh. Narration server launch command intact.",
       "files": [
         "bin/ralph",
         "lib/ralph_config.sh"
