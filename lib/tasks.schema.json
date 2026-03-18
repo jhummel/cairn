@@ -21,11 +21,6 @@
             "type": "string",
             "description": "Relative path from project root to the agent's working directory (e.g., 'src/services/auth-service'). Empty or omitted means project root."
           },
-          "scope": {
-            "type": "string",
-            "enum": ["internal", "integration"],
-            "description": "'internal' = stay within the task directory. 'integration' = may modify files across directories."
-          },
           "status": {
             "type": "string",
             "enum": ["pending", "in-progress", "complete", "blocked"]

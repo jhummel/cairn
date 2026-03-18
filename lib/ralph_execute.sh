@@ -88,7 +88,7 @@ if [[ "${RALPH_NARRATION_ENABLED:-false}" == "true" ]]; then
         echo "Using existing narration server (socket: $NARRATE_SOCKET)"
         export RALPH_NARRATE_SOCKET="$NARRATE_SOCKET"
     else
-        local avatar_flag=""
+        avatar_flag=""
         [[ "${RALPH_NARRATION_AVATAR:-false}" == "true" ]] && avatar_flag="--avatar"
         echo "Starting narration server (voice: ${RALPH_NARRATION_VOICE:-bf_emma})..."
         "$RALPH_NARRATE_PYTHON" "$RALPH_LIB_DIR/ralph_narrate_server.py" \
@@ -112,12 +112,11 @@ fi
 ITERATIONS_RUN=0
 
 # ── build_system_prompt ──────────────────────────────────────────────
-# Generates a per-task system prompt based on directory and scope.
-# Args: $1 = task_dir_rel (relative path or empty), $2 = task_scope (internal|integration), $3 = task_agent (agent name or empty)
+# Generates a per-task system prompt based on directory.
+# Args: $1 = task_dir_rel (relative path or empty), $2 = task_agent (agent name or empty)
 build_system_prompt() {
     local task_dir_rel="${1:-}"
-    local task_scope="${2:-internal}"
-    local task_agent="${3:-}"
+    local task_agent="${2:-}"
     local dir_label="${task_dir_rel:-project root}"
     local commit_prefix
 
@@ -127,18 +126,9 @@ build_system_prompt() {
         commit_prefix="$(basename "$RALPH_PROJECT_ROOT")"
     fi
 
-    local scope_instructions
-    if [[ "$task_scope" == "integration" ]]; then
-        scope_instructions="SCOPE: INTEGRATION
-- Your primary working directory is: $dir_label
-- You MAY modify files across multiple directories as needed
-- Coordinate changes across service boundaries carefully"
-    else
-        scope_instructions="SCOPE: INTERNAL
+    local dir_instructions="DIRECTORY:
 - Your working directory is: $dir_label
-- Stay within this directory — do NOT modify files in other directories
-- If you discover something that requires changes elsewhere, note it as a discovered task"
-    fi
+- You may work wherever needed to complete the task"
 
     local project_desc=""
     if [[ -n "$RALPH_PROJECT_DESC" ]]; then
@@ -185,7 +175,7 @@ $agent_instructions
 fi)
 You are working on the ${RALPH_PROJECT_NAME} project.${project_desc}
 
-$scope_instructions
+$dir_instructions
 
 CONTEXT:
 - This is a FRESH agent instance with no memory of previous iterations
@@ -213,7 +203,7 @@ $test_instruction
 
 DISCOVER AND DOCUMENT:
 - If you discover bugs or missing functionality UNRELATED to your task, add them as new pending tasks in '$TASKS_FILE' (next available ID, low priority). Include a 'directory' field indicating where the work should happen. Max 3 discovered tasks per iteration.
-- New tasks need at minimum: id, priority, title, description, directory, scope, status ('pending'), files (array), dependencies (array), tests (array).
+- New tasks need at minimum: id, priority, title, description, directory, status ('pending'), files (array), dependencies (array), tests (array).
 - If you learn something operational about a service (config quirk, undocumented dependency), add a brief note to the service CLAUDE.md.
 - Keep CLAUDE.md strictly operational (build commands, config quirks, gotchas). No status updates, no progress notes, no task history.
 
@@ -320,8 +310,6 @@ if chosen.get('description'):
     lines.append(f"  Description: {chosen['description']}")
 if chosen.get('directory'):
     lines.append(f"  Directory: {chosen['directory']}")
-if chosen.get('scope'):
-    lines.append(f"  Scope: {chosen['scope']}")
 if chosen.get('files'):
     lines.append(f"  Files: {', '.join(chosen['files'])}")
 if chosen.get('tests'):
@@ -350,7 +338,6 @@ with open(meta_file, 'w') as f:
         'title': chosen.get('title', ''),
         'tests': chosen.get('tests', []),
         'directory': chosen.get('directory', ''),
-        'scope': chosen.get('scope', 'internal'),
         'agent': chosen.get('agent', ''),
     }, f)
 
@@ -376,9 +363,8 @@ PYEOF
   ITER_PROMPT=$(cat "$PROMPT_FILE")
   rm -f "$PROMPT_FILE"
 
-  # Read task meta for directory/scope
+  # Read task meta for directory/agent
   TASK_DIR_REL=$(python3 -c "import json; m=json.load(open('$TASK_META_FILE')); print(m.get('directory',''))")
-  TASK_SCOPE=$(python3 -c "import json; m=json.load(open('$TASK_META_FILE')); print(m.get('scope','internal'))")
   TASK_AGENT=$(python3 -c "import json; m=json.load(open('$TASK_META_FILE')); print(m.get('agent',''))")
   TASK_TITLE=$(python3 -c "import json; m=json.load(open('$TASK_META_FILE')); print(m.get('title',''))")
   TASK_DIR_ABS=$(resolve_task_dir "$TASK_DIR_REL")
@@ -386,7 +372,6 @@ PYEOF
 
   echo "Model: $TASK_MODEL"
   echo "Directory: ${TASK_DIR_REL:-<project root>}"
-  echo "Scope: $TASK_SCOPE"
   if [[ -n "$TASK_AGENT" ]]; then
       echo "Agent: $TASK_AGENT"
   fi
@@ -418,7 +403,7 @@ for line in content[3:end].strip().splitlines():
   fi
 
   # Build per-task system prompt
-  SYSTEM_PROMPT=$(build_system_prompt "$TASK_DIR_REL" "$TASK_SCOPE" "$TASK_AGENT")
+  SYSTEM_PROMPT=$(build_system_prompt "$TASK_DIR_REL" "$TASK_AGENT")
 
   # ── cd into the task directory (create if needed for new services) ──
   mkdir -p "$TASK_DIR_ABS"
