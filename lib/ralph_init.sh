@@ -27,6 +27,7 @@ if [[ ! -f "$GITIGNORE" ]]; then
 .ralph_prev_notes
 .ralph_task_meta
 .ralph_completed_ids
+instructions.md
 EOF
     echo "  Created: .ralph/.gitignore"
 fi
@@ -183,6 +184,17 @@ PYEOF
 
 echo ""
 echo "  Wrote: ralph.json"
+
+# Offer to create .ralph/instructions.md for personal agent preferences
+INSTRUCTIONS_FILE="$RALPH_DATA_DIR/instructions.md"
+read -r -p "  Create .ralph/instructions.md for personal agent preferences? [y/N] " INSTRUCTIONS_INPUT
+if [[ "$INSTRUCTIONS_INPUT" =~ ^[Yy] ]]; then
+    touch "$INSTRUCTIONS_FILE"
+    echo "  Created: .ralph/instructions.md"
+    # Ensure instructions.md is in .gitignore (for existing projects where gitignore already existed)
+    grep -qxF 'instructions.md' "$GITIGNORE" || echo 'instructions.md' >> "$GITIGNORE"
+    ${EDITOR:-vi} "$INSTRUCTIONS_FILE"
+fi
 
 # Reload config so RALPH_NARRATION_ENABLED reflects what we just wrote
 source "$RALPH_LIB_DIR/ralph_config.sh"

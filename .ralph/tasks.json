@@ -7,7 +7,10 @@
       "title": "Add instructions.md creation offer to ralph init",
       "description": "After writing ralph.json in lib/ralph_init.sh, add a prompt offering to create .ralph/instructions.md:\n\n```\nCreate .ralph/instructions.md for personal agent preferences? [y/N]\n```\n\nIf the user answers yes:\n1. Create .ralph/instructions.md as an empty file (touch it)\n2. Open it with $EDITOR (fall back to vi if EDITOR is unset): ${EDITOR:-vi} \"$RALPH_DATA_DIR/instructions.md\"\n\nAlso update .ralph/.gitignore to include instructions.md:\n- For new projects (gitignore just created by init): add `instructions.md` to the initial cat heredoc\n- For existing projects (gitignore already exists): append `instructions.md` if not already present. Use a grep check: `grep -qxF 'instructions.md' \"$GITIGNORE\" || echo 'instructions.md' >> \"$GITIGNORE\"`\n\nThis should go after the ralph.json writing block but before the narration hooks section.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-21T00:00:00Z",
+      "completedBy": "iteration-4",
+      "notes": "Added instructions.md to the gitignore heredoc for new projects (line 30). Added prompt block after ralph.json write: touches the file, does a grep-guarded gitignore append for existing projects, then opens with ${EDITOR:-vi}.",
       "files": [
         "lib/ralph_init.sh"
       ],
@@ -15,23 +18,6 @@
       "dependencies": [
         2
       ],
-      "model": "sonnet"
-    },
-    {
-      "id": 4,
-      "priority": 2,
-      "title": "Inject instructions.md into execution agent system prompts",
-      "description": "In lib/ralph_execute.sh, modify build_system_prompt() to inject .ralph/instructions.md contents into the system prompt for execution agents.\n\nAfter the project_desc block (around line 159), add:\n\n```bash\nlocal personal_instructions=\"\"\nlocal instructions_file=\"$RALPH_DATA_DIR/instructions.md\"\nif [[ -f \"$instructions_file\" ]] && [[ -s \"$instructions_file\" ]]; then\n    personal_instructions=$(cat \"$instructions_file\")\nfi\n```\n\nThen in the cat <<SYSPROMPT heredoc (starts around line 188), after the project description line, inject:\n\n```\n$(if [[ -n \"$personal_instructions\" ]]; then\necho \"\nPERSONAL INSTRUCTIONS:\n$personal_instructions\n\"\nfi)\n```\n\nIMPORTANT: Do NOT modify ralph_plan.sh. This is execution agents only \u2014 planning should stay neutral.\n\nNote: RALPH_DATA_DIR is already available in this file (set earlier as the .ralph directory path).",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-21T00:00:00Z",
-      "completedBy": "iteration-3",
-      "notes": "Added personal_instructions loading from $RALPH_DATA_DIR/instructions.md after the project_desc block. Injected into SYSPROMPT heredoc after the project description line using the same $(if ...; then echo ...; fi) pattern already used for agent_instructions. Only injects when file exists and is non-empty (-f and -s checks). Does not touch ralph_plan.sh as instructed.",
-      "files": [
-        "lib/ralph_execute.sh"
-      ],
-      "tests": [],
-      "dependencies": [],
       "model": "sonnet"
     },
     {
