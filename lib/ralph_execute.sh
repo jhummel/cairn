@@ -158,6 +158,12 @@ build_system_prompt() {
 Project description: $RALPH_PROJECT_DESC"
     fi
 
+    local personal_instructions=""
+    local instructions_file="$RALPH_DATA_DIR/instructions.md"
+    if [[ -f "$instructions_file" ]] && [[ -s "$instructions_file" ]]; then
+        personal_instructions=$(cat "$instructions_file")
+    fi
+
     local test_instruction="4. Run the tests listed in the task."
     if [[ -n "$RALPH_TEST_CMD" ]]; then
         test_instruction="4. Run the tests listed in the task. If none are listed, run '$RALPH_TEST_CMD' if available."
@@ -196,7 +202,12 @@ $agent_instructions
 "
 fi)
 You are working on the ${RALPH_PROJECT_NAME} project.${project_desc}
-
+$(if [[ -n "$personal_instructions" ]]; then
+echo "
+PERSONAL INSTRUCTIONS:
+$personal_instructions
+"
+fi)
 $dir_instructions
 
 CONTEXT:

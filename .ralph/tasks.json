@@ -2,26 +2,6 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 2,
-      "priority": 2,
-      "title": "Rewrite ralph init with interactive property-by-property flow",
-      "description": "Rewrite the ralph.json scaffolding section of lib/ralph_init.sh as an npm init-style interactive prompt flow. Each property shows its current/default value in brackets; pressing Enter accepts the default.\n\nPrompt flow (in order):\n```\nProject name [<basename of project root>]:\nDescription (used in agent system prompts) []:\nHealth check command (auto-detected if blank) []:\nDefault test command []:\nImplementation file [IMPLEMENTATION.md]:\nTruncate agent text output? [Y/n]:\nCLAUDE.md glob pattern for summarize []:\nEnable TTS narration? [y/N]:\nNarration voice [bf_emma]:              # only if narration enabled\nntfy push notification topic []:         # only if narration enabled\n```\n\nRe-init support: When ralph.json already exists, parse it first with Python (similar to how ralph_config.sh does it) and use the current values as bracket defaults instead of the hardcoded defaults. This makes re-init a way to update config interactively.\n\nFor the truncateText prompt, convert Y/n input to a boolean true/false in the JSON. Default is true (Y).\n\nAfter collecting all values, write ralph.json with the collected values using a Python heredoc for proper JSON formatting (avoid shell string escaping issues).\n\nPreserve the existing narration hooks installation logic that runs after config writing (lines 82-171 of current file). Also preserve the .ralph/ directory creation and tasks.json creation at the top.\n\nUpdate the 'Next steps' message at the end \u2014 remove the 'Edit ralph.json' step since init now covers all fields.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-21T12:15:00Z",
-      "completedBy": "iteration-2",
-      "notes": "Rewrote ralph_init.sh with npm init-style interactive prompts for all ralph.json properties. Re-init parses existing config via Python for bracket defaults. JSON written via Python heredoc with all values passed as argv for safe escaping. Narration voice/ntfy prompts only shown when narration is enabled. Boolean Y/n prompts properly convert to JSON true/false. Narration hooks logic preserved unchanged. Next steps message simplified.",
-      "files": [
-        "lib/ralph_init.sh",
-        "lib/ralph_config.sh"
-      ],
-      "tests": [],
-      "dependencies": [
-        1
-      ],
-      "model": "opus"
-    },
-    {
       "id": 3,
       "priority": 3,
       "title": "Add instructions.md creation offer to ralph init",
@@ -43,7 +23,10 @@
       "title": "Inject instructions.md into execution agent system prompts",
       "description": "In lib/ralph_execute.sh, modify build_system_prompt() to inject .ralph/instructions.md contents into the system prompt for execution agents.\n\nAfter the project_desc block (around line 159), add:\n\n```bash\nlocal personal_instructions=\"\"\nlocal instructions_file=\"$RALPH_DATA_DIR/instructions.md\"\nif [[ -f \"$instructions_file\" ]] && [[ -s \"$instructions_file\" ]]; then\n    personal_instructions=$(cat \"$instructions_file\")\nfi\n```\n\nThen in the cat <<SYSPROMPT heredoc (starts around line 188), after the project description line, inject:\n\n```\n$(if [[ -n \"$personal_instructions\" ]]; then\necho \"\nPERSONAL INSTRUCTIONS:\n$personal_instructions\n\"\nfi)\n```\n\nIMPORTANT: Do NOT modify ralph_plan.sh. This is execution agents only \u2014 planning should stay neutral.\n\nNote: RALPH_DATA_DIR is already available in this file (set earlier as the .ralph directory path).",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-21T00:00:00Z",
+      "completedBy": "iteration-3",
+      "notes": "Added personal_instructions loading from $RALPH_DATA_DIR/instructions.md after the project_desc block. Injected into SYSPROMPT heredoc after the project description line using the same $(if ...; then echo ...; fi) pattern already used for agent_instructions. Only injects when file exists and is non-empty (-f and -s checks). Does not touch ralph_plan.sh as instructed.",
       "files": [
         "lib/ralph_execute.sh"
       ],
