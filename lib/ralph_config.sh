@@ -27,6 +27,8 @@ emit("RALPH_TEST_CMD", cfg.get("defaultTestCommand", ""))
 emit("RALPH_IMPL_FILE", cfg.get("implementationFile", ""))
 emit("RALPH_CLAUDE_MD_PATTERN", cfg.get("summarize", {}).get("claudeMdPattern", ""))
 
+emit("RALPH_TRUNCATE_TEXT", str(cfg.get("truncateText", True)).lower())
+
 narration = cfg.get("narration", {})
 emit("RALPH_NARRATION_ENABLED", str(narration.get("enabled", False)).lower())
 emit("RALPH_NARRATION_VOICE", narration.get("voice", ""))
@@ -44,12 +46,13 @@ PYEOF
     : "${RALPH_CLAUDE_MD_PATTERN:=}"
     : "${RALPH_NARRATION_ENABLED:=false}"
     : "${RALPH_NARRATION_VOICE:=bf_emma}"
-    : "${RALPH_NARRATION_AVATAR:=false}"
+    : "${RALPH_TRUNCATE_TEXT:=true}"
     : "${RALPH_NTFY_TOPIC:=}"
 
     export RALPH_PROJECT_NAME RALPH_PROJECT_DESC RALPH_HEALTH_CHECK
     export RALPH_TEST_CMD RALPH_IMPL_FILE RALPH_CLAUDE_MD_PATTERN
-    export RALPH_NARRATION_ENABLED RALPH_NARRATION_VOICE RALPH_NARRATION_AVATAR RALPH_NTFY_TOPIC
+    export RALPH_TRUNCATE_TEXT
+    export RALPH_NARRATION_ENABLED RALPH_NARRATION_VOICE RALPH_NTFY_TOPIC
 
     # Auto-detect health check if not configured
     if [[ -z "$RALPH_HEALTH_CHECK" ]]; then

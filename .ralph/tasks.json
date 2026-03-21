@@ -1,4 +1,79 @@
 {
   "project": "ralph-cli-tool",
-  "tasks": []
+  "tasks": [
+    {
+      "id": 1,
+      "priority": 1,
+      "title": "Remove RALPH_NARRATION_AVATAR remnant from config loader",
+      "description": "Remove the leftover RALPH_NARRATION_AVATAR references from lib/ralph_config.sh:\n\n1. Delete line 49: `: \"${RALPH_NARRATION_AVATAR:=false}\"`\n2. Remove `RALPH_NARRATION_AVATAR` from the export statement on line 56 (keep the other exports on that line intact)\n\nThis is a cleanup from the previous session's avatar removal. No other files reference this variable.",
+      "directory": "",
+      "status": "complete",
+      "completedAt": "2026-03-21T00:00:00Z",
+      "completedBy": "iteration-1",
+      "notes": "Removed RALPH_NARRATION_AVATAR default assignment (line 49) and from export statement (line 56). Straightforward cleanup.",
+      "files": [
+        "lib/ralph_config.sh"
+      ],
+      "tests": [],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 2,
+      "priority": 2,
+      "title": "Rewrite ralph init with interactive property-by-property flow",
+      "description": "Rewrite the ralph.json scaffolding section of lib/ralph_init.sh as an npm init-style interactive prompt flow. Each property shows its current/default value in brackets; pressing Enter accepts the default.\n\nPrompt flow (in order):\n```\nProject name [<basename of project root>]:\nDescription (used in agent system prompts) []:\nHealth check command (auto-detected if blank) []:\nDefault test command []:\nImplementation file [IMPLEMENTATION.md]:\nTruncate agent text output? [Y/n]:\nCLAUDE.md glob pattern for summarize []:\nEnable TTS narration? [y/N]:\nNarration voice [bf_emma]:              # only if narration enabled\nntfy push notification topic []:         # only if narration enabled\n```\n\nRe-init support: When ralph.json already exists, parse it first with Python (similar to how ralph_config.sh does it) and use the current values as bracket defaults instead of the hardcoded defaults. This makes re-init a way to update config interactively.\n\nFor the truncateText prompt, convert Y/n input to a boolean true/false in the JSON. Default is true (Y).\n\nAfter collecting all values, write ralph.json with the collected values using a Python heredoc for proper JSON formatting (avoid shell string escaping issues).\n\nPreserve the existing narration hooks installation logic that runs after config writing (lines 82-171 of current file). Also preserve the .ralph/ directory creation and tasks.json creation at the top.\n\nUpdate the 'Next steps' message at the end — remove the 'Edit ralph.json' step since init now covers all fields.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "lib/ralph_init.sh",
+        "lib/ralph_config.sh"
+      ],
+      "tests": [],
+      "dependencies": [1],
+      "model": "opus"
+    },
+    {
+      "id": 3,
+      "priority": 3,
+      "title": "Add instructions.md creation offer to ralph init",
+      "description": "After writing ralph.json in lib/ralph_init.sh, add a prompt offering to create .ralph/instructions.md:\n\n```\nCreate .ralph/instructions.md for personal agent preferences? [y/N]\n```\n\nIf the user answers yes:\n1. Create .ralph/instructions.md as an empty file (touch it)\n2. Open it with $EDITOR (fall back to vi if EDITOR is unset): ${EDITOR:-vi} \"$RALPH_DATA_DIR/instructions.md\"\n\nAlso update .ralph/.gitignore to include instructions.md:\n- For new projects (gitignore just created by init): add `instructions.md` to the initial cat heredoc\n- For existing projects (gitignore already exists): append `instructions.md` if not already present. Use a grep check: `grep -qxF 'instructions.md' \"$GITIGNORE\" || echo 'instructions.md' >> \"$GITIGNORE\"`\n\nThis should go after the ralph.json writing block but before the narration hooks section.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "lib/ralph_init.sh"
+      ],
+      "tests": [],
+      "dependencies": [2],
+      "model": "sonnet"
+    },
+    {
+      "id": 4,
+      "priority": 2,
+      "title": "Inject instructions.md into execution agent system prompts",
+      "description": "In lib/ralph_execute.sh, modify build_system_prompt() to inject .ralph/instructions.md contents into the system prompt for execution agents.\n\nAfter the project_desc block (around line 159), add:\n\n```bash\nlocal personal_instructions=\"\"\nlocal instructions_file=\"$RALPH_DATA_DIR/instructions.md\"\nif [[ -f \"$instructions_file\" ]] && [[ -s \"$instructions_file\" ]]; then\n    personal_instructions=$(cat \"$instructions_file\")\nfi\n```\n\nThen in the cat <<SYSPROMPT heredoc (starts around line 188), after the project description line, inject:\n\n```\n$(if [[ -n \"$personal_instructions\" ]]; then\necho \"\nPERSONAL INSTRUCTIONS:\n$personal_instructions\n\"\nfi)\n```\n\nIMPORTANT: Do NOT modify ralph_plan.sh. This is execution agents only — planning should stay neutral.\n\nNote: RALPH_DATA_DIR is already available in this file (set earlier as the .ralph directory path).",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "lib/ralph_execute.sh"
+      ],
+      "tests": [],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 5,
+      "priority": 4,
+      "title": "Update README documentation for new init flow and instructions.md",
+      "description": "Update README.md to document the changes:\n\n1. Update the `ralph init` section to describe the new interactive property-by-property flow (mention that it prompts for each ralph.json property with defaults, and that re-running init on an existing project lets you update fields).\n\n2. Add documentation for .ralph/instructions.md:\n   - What it is: personal prompt instructions injected into execution agent system prompts\n   - How it differs from CLAUDE.md: personal (gitignored) vs project-level (committed)\n   - That it only applies to execution agents, not planning\n   - Created during `ralph init` or manually\n\n3. Update the ralph.json config table if one exists, or add one showing all properties and their defaults.\n\n4. Update the per-project data layout section to include instructions.md:\n   ```\n   .ralph/\n   ├── tasks.json\n   ├── tasks.completed.json\n   ├── planning-notes.md\n   └── instructions.md          # Personal agent preferences (gitignored)\n   ```",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "README.md"
+      ],
+      "tests": [],
+      "dependencies": [2, 3, 4],
+      "model": "sonnet"
+    }
+  ]
 }
