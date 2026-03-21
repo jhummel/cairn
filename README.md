@@ -79,10 +79,13 @@ cd your-project
 ralph init
 ```
 
-Creates:
+Prompts you for each `ralph.json` property with sensible defaults, then creates:
 
 - `.ralph/` — data directory for tasks, notes, and logs
-- `ralph.json` — optional project configuration
+- `ralph.json` — project configuration
+- `.ralph/instructions.md` — personal agent preferences (optional, gitignored)
+
+Re-running `ralph init` on an existing project lets you update any field — existing values are shown as defaults so you only change what you need.
 
 ### 2. Plan
 
@@ -187,6 +190,25 @@ To enable, add `ntfyTopic` to your `ralph.json`:
 
 Notifications work independently of voice narration — you don't need `narration.enabled` set to `true` or Kokoro installed. Just set the topic and you'll get push updates.
 
+## Personal Agent Instructions
+
+`.ralph/instructions.md` is an optional file for personal prompt instructions that get injected into every execution agent's system prompt during `ralph run`. It's gitignored by default — use it for preferences that shouldn't be shared with your team, like preferred coding style, tools you like to avoid, or communication tone.
+
+It differs from `CLAUDE.md`:
+
+| | `CLAUDE.md` | `.ralph/instructions.md` |
+|---|---|---|
+| **Scope** | Project-level, committed to git | Personal, gitignored |
+| **When used** | All Claude Code sessions | Ralph execution agents only (not planning) |
+| **Purpose** | Project conventions, build commands | Personal agent preferences |
+
+Create it during `ralph init` or manually:
+
+```bash
+touch .ralph/instructions.md
+# Then edit it — plain text or markdown, no special format required
+```
+
 ## Configuration
 
 `ralph.json` at your project root. Every field is optional with sensible defaults.
@@ -198,6 +220,7 @@ Notifications work independently of voice narration — you don't need `narratio
   "healthCheck": "npm run type-check",
   "defaultTestCommand": "npm test",
   "implementationFile": "IMPLEMENTATION.md",
+  "truncateText": true,
   "summarize": {
     "claudeMdPattern": "src/services/*/CLAUDE.md"
   },
@@ -216,6 +239,7 @@ Notifications work independently of voice narration — you don't need `narratio
 | `healthCheck`               | Auto-detected       | Command to run before each iteration                   |
 | `defaultTestCommand`        | (empty)             | Fallback test command when tasks don't specify one     |
 | `implementationFile`        | `IMPLEMENTATION.md` | Path to architecture summary document                  |
+| `truncateText`              | `true`              | Truncate verbose agent text output in the terminal     |
 | `summarize.claudeMdPattern` | (empty)             | Glob for CLAUDE.md files to prune during summarization |
 | `narration.enabled`         | `false`             | Enable voice narration during `ralph run`              |
 | `narration.voice`           | `bf_emma`           | Kokoro TTS voice to use                                |
@@ -268,7 +292,8 @@ your-project/
 │   ├── tasks.json              # Active task list
 │   ├── tasks.completed.json    # Archive of completed tasks
 │   ├── planning-notes.md       # Output from planning discussions
-│   └── .gitignore              # Ignores temp files
+│   ├── instructions.md         # Personal agent preferences (gitignored)
+│   └── .gitignore              # Ignores temp files and instructions.md
 ├── ralph.json                  # Project configuration (optional)
 └── IMPLEMENTATION.md           # Architecture summary
 ```
@@ -306,3 +331,4 @@ Each task in `tasks.json`:
 - **Resume after interruption** — `ralph run` picks up where it left off. In-progress tasks are retried automatically.
 - **Cost control** — set `model: "sonnet"` on straightforward tasks. Reserve `opus` for complex work.
 - **CLAUDE.md matters** — the execution engine loads your project's `CLAUDE.md` as system prompt context. Keep it current with conventions and patterns so agents follow your standards.
+- **instructions.md for personal preferences** — add `.ralph/instructions.md` to steer agent behavior without committing personal preferences to the repo. It's gitignored and only injected during `ralph run`, not planning.

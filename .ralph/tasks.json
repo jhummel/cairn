@@ -2,31 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 3,
-      "priority": 3,
-      "title": "Add instructions.md creation offer to ralph init",
-      "description": "After writing ralph.json in lib/ralph_init.sh, add a prompt offering to create .ralph/instructions.md:\n\n```\nCreate .ralph/instructions.md for personal agent preferences? [y/N]\n```\n\nIf the user answers yes:\n1. Create .ralph/instructions.md as an empty file (touch it)\n2. Open it with $EDITOR (fall back to vi if EDITOR is unset): ${EDITOR:-vi} \"$RALPH_DATA_DIR/instructions.md\"\n\nAlso update .ralph/.gitignore to include instructions.md:\n- For new projects (gitignore just created by init): add `instructions.md` to the initial cat heredoc\n- For existing projects (gitignore already exists): append `instructions.md` if not already present. Use a grep check: `grep -qxF 'instructions.md' \"$GITIGNORE\" || echo 'instructions.md' >> \"$GITIGNORE\"`\n\nThis should go after the ralph.json writing block but before the narration hooks section.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-21T00:00:00Z",
-      "completedBy": "iteration-4",
-      "notes": "Added instructions.md to the gitignore heredoc for new projects (line 30). Added prompt block after ralph.json write: touches the file, does a grep-guarded gitignore append for existing projects, then opens with ${EDITOR:-vi}.",
-      "files": [
-        "lib/ralph_init.sh"
-      ],
-      "tests": [],
-      "dependencies": [
-        2
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 5,
       "priority": 4,
       "title": "Update README documentation for new init flow and instructions.md",
       "description": "Update README.md to document the changes:\n\n1. Update the `ralph init` section to describe the new interactive property-by-property flow (mention that it prompts for each ralph.json property with defaults, and that re-running init on an existing project lets you update fields).\n\n2. Add documentation for .ralph/instructions.md:\n   - What it is: personal prompt instructions injected into execution agent system prompts\n   - How it differs from CLAUDE.md: personal (gitignored) vs project-level (committed)\n   - That it only applies to execution agents, not planning\n   - Created during `ralph init` or manually\n\n3. Update the ralph.json config table if one exists, or add one showing all properties and their defaults.\n\n4. Update the per-project data layout section to include instructions.md:\n   ```\n   .ralph/\n   \u251c\u2500\u2500 tasks.json\n   \u251c\u2500\u2500 tasks.completed.json\n   \u251c\u2500\u2500 planning-notes.md\n   \u2514\u2500\u2500 instructions.md          # Personal agent preferences (gitignored)\n   ```",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-21T00:00:00Z",
+      "completedBy": "iteration-5",
+      "notes": "Updated README with: (1) interactive init flow description with re-init note, (2) new Personal Agent Instructions section explaining instructions.md vs CLAUDE.md, (3) truncateText field added to config table and example JSON, (4) instructions.md added to per-project data layout, (5) tip added in Tips section.",
       "files": [
         "README.md"
       ],
