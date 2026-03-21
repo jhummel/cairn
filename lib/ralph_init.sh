@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Initializes .ralph/ directory and optional ralph.json config.
+# Initializes .ralph/ directory and ralph.json config with interactive prompts.
 # Sourced by bin/ralph, not executed directly.
 
 TASKS_FILE="$RALPH_DATA_DIR/tasks.json"
@@ -45,39 +45,144 @@ EOF
     echo "  Created: .ralph/tasks.json"
 fi
 
-# Scaffold ralph.json config
+# --- Interactive ralph.json configuration ---
+
+# Load existing values if ralph.json exists (for re-init)
+DEFAULT_PROJECT_NAME="$(basename "$RALPH_PROJECT_ROOT")"
+DEFAULT_PROJECT_DESC=""
+DEFAULT_HEALTH_CHECK=""
+DEFAULT_TEST_CMD=""
+DEFAULT_IMPL_FILE="IMPLEMENTATION.md"
+DEFAULT_TRUNCATE_TEXT="true"
+DEFAULT_CLAUDE_MD_PATTERN=""
+DEFAULT_NARRATION_ENABLED="false"
+DEFAULT_NARRATION_VOICE="bf_emma"
+DEFAULT_NTFY_TOPIC=""
+
 if [[ -f "$CONFIG_FILE" ]]; then
-    echo "  ralph.json already exists."
-else
-    PROJECT_NAME="$(basename "$RALPH_PROJECT_ROOT")"
-
-    # Ask about narration during initial setup
     echo ""
-    read -r -p "  Enable TTS narration? [y/N] " ENABLE_NARRATION
-    if [[ "$ENABLE_NARRATION" =~ ^[Yy] ]]; then
-        NARRATION_ENABLED="true"
-    else
-        NARRATION_ENABLED="false"
-    fi
+    echo "  ralph.json exists — current values shown as defaults."
+    eval "$(python3 - "$CONFIG_FILE" <<'PYEOF'
+import json, sys
 
-    cat > "$CONFIG_FILE" <<EOF
-{
-  "projectName": "$PROJECT_NAME",
-  "projectDescription": "",
-  "healthCheck": "",
-  "defaultTestCommand": "",
-  "implementationFile": "IMPLEMENTATION.md",
-  "summarize": {
-    "claudeMdPattern": ""
-  },
-  "narration": {
-    "enabled": $NARRATION_ENABLED,
-    "ntfyTopic": ""
-  }
-}
-EOF
-    echo "  Created: ralph.json (edit to configure)"
+with open(sys.argv[1]) as f:
+    cfg = json.load(f)
+
+def sh_escape(s):
+    return s.replace("'", "'\\''")
+
+def emit(var, val):
+    print(f"{var}='{sh_escape(str(val))}'")
+
+emit("DEFAULT_PROJECT_NAME", cfg.get("projectName", ""))
+emit("DEFAULT_PROJECT_DESC", cfg.get("projectDescription", ""))
+emit("DEFAULT_HEALTH_CHECK", cfg.get("healthCheck", ""))
+emit("DEFAULT_TEST_CMD", cfg.get("defaultTestCommand", ""))
+emit("DEFAULT_IMPL_FILE", cfg.get("implementationFile", "IMPLEMENTATION.md"))
+emit("DEFAULT_TRUNCATE_TEXT", str(cfg.get("truncateText", True)).lower())
+emit("DEFAULT_CLAUDE_MD_PATTERN", cfg.get("summarize", {}).get("claudeMdPattern", ""))
+emit("DEFAULT_NARRATION_ENABLED", str(cfg.get("narration", {}).get("enabled", False)).lower())
+emit("DEFAULT_NARRATION_VOICE", cfg.get("narration", {}).get("voice", "bf_emma"))
+emit("DEFAULT_NTFY_TOPIC", cfg.get("narration", {}).get("ntfyTopic", ""))
+PYEOF
+    )"
 fi
+
+echo ""
+
+# Prompt helper: prompt_val VAR "Label" "default"
+prompt_val() {
+    local _var="$1" _label="$2" _default="$3" _input
+    read -r -p "  $_label [$_default]: " _input
+    eval "$_var=\"\${_input:-\$_default}\""
+}
+
+prompt_val CFG_PROJECT_NAME   "Project name"                              "$DEFAULT_PROJECT_NAME"
+prompt_val CFG_PROJECT_DESC   "Description (used in agent system prompts)" "$DEFAULT_PROJECT_DESC"
+prompt_val CFG_HEALTH_CHECK   "Health check command (auto-detected if blank)" "$DEFAULT_HEALTH_CHECK"
+prompt_val CFG_TEST_CMD       "Default test command"                       "$DEFAULT_TEST_CMD"
+prompt_val CFG_IMPL_FILE      "Implementation file"                        "$DEFAULT_IMPL_FILE"
+
+# Truncate text — Y/n boolean
+if [[ "$DEFAULT_TRUNCATE_TEXT" == "true" ]]; then
+    TRUNCATE_HINT="Y/n"
+else
+    TRUNCATE_HINT="y/N"
+fi
+read -r -p "  Truncate agent text output? [$TRUNCATE_HINT]: " TRUNCATE_INPUT
+if [[ -z "$TRUNCATE_INPUT" ]]; then
+    CFG_TRUNCATE_TEXT="$DEFAULT_TRUNCATE_TEXT"
+elif [[ "$TRUNCATE_INPUT" =~ ^[Yy] ]]; then
+    CFG_TRUNCATE_TEXT="true"
+else
+    CFG_TRUNCATE_TEXT="false"
+fi
+
+prompt_val CFG_CLAUDE_MD_PATTERN "CLAUDE.md glob pattern for summarize"   "$DEFAULT_CLAUDE_MD_PATTERN"
+
+# Narration — y/N boolean
+if [[ "$DEFAULT_NARRATION_ENABLED" == "true" ]]; then
+    NARRATION_HINT="Y/n"
+else
+    NARRATION_HINT="y/N"
+fi
+read -r -p "  Enable TTS narration? [$NARRATION_HINT]: " NARRATION_INPUT
+if [[ -z "$NARRATION_INPUT" ]]; then
+    CFG_NARRATION_ENABLED="$DEFAULT_NARRATION_ENABLED"
+elif [[ "$NARRATION_INPUT" =~ ^[Yy] ]]; then
+    CFG_NARRATION_ENABLED="true"
+else
+    CFG_NARRATION_ENABLED="false"
+fi
+
+# Conditional narration sub-prompts
+CFG_NARRATION_VOICE="$DEFAULT_NARRATION_VOICE"
+CFG_NTFY_TOPIC="$DEFAULT_NTFY_TOPIC"
+if [[ "$CFG_NARRATION_ENABLED" == "true" ]]; then
+    prompt_val CFG_NARRATION_VOICE "Narration voice" "$DEFAULT_NARRATION_VOICE"
+    prompt_val CFG_NTFY_TOPIC      "ntfy push notification topic" "$DEFAULT_NTFY_TOPIC"
+fi
+
+# Write ralph.json via Python for proper JSON formatting
+python3 - "$CONFIG_FILE" \
+    "$CFG_PROJECT_NAME" \
+    "$CFG_PROJECT_DESC" \
+    "$CFG_HEALTH_CHECK" \
+    "$CFG_TEST_CMD" \
+    "$CFG_IMPL_FILE" \
+    "$CFG_TRUNCATE_TEXT" \
+    "$CFG_CLAUDE_MD_PATTERN" \
+    "$CFG_NARRATION_ENABLED" \
+    "$CFG_NARRATION_VOICE" \
+    "$CFG_NTFY_TOPIC" \
+    <<'PYEOF'
+import json, sys
+
+args = sys.argv[1:]
+config = {
+    "projectName": args[1],
+    "projectDescription": args[2],
+    "healthCheck": args[3],
+    "defaultTestCommand": args[4],
+    "implementationFile": args[5],
+    "truncateText": args[6] == "true",
+    "summarize": {
+        "claudeMdPattern": args[7]
+    },
+    "narration": {
+        "enabled": args[8] == "true",
+        "voice": args[9],
+        "ntfyTopic": args[10]
+    }
+}
+
+with open(args[0], 'w') as f:
+    json.dump(config, f, indent=2)
+    f.write('\n')
+PYEOF
+
+echo ""
+echo "  Wrote: ralph.json"
 
 # Reload config so RALPH_NARRATION_ENABLED reflects what we just wrote
 source "$RALPH_LIB_DIR/ralph_config.sh"
@@ -172,6 +277,5 @@ fi
 
 echo ""
 echo "Next steps:"
-echo "  1. Edit ralph.json to describe your project"
-echo "  2. Run 'ralph plan' to start planning"
+echo "  1. Run 'ralph plan' to start planning"
 echo ""
