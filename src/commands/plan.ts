@@ -3,6 +3,7 @@ import * as path from 'path';
 import { spawnSync as nodeSpawnSync, type SpawnSyncReturns, type SpawnSyncOptions } from 'child_process';
 import { sendToNarrate as defaultSendToNarrate, sendNtfy as defaultSendNtfy, type NtfyOpts } from '../stream-filter';
 import { Task, AgentInfo } from '../types';
+import { runMenu as defaultRunMenu, type MenuOption, type MenuResult, type ReadlineInterface } from '../menu';
 
 const STATUS_ICONS: Record<string, string> = {
   complete: '✓',
@@ -453,5 +454,104 @@ export function displayPreflight(projectName: string, dataDir: string): void {
   } catch {
     console.log('  Could not read tasks.json.');
     console.log('');
+  }
+}
+
+type RunMenuFn = (options: MenuOption[], rl: ReadlineInterface) => Promise<MenuResult>;
+
+export interface ReviewNotesLoopOpts {
+  dataDir: string;
+  hasBack: boolean;
+  runMenuFn?: RunMenuFn;
+  rl: ReadlineInterface;
+  editFn: (filePath: string) => void;
+  launchPlanningFn: () => void;
+  launchTaskGenFn: () => void;
+}
+
+export async function reviewNotesLoop(opts: ReviewNotesLoopOpts): Promise<MenuResult> {
+  const {
+    dataDir,
+    hasBack,
+    runMenuFn = defaultRunMenu,
+    rl,
+    editFn,
+    launchPlanningFn,
+    launchTaskGenFn,
+  } = opts;
+
+  const notesPath = path.join(dataDir, 'planning-notes.md');
+
+  while (true) {
+    // Display current planning notes
+    if (fs.existsSync(notesPath)) {
+      const content = fs.readFileSync(notesPath, 'utf8');
+      console.log('');
+      console.log(content);
+      console.log('');
+    } else {
+      console.log('');
+      console.log('No planning notes yet.');
+      console.log('');
+    }
+
+    // Build menu options
+    const options: MenuOption[] = [
+      {
+        key: 'g',
+        label: 'generate',
+        handler: async (): Promise<MenuResult> => {
+          if (!fs.existsSync(notesPath)) {
+            console.log('No planning-notes.md to generate from. Plan first.');
+            return { exit: false };
+          }
+          launchTaskGenFn();
+          return { exit: true, action: 'continue' };
+        },
+      },
+      {
+        key: 'e',
+        label: 'edit',
+        handler: async (): Promise<MenuResult> => {
+          editFn(notesPath);
+          return { exit: false };
+        },
+      },
+      {
+        key: 'p',
+        label: 'plan',
+        handler: async (): Promise<MenuResult> => {
+          launchPlanningFn();
+          return { exit: false };
+        },
+      },
+    ];
+
+    if (hasBack) {
+      options.push({
+        key: 'b',
+        label: 'back',
+        handler: async (): Promise<MenuResult> => {
+          return { exit: true, action: 'back' };
+        },
+      });
+    }
+
+    options.push({
+      key: 'q',
+      label: 'quit',
+      handler: async (): Promise<MenuResult> => {
+        if (fs.existsSync(notesPath)) {
+          console.log(`Planning notes saved at: ${notesPath}`);
+          console.log('Resume later with: ralph plan');
+        }
+        return { exit: true, action: 'quit' };
+      },
+    });
+
+    const result = await runMenuFn(options, rl);
+    if (result.exit) {
+      return result;
+    }
   }
 }
