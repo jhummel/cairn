@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawnSync as nodeSpawnSync } from 'child_process';
 import type { RalphConfig } from '../types';
 import { loadConfig, autoDetectHealthCheck } from '../config';
 
@@ -159,4 +160,183 @@ export async function promptForConfig(
 export function writeRalphJson(projectRoot: string, config: RalphConfig): void {
   const configPath = path.join(projectRoot, 'ralph.json');
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+}
+
+export type SpawnSyncResult = { status: number | null; error?: Error };
+export type SpawnSyncFn = (cmd: string, args: string[], options: { stdio: 'inherit' }) => SpawnSyncResult;
+
+/**
+ * Offer to create .ralph/instructions.md and open it in $EDITOR.
+ */
+export async function createInstructionsFile(
+  dataDir: string,
+  rl: PromptInterface,
+  spawnSyncFn: SpawnSyncFn = (cmd, args, opts) => nodeSpawnSync(cmd, args, opts),
+): Promise<void> {
+  const create = await promptBoolean(rl, 'Create .ralph/instructions.md for personal agent preferences?', false);
+  if (!create) return;
+
+  const instructionsPath = path.join(dataDir, 'instructions.md');
+  if (!fs.existsSync(instructionsPath)) {
+    fs.writeFileSync(instructionsPath, '');
+    console.log('  Created: .ralph/instructions.md');
+  }
+
+  // Ensure instructions.md is in .gitignore
+  const gitignorePath = path.join(dataDir, '.gitignore');
+  if (fs.existsSync(gitignorePath)) {
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    if (!content.split('\n').some(line => line === 'instructions.md')) {
+      fs.appendFileSync(gitignorePath, 'instructions.md\n');
+    }
+  }
+
+  // Open in $EDITOR (fall back to vi)
+  const editor = process.env.EDITOR || 'vi';
+  const result = spawnSyncFn(editor, [instructionsPath], { stdio: 'inherit' });
+  if (result.error || result.status !== 0) {
+    console.log(`  Path: ${instructionsPath}`);
+  }
+}
+
+const NARRATE_SH = `#!/bin/bash
+# PostToolUse hook: narrates what just happened after each tool use
+SOCKET="/tmp/ralph-tts.sock"
+[ ! -S "$SOCKET" ] && exit 0
+
+INPUT=$(cat)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
+TOOL_INPUT=$(echo "$INPUT" | jq -r '.tool_input // empty')
+TOOL_OUTPUT=$(echo "$INPUT" | jq -r '.tool_output // empty' | head -c 2000)
+[ -z "$TOOL_NAME" ] && exit 0
+
+PAYLOAD=$(jq -n --arg name "$TOOL_NAME" --arg input "$TOOL_INPUT" --arg output "$TOOL_OUTPUT" \\
+  '{tool: $name, input: $input, output: $output}')
+
+python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect('$SOCKET')
+s.sendall(sys.stdin.buffer.read())
+s.close()
+" <<< "$PAYLOAD" &
+exit 0
+`;
+
+const SPEAK_SH = `#!/bin/bash
+# Stop hook: speaks assistant responses via narration server
+SOCKET="/tmp/ralph-tts.sock"
+[ ! -S "$SOCKET" ] && exit 0
+
+INPUT=$(cat)
+MESSAGE=$(echo "$INPUT" | jq -r '.last_assistant_message // empty')
+[ -z "$MESSAGE" ] && exit 0
+
+python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect('$SOCKET')
+s.sendall(sys.stdin.buffer.read())
+s.close()
+" <<< "$MESSAGE" &
+exit 0
+`;
+
+const NOTIFY_SH = `#!/bin/bash
+# Notification hook: speaks when Claude needs user attention
+SOCKET="/tmp/ralph-tts.sock"
+[ ! -S "$SOCKET" ] && exit 0
+
+INPUT=$(cat)
+MESSAGE=$(echo "$INPUT" | jq -r '.message // empty')
+[ -z "$MESSAGE" ] && exit 0
+
+python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect('$SOCKET')
+s.sendall(sys.stdin.buffer.read())
+s.close()
+" <<< "$MESSAGE" &
+exit 0
+`;
+
+/**
+ * Offer to install Claude Code narration hooks (only when narration is enabled).
+ */
+export async function installNarrationHooks(
+  projectRoot: string,
+  narrationEnabled: boolean,
+  rl: PromptInterface,
+): Promise<void> {
+  if (!narrationEnabled) return;
+
+  const hooksDir = path.join(projectRoot, '.claude', 'hooks');
+
+  if (fs.existsSync(hooksDir) && fs.existsSync(path.join(hooksDir, 'narrate.sh'))) {
+    console.log('  Narration hooks already installed.');
+    return;
+  }
+
+  console.log('');
+  console.log("Narration is enabled. Install Claude Code hooks for standalone 'claude' usage?");
+  console.log('  (These forward events to the Ralph narration server at /tmp/ralph-tts.sock)');
+
+  const install = await promptBoolean(rl, 'Install hooks?', false);
+  if (!install) return;
+
+  fs.mkdirSync(hooksDir, { recursive: true });
+
+  const writeHook = (name: string, content: string) => {
+    const hookPath = path.join(hooksDir, name);
+    fs.writeFileSync(hookPath, content);
+    fs.chmodSync(hookPath, 0o755);
+  };
+
+  writeHook('narrate.sh', NARRATE_SH);
+  writeHook('speak.sh', SPEAK_SH);
+  writeHook('notify.sh', NOTIFY_SH);
+
+  console.log('  Created: .claude/hooks/narrate.sh (PostToolUse)');
+  console.log('  Created: .claude/hooks/speak.sh (Stop)');
+  console.log('  Created: .claude/hooks/notify.sh (Notification)');
+}
+
+/**
+ * Print next steps after init.
+ */
+export function showNextSteps(): void {
+  console.log('');
+  console.log('Next steps:');
+  console.log("  1. Run 'ralph plan' to start planning");
+  console.log('');
+}
+
+/**
+ * Top-level init entrypoint: creates files, prompts for config, handles instructions.md and hooks.
+ */
+export async function runInit(
+  projectRoot: string,
+  dataDir: string,
+  rl: PromptInterface,
+  spawnSyncFn?: SpawnSyncFn,
+): Promise<void> {
+  console.log('');
+  console.log(`Initializing Ralph in: ${projectRoot}`);
+  console.log('');
+
+  initCoreFiles(projectRoot, dataDir);
+
+  const defaults = getConfigDefaults(projectRoot);
+  console.log('');
+  const config = await promptForConfig(rl, defaults);
+  writeRalphJson(projectRoot, config);
+  console.log('');
+  console.log('  Wrote: ralph.json');
+
+  await createInstructionsFile(dataDir, rl, spawnSyncFn);
+  await installNarrationHooks(projectRoot, config.narration.enabled, rl);
+  showNextSteps();
+
+  rl.close();
 }

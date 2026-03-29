@@ -8,8 +8,13 @@ import {
   getConfigDefaults,
   promptForConfig,
   writeRalphJson,
+  createInstructionsFile,
+  installNarrationHooks,
+  showNextSteps,
+  runInit,
   type PromptInterface,
   type ConfigDefaults,
+  type SpawnSyncFn,
 } from '../../src/commands/init';
 
 // --- initCoreFiles tests (existing) ---
@@ -557,5 +562,297 @@ describe('writeRalphJson', () => {
     const raw = fs.readFileSync(path.join(tmpDir, 'ralph.json'), 'utf8');
     // Should match JSON.stringify with 2-space indent
     expect(raw).toBe(JSON.stringify(config, null, 2) + '\n');
+  });
+});
+
+// --- createInstructionsFile tests ---
+
+describe('createInstructionsFile', () => {
+  let tmpDir: string;
+  let stdoutLines: string[];
+  let consoleSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-instructions-test-'));
+    fs.mkdirSync(path.join(tmpDir, '.ralph'));
+    stdoutLines = [];
+    consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
+      stdoutLines.push(args.join(' '));
+    });
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  const noopSpawn: SpawnSyncFn = () => ({ status: 0 });
+
+  test('does nothing when user declines', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(['n']);
+    await createInstructionsFile(dataDir, rl, noopSpawn);
+    expect(fs.existsSync(path.join(dataDir, 'instructions.md'))).toBe(false);
+    expect(stdoutLines.join('\n')).not.toContain('instructions.md');
+  });
+
+  test('creates instructions.md when user accepts', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(['y']);
+    await createInstructionsFile(dataDir, rl, noopSpawn);
+    expect(fs.existsSync(path.join(dataDir, 'instructions.md'))).toBe(true);
+  });
+
+  test('prints Created: .ralph/instructions.md', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(['y']);
+    await createInstructionsFile(dataDir, rl, noopSpawn);
+    expect(stdoutLines.join('\n')).toContain('Created: .ralph/instructions.md');
+  });
+
+  test('does not overwrite existing instructions.md', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const instructionsPath = path.join(dataDir, 'instructions.md');
+    fs.writeFileSync(instructionsPath, '# my notes\n');
+    const rl = createMockPrompt(['y']);
+    await createInstructionsFile(dataDir, rl, noopSpawn);
+    expect(fs.readFileSync(instructionsPath, 'utf8')).toBe('# my notes\n');
+    expect(stdoutLines.join('\n')).not.toContain('Created: .ralph/instructions.md');
+  });
+
+  test('launches $EDITOR with the file path', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(['y']);
+    let spawnedCmd = '';
+    let spawnedArgs: string[] = [];
+    const captureSpawn: SpawnSyncFn = (cmd, args) => {
+      spawnedCmd = cmd;
+      spawnedArgs = args;
+      return { status: 0 };
+    };
+    const origEditor = process.env.EDITOR;
+    process.env.EDITOR = '/usr/bin/nano';
+    try {
+      await createInstructionsFile(dataDir, rl, captureSpawn);
+      expect(spawnedCmd).toBe('/usr/bin/nano');
+      expect(spawnedArgs[0]).toContain('instructions.md');
+    } finally {
+      if (origEditor === undefined) delete process.env.EDITOR;
+      else process.env.EDITOR = origEditor;
+    }
+  });
+
+  test('falls back to vi when $EDITOR is not set', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(['y']);
+    let spawnedCmd = '';
+    const captureSpawn: SpawnSyncFn = (cmd) => { spawnedCmd = cmd; return { status: 0 }; };
+    const origEditor = process.env.EDITOR;
+    delete process.env.EDITOR;
+    try {
+      await createInstructionsFile(dataDir, rl, captureSpawn);
+      expect(spawnedCmd).toBe('vi');
+    } finally {
+      if (origEditor !== undefined) process.env.EDITOR = origEditor;
+    }
+  });
+
+  test('prints path when editor fails to launch', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(['y']);
+    const failSpawn: SpawnSyncFn = () => ({ status: 1, error: new Error('not found') });
+    process.env.EDITOR = 'nonexistent-editor';
+    await createInstructionsFile(dataDir, rl, failSpawn);
+    expect(stdoutLines.join('\n')).toContain('instructions.md');
+  });
+
+  test('adds instructions.md to .gitignore when missing', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const gitignorePath = path.join(dataDir, '.gitignore');
+    fs.writeFileSync(gitignorePath, '# other stuff\n');
+    const rl = createMockPrompt(['y']);
+    await createInstructionsFile(dataDir, rl, noopSpawn);
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    expect(content).toContain('instructions.md');
+  });
+
+  test('does not duplicate instructions.md in .gitignore', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const gitignorePath = path.join(dataDir, '.gitignore');
+    fs.writeFileSync(gitignorePath, '# stuff\ninstructions.md\n');
+    const rl = createMockPrompt(['y']);
+    await createInstructionsFile(dataDir, rl, noopSpawn);
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    const count = content.split('\n').filter(l => l === 'instructions.md').length;
+    expect(count).toBe(1);
+  });
+});
+
+// --- installNarrationHooks tests ---
+
+describe('installNarrationHooks', () => {
+  let tmpDir: string;
+  let stdoutLines: string[];
+  let consoleSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-hooks-test-'));
+    stdoutLines = [];
+    consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
+      stdoutLines.push(args.join(' '));
+    });
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  test('does nothing when narration is disabled', async () => {
+    const rl = createMockPrompt([]);
+    await installNarrationHooks(tmpDir, false, rl);
+    expect(fs.existsSync(path.join(tmpDir, '.claude', 'hooks'))).toBe(false);
+  });
+
+  test('does nothing when user declines', async () => {
+    const rl = createMockPrompt(['n']);
+    await installNarrationHooks(tmpDir, true, rl);
+    expect(fs.existsSync(path.join(tmpDir, '.claude', 'hooks'))).toBe(false);
+  });
+
+  test('creates hook scripts when user accepts', async () => {
+    const rl = createMockPrompt(['y']);
+    await installNarrationHooks(tmpDir, true, rl);
+    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
+    expect(fs.existsSync(path.join(hooksDir, 'narrate.sh'))).toBe(true);
+    expect(fs.existsSync(path.join(hooksDir, 'speak.sh'))).toBe(true);
+    expect(fs.existsSync(path.join(hooksDir, 'notify.sh'))).toBe(true);
+  });
+
+  test('prints Created messages for each hook', async () => {
+    const rl = createMockPrompt(['y']);
+    await installNarrationHooks(tmpDir, true, rl);
+    const output = stdoutLines.join('\n');
+    expect(output).toContain('.claude/hooks/narrate.sh (PostToolUse)');
+    expect(output).toContain('.claude/hooks/speak.sh (Stop)');
+    expect(output).toContain('.claude/hooks/notify.sh (Notification)');
+  });
+
+  test('hook scripts are executable', async () => {
+    const rl = createMockPrompt(['y']);
+    await installNarrationHooks(tmpDir, true, rl);
+    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
+    const stat = fs.statSync(path.join(hooksDir, 'narrate.sh'));
+    // Check owner execute bit
+    expect(stat.mode & 0o100).toBeTruthy();
+  });
+
+  test('hook scripts start with #!/bin/bash shebang', async () => {
+    const rl = createMockPrompt(['y']);
+    await installNarrationHooks(tmpDir, true, rl);
+    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
+    for (const hook of ['narrate.sh', 'speak.sh', 'notify.sh']) {
+      const content = fs.readFileSync(path.join(hooksDir, hook), 'utf8');
+      expect(content).toMatch(/^#!\/bin\/bash/);
+    }
+  });
+
+  test('prints already installed when hooks exist', async () => {
+    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(path.join(hooksDir, 'narrate.sh'), '#!/bin/bash\n');
+    const rl = createMockPrompt([]);
+    await installNarrationHooks(tmpDir, true, rl);
+    expect(stdoutLines.join('\n')).toContain('already installed');
+  });
+});
+
+// --- showNextSteps tests ---
+
+describe('showNextSteps', () => {
+  test('prints ralph plan suggestion', () => {
+    const lines: string[] = [];
+    const spy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
+      lines.push(args.join(' '));
+    });
+    showNextSteps();
+    spy.mockRestore();
+    expect(lines.join('\n')).toContain('ralph plan');
+    expect(lines.join('\n')).toContain('Next steps');
+  });
+});
+
+// --- runInit tests ---
+
+describe('runInit', () => {
+  let tmpDir: string;
+  let stdoutLines: string[];
+  let consoleSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-run-init-test-'));
+    stdoutLines = [];
+    consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
+      stdoutLines.push(args.join(' '));
+    });
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  const noopSpawn: SpawnSyncFn = () => ({ status: 0 });
+
+  // All prompts: 8 ralph.json + 1 instructions (N) + skip hooks (narration disabled)
+  function allDefaultAnswers(): string[] {
+    return ['', '', '', '', '', '', '', '', 'n'];
+  }
+
+  test('creates .ralph/ dir, tasks.json, and ralph.json', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(allDefaultAnswers());
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    expect(fs.existsSync(dataDir)).toBe(true);
+    expect(fs.existsSync(path.join(dataDir, 'tasks.json'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'ralph.json'))).toBe(true);
+  });
+
+  test('prints initializing banner with project root', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(allDefaultAnswers());
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    expect(stdoutLines.join('\n')).toContain('Initializing Ralph in:');
+    expect(stdoutLines.join('\n')).toContain(tmpDir);
+  });
+
+  test('prints Wrote: ralph.json', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(allDefaultAnswers());
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    expect(stdoutLines.join('\n')).toContain('Wrote: ralph.json');
+  });
+
+  test('prints Next steps at end', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(allDefaultAnswers());
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    expect(stdoutLines.join('\n')).toContain('Next steps');
+  });
+
+  test('installs hooks when narration enabled and user accepts', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    // 8 config prompts (narration='y', voice='', ntfy='') + instructions='n' + install hooks='y'
+    const rl = createMockPrompt(['', '', '', '', '', '', '', 'y', '', '', 'n', 'y']);
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
+    expect(fs.existsSync(path.join(hooksDir, 'narrate.sh'))).toBe(true);
+  });
+
+  test('skips hooks when narration disabled', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(allDefaultAnswers());
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    expect(fs.existsSync(path.join(tmpDir, '.claude'))).toBe(false);
   });
 });
