@@ -2,34 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 4,
-      "priority": 4,
-      "title": "Create type definitions",
-      "description": "Create `src/types.ts` with TypeScript interfaces for Ralph's core data structures. Port these from the shapes used in the shell/Python code.\n\n**RalphConfig** \u2014 matches ralph.json shape:\n```ts\ninterface RalphConfig {\n  projectName: string;\n  projectDescription: string;\n  healthCheck: string;\n  defaultTestCommand: string;\n  implementationFile: string;\n  truncateText: boolean;\n  summarize: { claudeMdPattern: string };\n  narration: {\n    enabled: boolean;\n    voice: string;\n    ntfyTopic: string;\n  };\n}\n```\n\n**Task** \u2014 matches tasks.json task shape (see `lib/tasks.schema.json` for the authoritative schema):\n```ts\ninterface Task {\n  id: number;\n  priority: number;\n  title: string;\n  description?: string;\n  directory?: string;\n  status: 'pending' | 'in-progress' | 'complete' | 'blocked';\n  files?: string[];\n  tests?: string[];\n  completedAt?: string;\n  completedBy?: string;\n  notes?: string;\n  dependencies?: number[];\n  model?: 'opus' | 'sonnet';\n  agent?: string;\n}\n```\n\n**AgentInfo** \u2014 matches the shape from `_ralph_discover_agents()` in `lib/ralph_config.sh`:\n```ts\ninterface AgentInfo {\n  name: string;\n  description: string;\n  model: string;\n  file: string;\n}\n```\n\nExport all interfaces. Also export type guard functions (`isValidConfig`, `isValidTask`) that validate unknown data against the expected shapes. These should check required fields exist and have correct types.\n\nWrite tests in `test/types.test.ts` that verify the type guards accept valid data and reject malformed data (missing fields, wrong types).",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-4",
-      "notes": "Created src/types.ts with RalphConfig, Task, AgentInfo interfaces and isValidConfig/isValidTask type guards. Created test/types.test.ts with 26 tests covering valid/invalid inputs. All tests pass. bun is at ~/.bun/bin/bun — not on PATH by default in subshell.",
-      "files": [
-        "src/types.ts",
-        "lib/tasks.schema.json"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        3
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 5,
       "priority": 5,
       "title": "TDD: Port project root detection and path utilities",
       "description": "Create `src/utils.ts` with path resolution and project root detection, ported from `bin/ralph` lines 7-51.\n\nWrite tests FIRST in `test/utils.test.ts`, then implement.\n\n**Functions to implement:**\n\n1. `resolvePath(target: string): string` \u2014 resolve symlinks to find the real path (port of `resolve_path()` from bin/ralph lines 7-16). Use `fs.readlinkSync` and `fs.lstatSync`.\n\n2. `findProjectRoot(cwd?: string): string` \u2014 port of `find_project_root()` from bin/ralph lines 26-52. Detection order:\n   - Check `RALPH_PROJECT_ROOT` env var\n   - Walk upward from CWD looking for `.ralph/` directory\n   - Git root via `git rev-parse --show-toplevel`\n   - Fall back to CWD\n\n3. `resolveRalphRoot(): string` \u2014 find the ralph repo root from the running binary/script. This must work in two modes:\n   - Dev mode (`bun run src/index.ts`): use `import.meta.dir` to find src/ \u2192 repo root\n   - Compiled binary (`dist/ralph`): follow symlink back to repo (for shell fallback to find `lib/`)\n   This is critical for the shell fallback mechanism.\n\n**Test approach:**\n- Create temp directories in test/fixtures/ with `.ralph/` markers\n- Test `findProjectRoot` with various directory structures\n- Test `resolvePath` with actual symlinks (create temp symlinks in tests)\n- Test `resolveRalphRoot` by checking it returns a directory containing `lib/ralph_common.sh`",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T12:00:00Z",
+      "completedBy": "iteration-5",
+      "notes": "Implemented resolvePath (symlink resolution), findProjectRoot (env var → .ralph/ walk → git root → cwd), and resolveRalphRoot (dev mode via __dirname, compiled via binary path walk). 14 tests covering symlinks, chained symlinks, relative symlinks, directory walking, env var priority, and ralph root detection. All 40 tests pass (14 new + 26 existing). bun is at ~/.bun/bin/bun.",
       "files": [
         "src/utils.ts",
         "bin/ralph"
