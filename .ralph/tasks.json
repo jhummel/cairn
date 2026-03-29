@@ -2,36 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 7,
-      "priority": 7,
-      "title": "TDD: Narrate command",
-      "description": "Create src/commands/narrate.ts and test/commands/narrate.test.ts. Port the narrate subcommand from bin/ralph (lines 107-178).\n\nImplement:\n- runNarrate(action: string): Promise<void>\n\nSubcommands:\n- 'on' / 'start': Check if already running (PID file at /tmp/ralph-tts.pid), spawn Python narration server as detached background process using startNarrationServer() from src/narration.ts, write PID file, verify startup\n- 'off' / 'stop': Read PID file, kill process via stopNarrationServer(), clean up PID file and socket\n- 'status': Check PID file exists and process is alive (process.kill(pid, 0))\n- Any other string: Spawn ralph_narrate.py directly for one-shot TTS (exec-style, not background). Use spawnSync with stdio: 'inherit'.\n\nValidation: before any action, verify that the venv Python exists at RALPH_NARRATE_PYTHON env var. Error with clear message if missing.\n\nUse shared narration helpers from src/narration.ts. Follow the same command pattern as other commands in src/commands/.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-7",
-      "notes": "14 tests passing. Covers all subcommands: status (stopped/stale/running), on/start (already-running, starts+writes PID, cleans PID on failure), off/stop (not-running, stops+removes PID), one-shot TTS (spawnSync with inherited stdio). Injectable deps (startServer, stopServer, spawnSyncFn) allow full unit testing without real processes. Bun module cache means tests share imported module across its — each test that checks env validation works because dynamic import re-resolves per test.",
-      "files": [
-        "src/commands/narrate.ts",
-        "test/commands/narrate.test.ts",
-        "src/narration.ts",
-        "bin/ralph"
-      ],
-      "tests": [
-        "bun test test/commands/narrate.test.ts"
-      ],
-      "dependencies": [
-        6
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 8,
       "priority": 8,
       "title": "TDD: System prompt builder for run command",
       "description": "Create the initial src/commands/run.ts and test/commands/run.test.ts with the system prompt builder.\n\nImplement:\n- buildSystemPrompt(opts: { taskDir: string, taskAgent: string, projectRoot: string, dataDir: string, config: RalphConfig, agents: AgentInfo[], iteration: number, commitPrefix?: string }): string\n\nPort build_system_prompt() from ralph_execute.sh (lines 148-259). Pure function that returns the prompt string.\n\nPrompt sections:\n1. SPECIALIST INSTRUCTIONS \u2014 if taskAgent is set, find matching agent in agents array, read its .md file, strip YAML frontmatter (reuse the pattern from discoverAgents in config.ts lines 95-106), embed body\n2. PROJECT CONTEXT \u2014 project name, description, personal instructions from $dataDir/instructions.md (if exists)\n3. DIRECTORY \u2014 working directory info based on taskDir (relative path or project root)\n4. WORKFLOW \u2014 6-point numbered workflow: set in-progress, implement, run tests, mark complete with ISO timestamp + iteration-N, create .ralph_complete flag if no remaining tasks, git commit with [$commitPrefix] Task #<id>: <title>\n5. DISCOVERY RULES \u2014 up to 3 new tasks, update CLAUDE.md operationally\n6. CRITICAL RULES \u2014 work on exactly one task, set status first, mark complete before flag\n\nFollow the same pattern as buildPlanningPrompt() and buildTaskGenPrompt() in plan.ts.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T12:45:00Z",
+      "completedBy": "iteration-8",
+      "notes": "25 tests passing. buildSystemPrompt() is a pure function porting build_system_prompt() from ralph_execute.sh. Includes stripFrontmatter() helper for agent .md files. All 6 prompt sections implemented: specialist instructions, project context (name/desc/personal instructions), directory, workflow (with dynamic test instruction and commit prefix), discovery rules, critical rules. SystemPromptInput interface exported for use by future tasks (spawnClaude, runRun).",
       "files": [
         "src/commands/run.ts",
         "test/commands/run.test.ts",
