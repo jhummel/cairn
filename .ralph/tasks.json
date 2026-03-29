@@ -2,31 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 2,
-      "priority": 2,
-      "title": "Update ralph.json for TS project validation",
-      "description": "Update `ralph.json` at the project root so that execution agents running tasks on ralph itself will validate their work via the TS build + tests.\n\nSet:\n- `healthCheck` to `\"bun build\"`\n- `defaultTestCommand` to `\"bun test\"`\n\nPreserve all other existing fields. The file is JSON \u2014 read it, modify those two fields, write it back.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-2",
-      "notes": "Updated healthCheck to 'bun build' and defaultTestCommand to 'bun test' in ralph.json. All other fields preserved.",
-      "files": [
-        "ralph.json"
-      ],
-      "tests": [],
-      "dependencies": [
-        1
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 3,
       "priority": 3,
       "title": "Initialize Bun/TS project scaffold",
       "description": "Set up the TypeScript/Bun project infrastructure at the repo root. This is the foundation for all subsequent tasks.\n\n1. Create `package.json` with:\n   - `name`: `ralph`\n   - `type`: `module`\n   - `scripts.build`: `bun build --compile src/index.ts --outfile dist/ralph`\n   - `scripts.test`: `bun test`\n   - `dependencies`: `commander` (latest)\n   - `devDependencies`: `@types/bun` (latest)\n\n2. Create `tsconfig.json` configured for Bun:\n   - `compilerOptions.target`: `ESNext`\n   - `compilerOptions.module`: `ESNext`\n   - `compilerOptions.moduleResolution`: `bundler`\n   - `compilerOptions.strict`: `true`\n   - `compilerOptions.outDir`: `dist`\n   - `compilerOptions.rootDir`: `src`\n   - `compilerOptions.types`: `[\"bun-types\"]`\n   - `include`: `[\"src\"]`\n\n3. Add to `.gitignore` (append, don't overwrite \u2014 the file may already exist):\n   ```\n   node_modules/\n   dist/\n   ```\n\n4. Run `bun install` to install dependencies and generate bun.lockb.\n\n5. Create directory structure:\n   - `src/`\n   - `src/commands/`\n   - `test/`\n   - `test/fixtures/`\n\n6. Create a minimal `src/index.ts` placeholder:\n   ```ts\n   console.log('ralph ts entrypoint');\n   ```\n\n7. Create a trivial passing test at `test/setup.test.ts`:\n   ```ts\n   import { describe, it, expect } from 'bun:test';\n\n   describe('test infrastructure', () => {\n     it('bun test runner works', () => {\n       expect(1 + 1).toBe(2);\n     });\n   });\n   ```\n\n8. Verify `bun test` passes.\n9. Verify `bun build --compile src/index.ts --outfile dist/ralph` succeeds (then delete dist/ralph \u2014 it's just a smoke test).",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T12:00:00Z",
+      "completedBy": "iteration-3",
+      "notes": "Installed Bun 1.3.11, commander 14.0.3, @types/bun 1.3.11. Created full project scaffold with src/, src/commands/, test/, test/fixtures/. bun test passes, bun build --compile works. Bun was not pre-installed — had to install it via curl.",
       "files": [],
       "tests": [
         "bun test"

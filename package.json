@@ -1,0 +1,14 @@
+{
+  "name": "ralph",
+  "type": "module",
+  "scripts": {
+    "build": "bun build --compile src/index.ts --outfile dist/ralph",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "commander": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
