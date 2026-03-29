@@ -2,34 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 11,
-      "priority": 8,
-      "title": "TDD: Port logs command",
-      "description": "Create `src/commands/logs.ts` porting the logs subcommand from `bin/ralph` lines 260-267.\n\nWrite tests FIRST in `test/commands/logs.test.ts`, then implement.\n\n**Behavior to replicate:**\n- Look for `$RALPH_DATA_DIR/.ralph_iterations.log`\n- If file doesn't exist, print 'No iteration log found.' and return\n- If file exists, print its contents to stdout\n\n**Implementation:**\n- Accept `dataDir` as parameter\n- Use `Bun.file().text()` or `fs.readFileSync` to read the log file\n- Print to stdout\n\n**Test approach:**\n- Test with missing log file\n- Test with existing log file (create fixture)\n- Capture stdout and assert output matches file contents\n- Register this command in src/index.ts Commander setup",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T18:35:00Z",
-      "completedBy": "iteration-11",
-      "notes": "Created src/commands/logs.ts with runLogs(dataDir). Tests in test/commands/logs.test.ts cover: missing log file prints 'No iteration log found.', existing log file prints contents, no false 'not found' message when file exists. Updated src/index.ts to import and call runLogs instead of stub. Updated index.test.ts: old stub assertion replaced with flexible check (log file exists on the ralph project itself so actual content is printed). All 124 tests pass.",
-      "files": [
-        "src/commands/logs.ts",
-        "bin/ralph"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        7
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 12,
       "priority": 9,
       "title": "Verify bun build --compile produces working binary",
       "description": "Integration verification that the compiled binary works end-to-end. This is the final gate for Phase 1.\n\n**Steps:**\n\n1. Run `bun build --compile src/index.ts --outfile dist/ralph` and verify it succeeds.\n\n2. Test the compiled binary directly:\n   - `./dist/ralph --version` \u2192 should print `ralph 0.1.0`\n   - `./dist/ralph --help` \u2192 should print help text\n   - `./dist/ralph status` \u2192 should work (run from ralph's own project root which has .ralph/)\n   - `./dist/ralph logs` \u2192 should work\n\n3. Test shell fallback from the compiled binary:\n   - `./dist/ralph help` \u2192 should work (Commander built-in, not fallback)\n   - Verify that `RALPH_FORCE_SHELL=1 ./dist/ralph status` delegates to the shell version\n\n4. Test symlink path resolution:\n   - Create a temp symlink pointing to `dist/ralph`\n   - Run the symlink and verify it can find `lib/` for shell fallback\n   - Clean up the temp symlink\n\n5. Run the full test suite: `bun test` \u2014 all tests must pass.\n\n6. Do NOT modify `install.sh`. Do NOT update the `~/.local/bin/ralph` symlink. The user will do this manually after validation.\n\nIf any step fails, diagnose and fix the issue. The binary must be fully functional before this task is marked complete.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T17:58:00Z",
+      "completedBy": "iteration-12",
+      "notes": "Phase 1 complete. Compiled binary (dist/ralph) verified end-to-end: --version, --help, status, logs, help, shell fallback (RALPH_FORCE_SHELL=1), and symlink resolution all work correctly. 124 tests pass. No code changes were needed — everything worked on first build. User should manually update install.sh / ~/.local/bin/ralph symlink when ready.",
       "files": [
         "src/index.ts",
         "dist/"
