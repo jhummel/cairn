@@ -557,6 +557,23 @@ export async function reviewNotesLoop(opts: ReviewNotesLoopOpts): Promise<MenuRe
   }
 }
 
+function defaultEditFn(filePath: string): void {
+  const editor = process.env.EDITOR ?? process.env.VISUAL ?? 'vi';
+  nodeSpawnSync(editor, [filePath], { stdio: 'inherit' });
+}
+
+function computeGitStatus(projectRoot: string): string {
+  try {
+    const result = nodeSpawnSync('git', ['status'], { cwd: projectRoot });
+    if (result.status === 0 && result.stdout) {
+      return result.stdout.toString('utf8');
+    }
+  } catch {
+    // ignore
+  }
+  return '';
+}
+
 export interface ReviewTasksLoopOpts {
   dataDir: string;
   runMenuFn?: RunMenuFn;
@@ -665,5 +682,106 @@ export async function reviewTasksLoop(opts: ReviewTasksLoopOpts): Promise<MenuRe
     if (result.exit) {
       return result;
     }
+  }
+}
+
+export interface RunPlanOpts {
+  projectName: string;
+  projectRoot: string;
+  dataDir: string;
+  agents: AgentInfo[];
+  implementationFile?: string;
+  rl: ReadlineInterface;
+  runMenuFn?: RunMenuFn;
+  editFn?: (filePath: string) => void;
+  /** Override planning session launcher (zero-arg closure, for testing) */
+  launchPlanningFn?: () => void;
+  /** Override task generation launcher (zero-arg closure, for testing) */
+  launchTaskGenFn?: () => void;
+  shellFallbackFn?: ShellFallbackFn;
+  getGitStatusFn?: (projectRoot: string) => string;
+}
+
+/**
+ * Orchestrate the full plan flow:
+ *   preflight → planning session → notes review → task generation → task review
+ * Supports back-navigation: the tasks review loop can signal 'plan' to restart.
+ */
+export async function runPlan(opts: RunPlanOpts): Promise<void> {
+  const {
+    projectName,
+    projectRoot,
+    dataDir,
+    agents,
+    implementationFile,
+    rl,
+    runMenuFn,
+    editFn = defaultEditFn,
+    launchPlanningFn: launchPlanningOverride,
+    launchTaskGenFn: launchTaskGenOverride,
+    shellFallbackFn,
+    getGitStatusFn = computeGitStatus,
+  } = opts;
+
+  while (true) {
+    displayPreflight(projectName, dataDir);
+
+    const planningOpts: LaunchPlanningSessionOpts = {
+      projectName,
+      projectRoot,
+      dataDir,
+      agents,
+      implementationFile,
+    };
+
+    const doLaunchPlanning = launchPlanningOverride ?? (() => launchPlanningSession(planningOpts));
+
+    doLaunchPlanning();
+
+    const notesResult = await reviewNotesLoop({
+      dataDir,
+      hasBack: false,
+      runMenuFn,
+      rl,
+      editFn,
+      launchPlanningFn: doLaunchPlanning,
+      launchTaskGenFn: launchTaskGenOverride ?? (() => {
+        const gitStatus = getGitStatusFn(projectRoot);
+        launchTaskGeneration({
+          projectName,
+          projectRoot,
+          dataDir,
+          agents,
+          gitStatus,
+        });
+      }),
+    });
+
+    if (notesResult.action !== 'continue') {
+      return;
+    }
+
+    // Task generation already ran inside the notes loop; now review tasks
+    const fallbackFn: ShellFallbackFn = shellFallbackFn ?? ((cmd, args) => {
+      // Import lazily to avoid circular deps at module load time
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { shellFallback } = require('./fallback') as typeof import('./fallback');
+      shellFallback(cmd, args);
+    });
+
+    const tasksResult = await reviewTasksLoop({
+      dataDir,
+      runMenuFn,
+      rl,
+      shellFallbackFn: fallbackFn,
+      editFn,
+      launchPlanningFn: doLaunchPlanning,
+    });
+
+    if (tasksResult.action === 'plan') {
+      continue;
+    }
+
+    return;
   }
 }

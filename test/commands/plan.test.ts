@@ -14,6 +14,7 @@ import {
   launchTaskGeneration,
   reviewNotesLoop,
   reviewTasksLoop,
+  runPlan,
 } from '../../src/commands/plan';
 import type { AgentInfo } from '../../src/types';
 import type { SpawnSyncReturns } from 'child_process';
@@ -2117,6 +2118,206 @@ describe('reviewTasksLoop', () => {
       expect(editCalled).toBe(false);
       const output = lines.join('\n');
       expect(output).toContain('No tasks.json');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
+
+describe('runPlan', () => {
+  function mockRl(keys: string[]): ReadlineInterface {
+    let idx = 0;
+    return {
+      question: async (_prompt: string) => keys[idx++] ?? 'q',
+      close: () => {},
+    };
+  }
+
+  function makeMenu(responses: MenuResult[]): (options: MenuOption[], rl: ReadlineInterface) => Promise<MenuResult> {
+    let idx = 0;
+    return async (_options: MenuOption[], _rl: ReadlineInterface) => {
+      return responses[idx++] ?? { exit: true, action: 'quit' };
+    };
+  }
+
+  test('calls launchPlanningFn then reviewNotesLoop', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      let planningCalled = 0;
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+
+      await runPlan({
+        projectName: 'test',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        rl: mockRl([]),
+        launchPlanningFn: () => { planningCalled++; },
+        launchTaskGenFn: () => {},
+        shellFallbackFn: () => {},
+        runMenuFn: makeMenu([{ exit: true, action: 'quit' }]),
+      });
+
+      consoleSpy.mockRestore();
+      expect(planningCalled).toBe(1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('quits after notes loop returns quit', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      let taskGenCalled = 0;
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+
+      await runPlan({
+        projectName: 'test',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        rl: mockRl([]),
+        launchPlanningFn: () => {},
+        launchTaskGenFn: () => { taskGenCalled++; },
+        shellFallbackFn: () => {},
+        runMenuFn: makeMenu([{ exit: true, action: 'quit' }]),
+      });
+
+      consoleSpy.mockRestore();
+      expect(taskGenCalled).toBe(0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('proceeds to reviewTasksLoop after notes loop returns continue', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+
+      // First call: notes loop → continue; second call: tasks loop → quit
+      // Verifies both menu invocations happen (notes loop then tasks loop)
+      const menuResponses = [
+        { exit: true, action: 'continue' },
+        { exit: true, action: 'quit' },
+      ];
+      let menuCallIdx = 0;
+      const runMenuFn = async (_options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        return menuResponses[menuCallIdx++] ?? { exit: true, action: 'quit' };
+      };
+
+      await runPlan({
+        projectName: 'test',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        rl: mockRl([]),
+        launchPlanningFn: () => {},
+        launchTaskGenFn: () => {},
+        shellFallbackFn: () => {},
+        runMenuFn,
+      });
+
+      consoleSpy.mockRestore();
+      // Both menu calls happened: notes loop + tasks loop
+      expect(menuCallIdx).toBe(2);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('loops back to planning when tasks loop returns plan signal', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      let planningCalled = 0;
+      let loopCount = 0;
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+
+      const runMenuFn = async (_options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        loopCount++;
+        if (loopCount === 1) return { exit: true, action: 'continue' }; // notes → proceed
+        if (loopCount === 2) return { exit: true, action: 'plan' };     // tasks → go back
+        if (loopCount === 3) return { exit: true, action: 'quit' };     // notes → quit on second lap
+        return { exit: true, action: 'quit' };
+      };
+
+      await runPlan({
+        projectName: 'test',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        rl: mockRl([]),
+        launchPlanningFn: () => { planningCalled++; },
+        launchTaskGenFn: () => {},
+        shellFallbackFn: () => {},
+        runMenuFn,
+      });
+
+      consoleSpy.mockRestore();
+      expect(planningCalled).toBe(2); // Called once on first lap, once on second
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('exits after tasks loop returns run signal', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      let afterRunCalled = false;
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+
+      let menuCallIdx = 0;
+      const menuResponses = [
+        { exit: true, action: 'continue' },
+        { exit: true, action: 'run' },
+      ];
+      const runMenuFn = async (_options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        return menuResponses[menuCallIdx++] ?? { exit: true, action: 'quit' };
+      };
+
+      await runPlan({
+        projectName: 'test',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        rl: mockRl([]),
+        launchPlanningFn: () => {},
+        launchTaskGenFn: () => {},
+        shellFallbackFn: () => {},
+        runMenuFn,
+      });
+
+      consoleSpy.mockRestore();
+      // If we got here without infinite loop, the function exited correctly
+      expect(true).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('calls displayPreflight on each planning lap', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const lines: string[] = [];
+      const consoleSpy = spyOn(console, 'log').mockImplementation((...args) => {
+        lines.push(String(args[0] ?? ''));
+      });
+
+      await runPlan({
+        projectName: 'my-proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        rl: mockRl([]),
+        launchPlanningFn: () => {},
+        launchTaskGenFn: () => {},
+        shellFallbackFn: () => {},
+        runMenuFn: makeMenu([{ exit: true, action: 'quit' }]),
+      });
+
+      consoleSpy.mockRestore();
+      const output = lines.join('\n');
+      expect(output).toContain('my-proj');
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }

@@ -32,12 +32,20 @@ describe('createProgram', () => {
     expect(commandNames).toContain('logs');
   });
 
-  test('registers shell fallback commands (plan, run, narrate)', () => {
+  test('registers shell fallback commands (run, narrate)', () => {
+    const program = createProgram();
+    const commandNames = program.commands.map((c) => c.name());
+    expect(commandNames).toContain('run');
+    expect(commandNames).toContain('narrate');
+  });
+
+  test('registers native plan command (not a shell fallback)', () => {
     const program = createProgram();
     const commandNames = program.commands.map((c) => c.name());
     expect(commandNames).toContain('plan');
-    expect(commandNames).toContain('run');
-    expect(commandNames).toContain('narrate');
+    const planCmd = program.commands.find((c) => c.name() === 'plan');
+    // Native commands don't have allowUnknownOption set to true
+    expect(planCmd!.description()).toBe('Interactive planning session: discuss goals, generate tasks');
   });
 
   test('registers native init command', () => {
@@ -233,8 +241,10 @@ describe('command registration', () => {
     expect(commandNames).toContain('init');
     expect(commandNames).toContain('summarize');
 
-    // Shell fallback
+    // Native plan command
     expect(commandNames).toContain('plan');
+
+    // Shell fallback
     expect(commandNames).toContain('run');
     expect(commandNames).toContain('narrate');
   });

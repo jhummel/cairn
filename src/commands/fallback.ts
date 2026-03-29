@@ -7,7 +7,6 @@ import { resolveRalphRoot } from '../utils';
  * Commands NOT in this map delegate to bin/ralph instead.
  */
 export const COMMAND_SCRIPT_MAP: Record<string, string> = {
-  plan: 'ralph_plan.sh',
   run: 'ralph_loop.sh',
 };
 

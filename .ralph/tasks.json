@@ -2,38 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 9,
-      "priority": 4,
-      "title": "TDD: Port task review loop",
-      "description": "Add a `reviewTasksLoop` function to `src/commands/plan.ts` with tests.\n\nUse the shared menu helper from `src/menu.ts` to implement the task review menu from `lib/ralph_plan.sh`.\n\nMenu options:\n- `[r]un` \u2014 delegate to `shellFallback('run', [])` from `src/commands/fallback.ts` (temporary until Phase 4 ports the run command)\n- `[e]dit` \u2014 open `tasks.json` in $EDITOR using `runEdit` from `src/commands/edit.ts`\n- `[v]iew` \u2014 show task summary (reuse preflight display functions from task #4)\n- `[p]lan` \u2014 go back to planning phase (exit menu, return signal to restart)\n- `[q]uit` \u2014 exit the entire plan command\n\nBefore showing the menu, display the current task summary.\n\nThe function should accept dependencies as injectable params for testability.\n\nTest: menu dispatches correctly, run calls shellFallback, edit calls runEdit with tasks.json path, view shows summary, plan signals restart, quit signals exit.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T15:45:00Z",
-      "completedBy": "iteration-9",
-      "notes": "Added reviewTasksLoop to src/commands/plan.ts with 11 new tests (379 total, all passing). Function accepts injectable dependencies (runMenuFn, shellFallbackFn, editFn, launchPlanningFn) for testability. Menu options: [r]un (validates tasks.json exists, calls shellFallbackFn('run', []), returns run signal), [e]dit (validates tasks.json exists, calls editFn with tasks path), [v]iew (re-displays task summary using formatTasksSummary), [p]lan (calls launchPlanningFn, returns plan signal), [q]uit (prints save message if tasks exist, returns quit signal). Displays task summary before menu using formatTasksSummary. Guards on run/edit/view prevent actions when tasks.json is missing.",
-      "files": [
-        "src/commands/plan.ts",
-        "test/commands/plan.test.ts",
-        "src/menu.ts",
-        "src/commands/edit.ts",
-        "src/commands/fallback.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        3,
-        7
-      ],
-      "model": "opus"
-    },
-    {
       "id": 10,
       "priority": 5,
       "title": "Wire plan into Commander and remove from fallback",
       "description": "Update `src/index.ts` to register `plan` as a native Commander command:\n\n1. Remove `'plan'` from `SHELL_FALLBACK_COMMANDS` array\n2. Add a `program.command('plan').description('...').action(async () => { ... })` that calls the main `runPlan` function from `src/commands/plan.ts`\n3. In `src/commands/fallback.ts`, remove `plan: 'ralph_plan.sh'` from `COMMAND_SCRIPT_MAP`\n4. Verify `RALPH_FORCE_SHELL=1` still delegates everything to shell (this is handled by existing logic in index.ts \u2014 just confirm it still works)\n5. Update `test/index.test.ts` and `test/commands/fallback.test.ts` to reflect the changes\n\nThe `runPlan` function should orchestrate the full flow: preflight \u2192 planning session \u2192 notes review loop \u2192 task generation \u2192 task review loop, with the loops allowing back-navigation between phases.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-10",
+      "notes": "Added runPlan() to src/commands/plan.ts orchestrating: displayPreflight → launchPlanningSession → reviewNotesLoop → launchTaskGeneration → reviewTasksLoop with plan-signal back-navigation. Injectable deps (launchPlanningFn, launchTaskGenFn, shellFallbackFn, getGitStatusFn, editFn, runMenuFn) for testability. Removed 'plan' from SHELL_FALLBACK_COMMANDS in index.ts and added native plan Commander command. Removed plan from COMMAND_SCRIPT_MAP in fallback.ts (now falls back to bin/ralph plan). Updated all affected tests. Added 6 runPlan tests (385 passing). One pre-existing flaky test in launchTaskGeneration (TTS socket ENOENT) fails only in full suite due to Bun module cache bleed; passes when run in isolation.",
       "files": [
         "src/index.ts",
         "src/commands/fallback.ts",

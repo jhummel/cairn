@@ -52,7 +52,7 @@ describe('shellFallback', () => {
     processExitMock.mockRestore();
   });
 
-  test('plan command maps to lib/ralph_plan.sh', async () => {
+  test('plan command is no longer a shell fallback — delegates to bin/ralph', async () => {
     const child_process = await import('child_process');
     const spawnMock = spyOn(child_process, 'spawnSync').mockReturnValue({
       status: 0, signal: null, output: [], pid: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0),
@@ -63,8 +63,9 @@ describe('shellFallback', () => {
 
     expect(spawnMock).toHaveBeenCalled();
     const call = spawnMock.mock.calls[0];
-    expect(call[0]).toBe('bash');
-    expect(call[1]).toContain(path.join(ralphRoot, 'lib', 'ralph_plan.sh'));
+    // plan is not in COMMAND_SCRIPT_MAP → falls back to bin/ralph
+    expect(call[0]).toBe(path.join(ralphRoot, 'bin', 'ralph'));
+    expect(call[1]).toEqual(['plan']);
     expect(processExitMock).toHaveBeenCalledWith(0);
 
     spawnMock.mockRestore();
@@ -112,7 +113,7 @@ describe('shellFallback', () => {
     } as any);
 
     const { shellFallback } = await import('../../src/commands/fallback');
-    shellFallback('plan', []);
+    shellFallback('run', []);
 
     const call = spawnMock.mock.calls[0];
     const env = call[2]?.env as Record<string, string>;
@@ -131,7 +132,7 @@ describe('shellFallback', () => {
     } as any);
 
     const { shellFallback } = await import('../../src/commands/fallback');
-    shellFallback('plan', []);
+    shellFallback('run', []);
 
     const call = spawnMock.mock.calls[0];
     expect(call[2]?.stdio).toBe('inherit');
@@ -146,7 +147,7 @@ describe('shellFallback', () => {
     } as any);
 
     const { shellFallback } = await import('../../src/commands/fallback');
-    shellFallback('plan', []);
+    shellFallback('run', []);
 
     expect(processExitMock).toHaveBeenCalledWith(42);
 
@@ -160,7 +161,7 @@ describe('shellFallback', () => {
     } as any);
 
     const { shellFallback } = await import('../../src/commands/fallback');
-    shellFallback('plan', []);
+    shellFallback('run', []);
 
     expect(processExitMock).toHaveBeenCalledWith(1);
 
@@ -266,12 +267,12 @@ describe('forceShellFallback', () => {
 describe('COMMAND_SCRIPT_MAP', () => {
   test('exports correct command-to-script mapping', async () => {
     const { COMMAND_SCRIPT_MAP } = await import('../../src/commands/fallback');
-    expect(COMMAND_SCRIPT_MAP.plan).toBe('ralph_plan.sh');
     expect(COMMAND_SCRIPT_MAP.run).toBe('ralph_loop.sh');
   });
 
-  test('init, summarize, and narrate are not in script map', async () => {
+  test('plan, init, summarize, and narrate are not in script map', async () => {
     const { COMMAND_SCRIPT_MAP } = await import('../../src/commands/fallback');
+    expect(COMMAND_SCRIPT_MAP).not.toHaveProperty('plan');
     expect(COMMAND_SCRIPT_MAP).not.toHaveProperty('init');
     expect(COMMAND_SCRIPT_MAP).not.toHaveProperty('summarize');
     expect(COMMAND_SCRIPT_MAP).not.toHaveProperty('narrate');
