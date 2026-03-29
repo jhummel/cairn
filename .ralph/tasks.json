@@ -2,33 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 3,
-      "priority": 3,
-      "title": "TDD: Health check module",
-      "description": "Create src/health-check.ts and test/health-check.test.ts. Port the pre-iteration health check from ralph_execute.sh (lines 466-500).\n\nImplement:\n- runHealthCheck(opts: { healthCheck: string, taskDir: string, projectRoot: string }): Promise<{ status: 'ok' | 'skipped' | 'failed', output?: string }>\n\nBehavior:\n- If no health check configured (empty string), return { status: 'skipped' }\n- Context-aware skipping: if health check is 'npm run type-check', verify the task directory has a package.json with a 'type-check' script before running. If not present, skip.\n- For 'cargo check': run unconditionally\n- Run the command via child_process (async), capture stdout+stderr. On failure, return last ~30 lines of error output in the output field.\n- Return { status: 'ok' } on success, { status: 'failed', output: '...' } on failure\n\nThe output from a failed health check gets prepended to the iteration prompt by the caller (run.ts), so format it clearly.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-3",
-      "notes": "13 tests passing. runHealthCheck implements: empty string → skipped, npm run type-check → context-aware skip (no package.json or no type-check script), all other commands run unconditionally. Failure output formatted with BUILD HEALTH CHECK FAILED header + last 30 lines. cwd resolved as projectRoot+taskDir (or projectRoot if taskDir empty).",
-      "files": [
-        "src/health-check.ts",
-        "test/health-check.test.ts",
-        "lib/ralph_execute.sh"
-      ],
-      "tests": [
-        "bun test test/health-check.test.ts"
-      ],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 4,
       "priority": 4,
       "title": "TDD: Test validator module",
       "description": "Create src/test-validator.ts and test/test-validator.test.ts. Port the post-iteration test validation from ralph_execute.sh (lines 551-627).\n\nImplement:\n- validateTaskTests(opts: { task: Task, tasksFilePath: string, projectRoot: string }): Promise<{ status: 'passed' | 'failed' | 'error' | 'skipped', message?: string }>\n\nBehavior:\n- Read task meta to get test commands from task.tests array\n- If no tests defined, return { status: 'skipped' }\n- Check if the task was marked complete in tasks.json (re-read file to get current status)\n- Run each test command from the task's resolved directory (projectRoot + task.directory) with a 120s timeout\n- Smart failure detection: distinguish 'can't run' (missing script, MODULE_NOT_FOUND, command not found \u2192 exit code 127) from 'ran but failed' (non-zero exit with test output)\n- On real test failure: revert task status to 'in-progress' in tasks.json, append failure note to task.notes, return { status: 'failed', message }\n- On infrastructure error (can't run): append note but DON'T revert status, return { status: 'error', message }\n- On all tests passing: return { status: 'passed' }\n\nMake the file I/O (reading/writing tasks.json) injectable or use the filesystem directly as the shell version does.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T12:15:00Z",
+      "completedBy": "iteration-4",
+      "notes": "17 tests passing. Covers: skipped (no tests, empty tests, not complete, not found), passed (single/multiple commands), failed (reverts status, appends notes, stops at first failure), error (exit 127, missing script, MODULE_NOT_FOUND, ENOENT — does NOT revert), timeout (configurable via timeoutMs opt), directory resolution, re-reads tasks.json for current status. Used 'true' instead of 'exit 0' in tests to avoid sh spawning timeouts in bun test.",
       "files": [
         "src/test-validator.ts",
         "test/test-validator.test.ts",
