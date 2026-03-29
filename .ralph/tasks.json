@@ -2,35 +2,11 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 13,
-      "priority": 13,
-      "title": "Update plan [r]un to call native run",
-      "description": "In src/commands/plan.ts, the reviewTasksLoop function's [r]un handler currently calls shellFallbackFn('run', []) (line ~624). Change this to call the native runRun() function directly.\n\nChanges:\n- Update the ShellFallbackFn type or add a new RunFn type for the injectable dependency\n- In reviewTasksLoop, replace shellFallbackFn('run', []) with a call to the native run function\n- In runPlan() (line ~765-770), update the lazy-loaded dependency injection to provide the native run function instead of shellFallback\n- The injectable dependency pattern already supports this \u2014 just swap what gets injected\n\nUpdate test/commands/plan.test.ts:\n- Update mocks to reflect the new dependency type\n- Verify that [r]un menu option calls the native run function",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-5",
-      "notes": "Replaced shellFallbackFn with runFn (type: () => void | Promise<void>) in ReviewTasksLoopOpts and RunPlanOpts. In runPlan(), the lazy-loaded closure now calls runRun() with loadConfig(projectRoot) to get config. All 106 plan tests pass.",
-      "files": [
-        "src/commands/plan.ts",
-        "test/commands/plan.test.ts",
-        "src/commands/run.ts"
-      ],
-      "tests": [
-        "bun test test/commands/plan.test.ts"
-      ],
-      "dependencies": [
-        12
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 14,
       "priority": 14,
       "title": "Verify bun build --compile with run + narrate",
       "description": "Verify that the compiled binary includes and correctly dispatches the new run and narrate commands.\n\nSteps:\n1. Run 'bun build --compile src/index.ts --outfile dist/ralph' (the existing build script)\n2. Test the binary: dist/ralph --version, dist/ralph --help\n3. Verify 'dist/ralph run --help' shows the run command with [max] argument\n4. Verify 'dist/ralph narrate --help' shows the narrate command with <action> argument\n5. Verify that no shell fallback commands remain (SHELL_FALLBACK_COMMANDS should be empty)\n6. Run the full test suite: bun test\n7. If any issues found, fix them and re-verify\n\nThis is a validation task \u2014 the goal is to catch any compilation or runtime issues before the phase is considered complete.",
       "directory": "",
-      "status": "pending",
       "files": [
         "src/index.ts",
         "package.json",
@@ -43,7 +19,11 @@
         12,
         13
       ],
-      "model": "opus"
+      "model": "opus",
+      "status": "complete",
+      "completedAt": "2026-03-29T18:45:00Z",
+      "completedBy": "iteration-6",
+      "notes": "All verifications passed. Binary compiles (30 modules, 2.4s). dist/ralph --version, --help, run --help, narrate --help all work correctly. SHELL_FALLBACK_COMMANDS is empty []. Full test suite: 601 tests pass, 0 failures, 1126 expect() calls. No code changes needed — everything works out of the box."
     }
   ]
 }
