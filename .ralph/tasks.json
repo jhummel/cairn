@@ -2,34 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 6,
-      "priority": 6,
-      "title": "TDD: Shared narration helpers",
-      "description": "Create src/narration.ts and test/narration.test.ts. Extract narration server lifecycle logic shared by both run.ts and narrate.ts.\n\nImplement:\n- startNarrationServer(opts: { pythonPath: string, scriptPath: string, voice: string, socketPath?: string }): Promise<number> \u2014 Spawn the Python narration server as a detached child process. Returns PID. Verify startup via health check after ~1s delay. socketPath defaults to /tmp/ralph-tts.sock.\n- stopNarrationServer(pid: number, socketPath?: string): Promise<void> \u2014 Kill the server process, clean up socket file.\n- checkNarrationHealth(socketPath?: string): Promise<boolean> \u2014 PING/PONG health check over Unix domain socket with 2s timeout. Returns true if healthy.\n\nNote: sendToNarrate() already exists in src/stream-filter.ts (lines 110-132) \u2014 that handles sending text TO the server. These helpers manage the server LIFECYCLE (start/stop/health).\n\nBoth the run command (managed lifecycle during loop) and narrate command (daemon lifecycle with PID file) will compose these helpers. Use detached: true and child.unref() for background spawning.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-6",
-      "notes": "12 tests passing. Covers: checkNarrationHealth (no socket, PONG success, wrong response, timeout), stopNarrationServer (cleans socket, no-op on missing socket, ignores dead process, default socket path), startNarrationServer (throws on missing pythonPath, returns PID when healthy, throws on health check failure). Key quirk: Bun's child_process.spawn throws synchronously for ENOENT, bypassing try/catch — fixed by adding existsSync pre-check in startNarrationServer. Socket timeout test uses 5s test timeout to accommodate 2s socket timeout.",
-      "files": [
-        "src/narration.ts",
-        "test/narration.test.ts",
-        "src/stream-filter.ts",
-        "lib/ralph_execute.sh"
-      ],
-      "tests": [
-        "bun test test/narration.test.ts"
-      ],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 7,
       "priority": 7,
       "title": "TDD: Narrate command",
       "description": "Create src/commands/narrate.ts and test/commands/narrate.test.ts. Port the narrate subcommand from bin/ralph (lines 107-178).\n\nImplement:\n- runNarrate(action: string): Promise<void>\n\nSubcommands:\n- 'on' / 'start': Check if already running (PID file at /tmp/ralph-tts.pid), spawn Python narration server as detached background process using startNarrationServer() from src/narration.ts, write PID file, verify startup\n- 'off' / 'stop': Read PID file, kill process via stopNarrationServer(), clean up PID file and socket\n- 'status': Check PID file exists and process is alive (process.kill(pid, 0))\n- Any other string: Spawn ralph_narrate.py directly for one-shot TTS (exec-style, not background). Use spawnSync with stdio: 'inherit'.\n\nValidation: before any action, verify that the venv Python exists at RALPH_NARRATE_PYTHON env var. Error with clear message if missing.\n\nUse shared narration helpers from src/narration.ts. Follow the same command pattern as other commands in src/commands/.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-7",
+      "notes": "14 tests passing. Covers all subcommands: status (stopped/stale/running), on/start (already-running, starts+writes PID, cleans PID on failure), off/stop (not-running, stops+removes PID), one-shot TTS (spawnSync with inherited stdio). Injectable deps (startServer, stopServer, spawnSyncFn) allow full unit testing without real processes. Bun module cache means tests share imported module across its — each test that checks env validation works because dynamic import re-resolves per test.",
       "files": [
         "src/commands/narrate.ts",
         "test/commands/narrate.test.ts",
