@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 5,
-      "priority": 4,
-      "title": "TDD: Port init command \u2014 interactive prompts",
-      "description": "Add interactive prompts for ralph.json configuration to src/commands/init.ts. Write tests first.\n\nRead lib/ralph_init.sh to understand all prompts. Use Node's built-in readline/promises for interactive input. Key behaviors:\n\n1. Prompt for each ralph.json field with sensible defaults (auto-detected where possible):\n   - Project name (default: directory basename)\n   - Health check command (auto-detect from package.json/Cargo.toml/Makefile)\n   - Test command\n   - Implementation file name (default: IMPLEMENTATION.md)\n   - Model preference (default: opus)\n   - Max iterations (default: 25)\n   - And other fields from the shell version\n2. Boolean prompts: show [Y/n] when default is true, [y/N] when default is false. Accept y/yes/n/no case-insensitive, empty = default.\n3. Re-init support: if ralph.json already exists, load its values as defaults for all prompts.\n4. Write ralph.json with the collected values.\n\nExtract prompt helpers as testable functions. For testing, create a mock readline interface that returns predetermined answers. Test default values, boolean parsing, re-init default loading, and final JSON output.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T12:15:00Z",
-      "completedBy": "iteration-7",
-      "notes": "Implemented interactive prompt system for ralph.json configuration. Exported: parseBooleanInput (y/yes/n/no case-insensitive, empty=default), getConfigDefaults (loads from existing ralph.json + auto-detects health check), promptForConfig (runs all prompts via PromptInterface abstraction), writeRalphJson. PromptInterface allows easy mocking for tests. Conditional narration sub-prompts only appear when narration is enabled. 44 tests (31 new), all pass. Full suite: 239 tests pass.",
-      "files": [
-        "src/commands/init.ts",
-        "test/commands/init.test.ts",
-        "lib/ralph_init.sh"
-      ],
-      "tests": [
-        "bun test test/commands/init.test.ts"
-      ],
-      "dependencies": [
-        4
-      ],
-      "model": "opus"
-    },
-    {
       "id": 6,
       "priority": 5,
       "title": "TDD: Port init command \u2014 instructions.md and narration hooks",
       "description": "Add optional instructions.md creation and narration hooks installation to the init command. Write tests first.\n\n1. instructions.md: After ralph.json prompts, ask if the user wants to create .ralph/instructions.md. If yes, create the file with a template/placeholder, then open it in $EDITOR (fall back to vi). If $EDITOR launch fails, just print the path.\n2. Narration hooks: Ask if the user wants to install Claude Code narration hooks. If yes, create .claude/hooks/ directory and install the hook scripts (match the shell version's behavior for what hooks are installed).\n3. Display 'Next steps' message at the end showing what was created and suggesting next commands (ralph plan, etc.).\n\nWire everything together into a top-level runInit() function that calls initCoreFiles, runs prompts, then handles instructions.md and hooks.\n\nFor testing: mock $EDITOR and child_process.spawnSync. Test the prompt flow, file creation, and next-steps output. Use temp directories.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-8",
+      "notes": "Implemented createInstructionsFile (prompts, creates file, launches $EDITOR via injectable SpawnSyncFn, falls back to vi, adds to .gitignore), installNarrationHooks (only when narration enabled, installs narrate.sh/speak.sh/notify.sh matching shell version's content), showNextSteps, and runInit top-level orchestrator. SpawnSyncFn is injectable for test mocking. 67 tests total (23 new), all pass. Build health check bun PATH error is pre-existing (task #11).",
       "files": [
         "src/commands/init.ts",
         "test/commands/init.test.ts",
