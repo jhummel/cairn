@@ -1,6 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawn as nodeSpawn, type ChildProcess } from 'child_process';
+import type { Readable, Writable } from 'stream';
 import type { RalphConfig, AgentInfo } from '../types';
+import { type ProcessManager } from '../process';
+import { processStream, type ProcessStreamOptions } from '../stream-filter';
 
 export interface SystemPromptInput {
   taskDir: string;
@@ -133,4 +137,117 @@ CRITICAL RULES:
 - Keep responses concise. Use Edit for surgical changes — do NOT Write entire large files in one shot.`;
 
   return prompt;
+}
+
+// --- Claude agent spawner ---
+
+type SpawnFn = (
+  cmd: string,
+  args: string[],
+  opts: { cwd: string; env: Record<string, string | undefined>; stdio: any[] },
+) => ChildProcess;
+
+type ProcessStreamFn = (
+  input: Readable,
+  output: Writable,
+  options?: ProcessStreamOptions,
+) => Promise<void>;
+
+export interface SpawnClaudeDeps {
+  spawn?: SpawnFn;
+  processStreamFn?: ProcessStreamFn;
+}
+
+export interface SpawnClaudeOpts {
+  prompt: string;
+  systemPrompt: string;
+  model: string;
+  projectRoot: string;
+  taskDir: string;
+  timeout: number;
+  processManager: ProcessManager;
+  streamOpts?: ProcessStreamOptions;
+  deps?: SpawnClaudeDeps;
+}
+
+/**
+ * Spawn a Claude agent process, pipe the prompt to stdin, stream stdout
+ * through processStream, and return the exit code.
+ * Ports run_claude() from ralph_execute.sh.
+ */
+export async function spawnClaude(opts: SpawnClaudeOpts): Promise<{ exitCode: number }> {
+  const {
+    prompt,
+    systemPrompt,
+    model,
+    projectRoot,
+    taskDir,
+    timeout,
+    processManager,
+    streamOpts,
+    deps,
+  } = opts;
+
+  const doSpawn: SpawnFn = deps?.spawn ?? (nodeSpawn as any);
+  const doProcessStream: ProcessStreamFn = deps?.processStreamFn ?? processStream;
+
+  const cwd = taskDir ? path.join(projectRoot, taskDir) : projectRoot;
+
+  // Unset ANTHROPIC_API_KEY to force Max plan usage
+  const env = { ...process.env, ANTHROPIC_API_KEY: '' };
+
+  const args = [
+    '-p',
+    '--append-system-prompt', systemPrompt,
+    '--dangerously-skip-permissions',
+    '--output-format', 'stream-json',
+    '--model', model,
+    '--verbose',
+  ];
+
+  const child = doSpawn('claude', args, {
+    cwd,
+    env,
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+
+  // Register with ProcessManager for signal cleanup
+  if (child.pid) {
+    processManager.register('claude', child.pid);
+  }
+
+  // Write prompt to stdin and close
+  child.stdin!.write(prompt);
+  child.stdin!.end();
+
+  // Pipe stdout through stream filter
+  const streamPromise = doProcessStream(child.stdout!, process.stdout, streamOpts);
+
+  // Set up timeout
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+  if (timeout > 0) {
+    timeoutTimer = setTimeout(() => {
+      child.kill('SIGTERM');
+    }, timeout);
+  }
+
+  // Wait for child to exit
+  const exitCode = await new Promise<number>((resolve) => {
+    child.on('close', (code: number | null) => {
+      resolve(code ?? 1);
+    });
+  });
+
+  // Clear timeout on normal exit
+  if (timeoutTimer) {
+    clearTimeout(timeoutTimer);
+  }
+
+  // Wait for stream processing to finish
+  await streamPromise.catch(() => {});
+
+  // Unregister from ProcessManager
+  processManager.unregister('claude');
+
+  return { exitCode };
 }

@@ -2,36 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 8,
-      "priority": 8,
-      "title": "TDD: System prompt builder for run command",
-      "description": "Create the initial src/commands/run.ts and test/commands/run.test.ts with the system prompt builder.\n\nImplement:\n- buildSystemPrompt(opts: { taskDir: string, taskAgent: string, projectRoot: string, dataDir: string, config: RalphConfig, agents: AgentInfo[], iteration: number, commitPrefix?: string }): string\n\nPort build_system_prompt() from ralph_execute.sh (lines 148-259). Pure function that returns the prompt string.\n\nPrompt sections:\n1. SPECIALIST INSTRUCTIONS \u2014 if taskAgent is set, find matching agent in agents array, read its .md file, strip YAML frontmatter (reuse the pattern from discoverAgents in config.ts lines 95-106), embed body\n2. PROJECT CONTEXT \u2014 project name, description, personal instructions from $dataDir/instructions.md (if exists)\n3. DIRECTORY \u2014 working directory info based on taskDir (relative path or project root)\n4. WORKFLOW \u2014 6-point numbered workflow: set in-progress, implement, run tests, mark complete with ISO timestamp + iteration-N, create .ralph_complete flag if no remaining tasks, git commit with [$commitPrefix] Task #<id>: <title>\n5. DISCOVERY RULES \u2014 up to 3 new tasks, update CLAUDE.md operationally\n6. CRITICAL RULES \u2014 work on exactly one task, set status first, mark complete before flag\n\nFollow the same pattern as buildPlanningPrompt() and buildTaskGenPrompt() in plan.ts.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T12:45:00Z",
-      "completedBy": "iteration-8",
-      "notes": "25 tests passing. buildSystemPrompt() is a pure function porting build_system_prompt() from ralph_execute.sh. Includes stripFrontmatter() helper for agent .md files. All 6 prompt sections implemented: specialist instructions, project context (name/desc/personal instructions), directory, workflow (with dynamic test instruction and commit prefix), discovery rules, critical rules. SystemPromptInput interface exported for use by future tasks (spawnClaude, runRun).",
-      "files": [
-        "src/commands/run.ts",
-        "test/commands/run.test.ts",
-        "lib/ralph_execute.sh",
-        "src/commands/plan.ts",
-        "src/config.ts",
-        "src/types.ts"
-      ],
-      "tests": [
-        "bun test test/commands/run.test.ts"
-      ],
-      "dependencies": [],
-      "model": "opus"
-    },
-    {
       "id": 9,
       "priority": 9,
       "title": "TDD: Claude agent spawner",
       "description": "Add the Claude agent spawning logic to src/commands/run.ts and test/commands/run.test.ts.\n\nImplement:\n- spawnClaude(opts: { prompt: string, systemPrompt: string, model: string, projectRoot: string, taskDir: string, timeout: number, processManager: ProcessManager, streamOpts?: ProcessStreamOptions }): Promise<{ exitCode: number }>\n\nPort the run_claude() function from ralph_execute.sh (lines 502-530).\n\nBehavior:\n- Unset ANTHROPIC_API_KEY in the child env (forces Max plan, matching shell behavior)\n- Spawn claude -p with args: --append-system-prompt <systemPrompt>, --dangerously-skip-permissions, --output-format stream-json, --model <model>, --verbose\n- Set cwd to resolved task directory (projectRoot + taskDir, or projectRoot if empty)\n- Write the prompt to stdin, then close stdin\n- Pipe stdout through processStream() from src/stream-filter.ts (already ported, supports narrate/ntfy callbacks)\n- Register the child process with ProcessManager for cleanup on signals\n- Timeout via setTimeout + child.kill() \u2014 deregister timeout on normal exit\n- Return { exitCode } from the child process\n\nUse child_process.spawn (NOT spawnSync \u2014 need async for stream piping). Make it testable by allowing mock of the actual spawn call.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T12:15:00Z",
+      "completedBy": "iteration-1",
+      "notes": "Implemented spawnClaude() with full test coverage (12 tests). Function is injectable via SpawnClaudeDeps for testing — spawn and processStreamFn can be mocked. Tests cover: arg construction, env var unsetting, cwd resolution, stdin writing, stdout streaming, ProcessManager registration/unregistration, exit codes, timeout kill, and timeout cleanup on normal exit.",
       "files": [
         "src/commands/run.ts",
         "test/commands/run.test.ts",

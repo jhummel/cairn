@@ -1,8 +1,11 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { buildSystemPrompt, type SystemPromptInput } from '../../src/commands/run';
+import { EventEmitter } from 'events';
+import { Readable, Writable, PassThrough } from 'stream';
+import { buildSystemPrompt, spawnClaude, type SystemPromptInput, type SpawnClaudeDeps } from '../../src/commands/run';
+import { ProcessManager } from '../../src/process';
 import type { RalphConfig, AgentInfo } from '../../src/types';
 
 function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
@@ -261,5 +264,324 @@ Agent body here.`);
     const discoveryIdx = prompt.indexOf('DISCOVER AND DOCUMENT:');
     const criticalIdx = prompt.indexOf('CRITICAL RULES:');
     expect(discoveryIdx).toBeLessThan(criticalIdx);
+  });
+});
+
+// --- spawnClaude tests ---
+
+/** Create a mock ChildProcess-like EventEmitter with stdin/stdout */
+function makeMockChild(exitCode = 0) {
+  const child = new EventEmitter() as EventEmitter & {
+    stdin: PassThrough;
+    stdout: PassThrough;
+    pid: number;
+    kill: ReturnType<typeof mock>;
+  };
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.pid = 12345;
+  child.kill = mock(() => {});
+  return { child, exit: (code: number) => child.emit('close', code) };
+}
+
+function makeDeps(child: ReturnType<typeof makeMockChild>['child']): SpawnClaudeDeps {
+  return {
+    spawn: mock(() => child as any),
+    processStreamFn: mock(async () => {}),
+  };
+}
+
+describe('spawnClaude', () => {
+  let pm: ProcessManager;
+
+  beforeEach(() => {
+    pm = new ProcessManager({ kill: () => true });
+  });
+
+  afterEach(() => {
+    pm.dispose();
+  });
+
+  test('spawns claude with correct args', async () => {
+    const { child, exit } = makeMockChild();
+    const deps = makeDeps(child);
+
+    const promise = spawnClaude({
+      prompt: 'do stuff',
+      systemPrompt: 'you are helpful',
+      model: 'opus',
+      projectRoot: '/projects/app',
+      taskDir: '',
+      timeout: 60000,
+      processManager: pm,
+      deps,
+    });
+
+    // Let the spawn happen, then exit
+    await Bun.sleep(10);
+    exit(0);
+    const result = await promise;
+
+    expect(result.exitCode).toBe(0);
+
+    const spawnCall = (deps.spawn as ReturnType<typeof mock>).mock.calls[0];
+    const [cmd, args, opts] = spawnCall;
+
+    expect(cmd).toBe('claude');
+    expect(args).toContain('-p');
+    expect(args).toContain('--append-system-prompt');
+    expect(args).toContain('you are helpful');
+    expect(args).toContain('--dangerously-skip-permissions');
+    expect(args).toContain('--output-format');
+    expect(args).toContain('stream-json');
+    expect(args).toContain('--model');
+    expect(args).toContain('opus');
+    expect(args).toContain('--verbose');
+  });
+
+  test('unsets ANTHROPIC_API_KEY in child env', async () => {
+    const { child, exit } = makeMockChild();
+    const deps = makeDeps(child);
+
+    const promise = spawnClaude({
+      prompt: 'test',
+      systemPrompt: 'sys',
+      model: 'sonnet',
+      projectRoot: '/app',
+      taskDir: '',
+      timeout: 60000,
+      processManager: pm,
+      deps,
+    });
+
+    await Bun.sleep(10);
+    exit(0);
+    await promise;
+
+    const spawnCall = (deps.spawn as ReturnType<typeof mock>).mock.calls[0];
+    const opts = spawnCall[2];
+    expect(opts.env.ANTHROPIC_API_KEY).toBe('');
+  });
+
+  test('sets cwd to projectRoot when taskDir is empty', async () => {
+    const { child, exit } = makeMockChild();
+    const deps = makeDeps(child);
+
+    const promise = spawnClaude({
+      prompt: 'test',
+      systemPrompt: 'sys',
+      model: 'sonnet',
+      projectRoot: '/projects/app',
+      taskDir: '',
+      timeout: 60000,
+      processManager: pm,
+      deps,
+    });
+
+    await Bun.sleep(10);
+    exit(0);
+    await promise;
+
+    const opts = (deps.spawn as ReturnType<typeof mock>).mock.calls[0][2];
+    expect(opts.cwd).toBe('/projects/app');
+  });
+
+  test('sets cwd to projectRoot + taskDir when taskDir is set', async () => {
+    const { child, exit } = makeMockChild();
+    const deps = makeDeps(child);
+
+    const promise = spawnClaude({
+      prompt: 'test',
+      systemPrompt: 'sys',
+      model: 'sonnet',
+      projectRoot: '/projects/app',
+      taskDir: 'src/lib',
+      timeout: 60000,
+      processManager: pm,
+      deps,
+    });
+
+    await Bun.sleep(10);
+    exit(0);
+    await promise;
+
+    const opts = (deps.spawn as ReturnType<typeof mock>).mock.calls[0][2];
+    expect(opts.cwd).toBe('/projects/app/src/lib');
+  });
+
+  test('writes prompt to stdin and closes it', async () => {
+    const { child, exit } = makeMockChild();
+    const deps = makeDeps(child);
+
+    let writtenData = '';
+    child.stdin.on('data', (chunk: Buffer) => {
+      writtenData += chunk.toString();
+    });
+
+    const promise = spawnClaude({
+      prompt: 'hello world',
+      systemPrompt: 'sys',
+      model: 'sonnet',
+      projectRoot: '/app',
+      taskDir: '',
+      timeout: 60000,
+      processManager: pm,
+      deps,
+    });
+
+    await Bun.sleep(10);
+    exit(0);
+    await promise;
+
+    expect(writtenData).toBe('hello world');
+  });
+
+  test('pipes stdout through processStream', async () => {
+    const { child, exit } = makeMockChild();
+    const deps = makeDeps(child);
+
+    const promise = spawnClaude({
+      prompt: 'test',
+      systemPrompt: 'sys',
+      model: 'sonnet',
+      projectRoot: '/app',
+      taskDir: '',
+      timeout: 60000,
+      processManager: pm,
+      deps,
+    });
+
+    await Bun.sleep(10);
+    exit(0);
+    await promise;
+
+    expect(deps.processStreamFn).toHaveBeenCalledTimes(1);
+    // First arg should be the child's stdout
+    const callArgs = (deps.processStreamFn as ReturnType<typeof mock>).mock.calls[0];
+    expect(callArgs[0]).toBe(child.stdout);
+  });
+
+  test('passes streamOpts to processStream', async () => {
+    const { child, exit } = makeMockChild();
+    const deps = makeDeps(child);
+    const streamOpts = { truncateText: true, taskContext: 'Task #1' };
+
+    const promise = spawnClaude({
+      prompt: 'test',
+      systemPrompt: 'sys',
+      model: 'sonnet',
+      projectRoot: '/app',
+      taskDir: '',
+      timeout: 60000,
+      processManager: pm,
+      streamOpts,
+      deps,
+    });
+
+    await Bun.sleep(10);
+    exit(0);
+    await promise;
+
+    const callArgs = (deps.processStreamFn as ReturnType<typeof mock>).mock.calls[0];
+    expect(callArgs[2]).toEqual(streamOpts);
+  });
+
+  test('registers child with ProcessManager', async () => {
+    const { child, exit } = makeMockChild();
+    const deps = makeDeps(child);
+
+    const promise = spawnClaude({
+      prompt: 'test',
+      systemPrompt: 'sys',
+      model: 'sonnet',
+      projectRoot: '/app',
+      taskDir: '',
+      timeout: 60000,
+      processManager: pm,
+      deps,
+    });
+
+    await Bun.sleep(10);
+
+    // While running, PID should be registered
+    const pids = pm.registeredPids();
+    expect(pids['claude']).toBe(12345);
+
+    exit(0);
+    await promise;
+
+    // After exit, PID should be unregistered
+    expect(pm.registeredPids()['claude']).toBeUndefined();
+  });
+
+  test('returns non-zero exit code on failure', async () => {
+    const { child, exit } = makeMockChild();
+    const deps = makeDeps(child);
+
+    const promise = spawnClaude({
+      prompt: 'test',
+      systemPrompt: 'sys',
+      model: 'sonnet',
+      projectRoot: '/app',
+      taskDir: '',
+      timeout: 60000,
+      processManager: pm,
+      deps,
+    });
+
+    await Bun.sleep(10);
+    exit(1);
+    const result = await promise;
+
+    expect(result.exitCode).toBe(1);
+  });
+
+  test('kills child process on timeout', async () => {
+    const { child, exit } = makeMockChild();
+    const deps = makeDeps(child);
+
+    const promise = spawnClaude({
+      prompt: 'test',
+      systemPrompt: 'sys',
+      model: 'sonnet',
+      projectRoot: '/app',
+      taskDir: '',
+      timeout: 50, // very short timeout
+      processManager: pm,
+      deps,
+    });
+
+    // Wait for timeout to fire
+    await Bun.sleep(100);
+    // The kill should have been called
+    expect(child.kill).toHaveBeenCalled();
+
+    // Now close the child so the promise resolves
+    exit(124);
+    const result = await promise;
+    expect(result.exitCode).toBe(124);
+  });
+
+  test('clears timeout on normal exit', async () => {
+    const { child, exit } = makeMockChild();
+    const deps = makeDeps(child);
+
+    const promise = spawnClaude({
+      prompt: 'test',
+      systemPrompt: 'sys',
+      model: 'sonnet',
+      projectRoot: '/app',
+      taskDir: '',
+      timeout: 30000,
+      processManager: pm,
+      deps,
+    });
+
+    await Bun.sleep(10);
+    exit(0);
+    await promise;
+
+    // child.kill should NOT have been called since we exited normally
+    expect(child.kill).not.toHaveBeenCalled();
   });
 });
