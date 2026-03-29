@@ -2,29 +2,22 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 1,
-      "priority": 1,
-      "title": "Move tasks.schema.json to src/",
-      "description": "Copy `lib/tasks.schema.json` to `src/tasks-schema.json`. Verify the contents match exactly. Do NOT modify any shell scripts — they are frozen and will continue reading from their own path via `$RALPH_LIB_DIR`. The TS code will read from `src/tasks-schema.json` via `fs.readFileSync` resolved relative to `import.meta.dir`.",
-      "directory": "",
-      "status": "complete",
-      "files": ["lib/tasks.schema.json", "src/tasks-schema.json"],
-      "tests": ["bun test"],
-      "dependencies": [],
-      "model": "sonnet",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-1",
-      "notes": "Created src/tasks-schema.json as exact copy of lib/tasks.schema.json. Contents verified identical. Shell scripts continue reading from lib/ via $RALPH_LIB_DIR. All 270 tests pass."
-    },
-    {
       "id": 2,
       "priority": 1,
       "title": "TDD: Extract narration/ntfy as standalone callable functions",
       "description": "In `src/stream-filter.ts`, `sendToNarrate` and `sendNtfy` are already exported. Verify they are cleanly callable standalone (without needing the full stream-processing context). If they depend on ProcessStreamOptions or other stream state, refactor so they can be called independently with just the message text and config. Write tests in `test/stream-filter.test.ts` (or a new `test/notifications.test.ts`) that call `sendNtfy` and `sendToNarrate` directly, mocking the network/socket layer. The plan command will call these at session boundaries (start/end of planning, start/end of task generation).",
       "directory": "",
-      "status": "pending",
-      "files": ["src/stream-filter.ts", "test/stream-filter.test.ts"],
-      "tests": ["bun test"],
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-2",
+      "notes": "sendToNarrate and sendNtfy were already cleanly standalone — both take only (text, socketPath) and (message, topic, opts) respectively, with no dependency on ProcessStreamOptions or stream state. Tests in test/stream-filter.test.ts (lines 403-514) already covered direct calls with mocked socket server and mocked fetch. No refactoring needed. All 270 tests pass.",
+      "files": [
+        "src/stream-filter.ts",
+        "test/stream-filter.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
@@ -32,11 +25,16 @@
       "id": 3,
       "priority": 1,
       "title": "TDD: Build shared menu helper",
-      "description": "Create `src/menu.ts` and `test/menu.test.ts`. The menu helper should:\n\n1. Accept a list of options, each with: `key` (single char), `label` (display string), `handler` (async function returning `{ exit: boolean }` or similar signal)\n2. Display the options formatted like `[g]enerate  [e]dit  [p]lan  [q]uit`\n3. Prompt for input using `readline/promises` (Node built-in)\n4. Match input to option key (case-insensitive), dispatch to handler\n5. Loop until a handler signals exit\n6. Accept an injectable readline interface for testability — tests should pass a mock readline that returns predetermined answers\n\nExport a function like `runMenu(options, readline?)` that returns the result of the exiting handler.\n\nTest cases: single selection exits, loop continues on non-exit handler, invalid input re-prompts, case-insensitive matching.",
+      "description": "Create `src/menu.ts` and `test/menu.test.ts`. The menu helper should:\n\n1. Accept a list of options, each with: `key` (single char), `label` (display string), `handler` (async function returning `{ exit: boolean }` or similar signal)\n2. Display the options formatted like `[g]enerate  [e]dit  [p]lan  [q]uit`\n3. Prompt for input using `readline/promises` (Node built-in)\n4. Match input to option key (case-insensitive), dispatch to handler\n5. Loop until a handler signals exit\n6. Accept an injectable readline interface for testability \u2014 tests should pass a mock readline that returns predetermined answers\n\nExport a function like `runMenu(options, readline?)` that returns the result of the exiting handler.\n\nTest cases: single selection exits, loop continues on non-exit handler, invalid input re-prompts, case-insensitive matching.",
       "directory": "",
       "status": "pending",
-      "files": ["src/menu.ts", "test/menu.test.ts"],
-      "tests": ["bun test"],
+      "files": [
+        "src/menu.ts",
+        "test/menu.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
       "dependencies": [],
       "model": "opus"
     },
@@ -44,11 +42,17 @@
       "id": 4,
       "priority": 1,
       "title": "TDD: Port preflight display",
-      "description": "Add preflight display functions to `src/commands/plan.ts` and tests in `test/commands/plan.test.ts`.\n\nPort the preflight section from `lib/ralph_plan.sh` (lines ~64-113) that shows:\n- Project name banner (e.g., `\\n  Project: my-project\\n`)\n- Existing planning notes status (exists / not found, with path)\n- Completed task count from `tasks.completed.json`\n- Current `tasks.json` summary: status counts (e.g., `2 pending, 1 complete`) + per-task listing with status icons (`✓ ○ ▶ ✗`)\n\nReuse the `STATUS_ICONS` pattern from `src/commands/status.ts`. Extract as pure functions that take data and return formatted strings (or print to console). Use `console.log` spying in tests (same pattern as `test/commands/status.test.ts`).\n\nUse temp directories with fixture JSON files for testing.",
+      "description": "Add preflight display functions to `src/commands/plan.ts` and tests in `test/commands/plan.test.ts`.\n\nPort the preflight section from `lib/ralph_plan.sh` (lines ~64-113) that shows:\n- Project name banner (e.g., `\\n  Project: my-project\\n`)\n- Existing planning notes status (exists / not found, with path)\n- Completed task count from `tasks.completed.json`\n- Current `tasks.json` summary: status counts (e.g., `2 pending, 1 complete`) + per-task listing with status icons (`\u2713 \u25cb \u25b6 \u2717`)\n\nReuse the `STATUS_ICONS` pattern from `src/commands/status.ts`. Extract as pure functions that take data and return formatted strings (or print to console). Use `console.log` spying in tests (same pattern as `test/commands/status.test.ts`).\n\nUse temp directories with fixture JSON files for testing.",
       "directory": "",
       "status": "pending",
-      "files": ["src/commands/plan.ts", "test/commands/plan.test.ts", "src/commands/status.ts"],
-      "tests": ["bun test"],
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts",
+        "src/commands/status.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
@@ -56,12 +60,21 @@
       "id": 5,
       "priority": 2,
       "title": "TDD: Port planning prompt builder",
-      "description": "Add a `buildPlanningPrompt` pure function to `src/commands/plan.ts` with tests.\n\nPort the planning system prompt from `lib/ralph_plan.sh`. The prompt includes:\n- Project context (name, root, data dir)\n- Briefing materials section: reads and embeds content from CLAUDE.md, README.md, package.json/Cargo.toml/Makefile, existing planning-notes.md, tasks.completed.json, IMPLEMENTATION.md — each wrapped in labeled sections, skipped if file doesn't exist\n- Agent discovery section: if agents exist (from `discoverAgents()` in config.ts), list them with name, description, model\n- Planning-notes.md format specification (what the output file should contain)\n- Rules (write to planning-notes.md, no code changes, etc.)\n\nThe function should accept `{ projectName, projectRoot, dataDir, agents }` and return the prompt string. Read files inside the function using `fs.readFileSync` with existence checks.\n\nTest that output contains expected section headers, embeds file contents when present, omits sections when files don't exist, includes agent list when agents are provided.",
+      "description": "Add a `buildPlanningPrompt` pure function to `src/commands/plan.ts` with tests.\n\nPort the planning system prompt from `lib/ralph_plan.sh`. The prompt includes:\n- Project context (name, root, data dir)\n- Briefing materials section: reads and embeds content from CLAUDE.md, README.md, package.json/Cargo.toml/Makefile, existing planning-notes.md, tasks.completed.json, IMPLEMENTATION.md \u2014 each wrapped in labeled sections, skipped if file doesn't exist\n- Agent discovery section: if agents exist (from `discoverAgents()` in config.ts), list them with name, description, model\n- Planning-notes.md format specification (what the output file should contain)\n- Rules (write to planning-notes.md, no code changes, etc.)\n\nThe function should accept `{ projectName, projectRoot, dataDir, agents }` and return the prompt string. Read files inside the function using `fs.readFileSync` with existence checks.\n\nTest that output contains expected section headers, embeds file contents when present, omits sections when files don't exist, includes agent list when agents are provided.",
       "directory": "",
       "status": "pending",
-      "files": ["src/commands/plan.ts", "test/commands/plan.test.ts", "lib/ralph_plan.sh", "src/config.ts"],
-      "tests": ["bun test"],
-      "dependencies": [1],
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts",
+        "lib/ralph_plan.sh",
+        "src/config.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        1
+      ],
       "model": "opus"
     },
     {
@@ -71,9 +84,18 @@
       "description": "Add a `buildTaskGenPrompt` pure function to `src/commands/plan.ts` with tests.\n\nPort the task generation system prompt from `lib/ralph_plan.sh`. The prompt includes:\n- Project context (name, root, data dir, tasks file path)\n- The full tasks.json schema embedded from `src/tasks-schema.json` (read via `fs.readFileSync`)\n- Task structure guidelines (what each field means, how to scope tasks)\n- Directory guidelines table (module work vs cross-module)\n- Test command guidelines (prefer project test scripts over direct tool invocations, read package.json)\n- Agent section (if agents discovered)\n- Rules (never modify complete tasks, keep IDs unique, etc.)\n- Git status (current branch, recent commits)\n\nThe function should accept `{ projectName, projectRoot, dataDir, agents, gitStatus }` and return the prompt string.\n\nTest that output embeds the schema, contains guideline sections, includes agents when provided, omits agent section when empty.",
       "directory": "",
       "status": "pending",
-      "files": ["src/commands/plan.ts", "test/commands/plan.test.ts", "lib/ralph_plan.sh", "src/tasks-schema.json"],
-      "tests": ["bun test"],
-      "dependencies": [1],
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts",
+        "lib/ralph_plan.sh",
+        "src/tasks-schema.json"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        1
+      ],
       "model": "opus"
     },
     {
@@ -83,57 +105,109 @@
       "description": "Add `launchPlanningSession` and `launchTaskGeneration` functions to `src/commands/plan.ts` with tests.\n\nBoth functions spawn `claude` via `spawnSync` with `stdio: 'inherit'`:\n\n**Planning session:**\n```\nspawnSync('claude', ['--append-system-prompt', planningPrompt, '--allowedTools', 'Read,Glob,Grep,Write,Edit'], { stdio: 'inherit', cwd: projectRoot, env: { ...process.env, ANTHROPIC_API_KEY: '' } })\n```\n\n**Task generation:**\n```\nspawnSync('claude', ['--append-system-prompt', taskGenPrompt, '--allowedTools', 'Read,Glob,Grep,Write,Edit', 'Read planning-notes.md and generate the task breakdown...'], { stdio: 'inherit', cwd: projectRoot, env: { ...process.env, ANTHROPIC_API_KEY: '' } })\n```\n\nBoth should:\n- Clear `ANTHROPIC_API_KEY` in the spawned env\n- `cwd` to project root\n- Fire narration/ntfy at session start and end (call `sendToNarrate`/`sendNtfy` from stream-filter.ts if enabled via config)\n- Accept an injectable spawn function for testability (same pattern as `src/commands/summarize.ts`)\n\nTest that spawn is called with correct args, env has empty API key, narration/ntfy are called at boundaries.",
       "directory": "",
       "status": "pending",
-      "files": ["src/commands/plan.ts", "test/commands/plan.test.ts", "src/stream-filter.ts", "src/commands/summarize.ts"],
-      "tests": ["bun test"],
-      "dependencies": [2, 5, 6],
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts",
+        "src/stream-filter.ts",
+        "src/commands/summarize.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        2,
+        5,
+        6
+      ],
       "model": "opus"
     },
     {
       "id": 8,
       "priority": 4,
       "title": "TDD: Port notes review loop",
-      "description": "Add a `reviewNotesLoop` function to `src/commands/plan.ts` with tests.\n\nUse the shared menu helper from `src/menu.ts` to implement the notes review menu from `lib/ralph_plan.sh`.\n\nMenu options:\n- `[g]enerate` — proceed to task generation (exit menu, return signal to continue)\n- `[e]dit` — open `planning-notes.md` in $EDITOR using `runEdit` from `src/commands/edit.ts`\n- `[p]lan` — re-launch planning session (call `launchPlanningSession`)\n- `[b]ack` — optional, only shown if there are existing notes. Returns to planning.\n- `[q]uit` — exit the entire plan command\n\nBefore showing the menu, display the current planning notes content (read `planning-notes.md` and print it, or show 'No planning notes yet').\n\nThe function should accept dependencies (menu helper, edit function, launch function) as injectable params for testability.\n\nTest: menu dispatches correctly, edit calls runEdit with correct path, plan re-launches session, generate signals exit with continue flag, quit signals exit with stop flag.",
+      "description": "Add a `reviewNotesLoop` function to `src/commands/plan.ts` with tests.\n\nUse the shared menu helper from `src/menu.ts` to implement the notes review menu from `lib/ralph_plan.sh`.\n\nMenu options:\n- `[g]enerate` \u2014 proceed to task generation (exit menu, return signal to continue)\n- `[e]dit` \u2014 open `planning-notes.md` in $EDITOR using `runEdit` from `src/commands/edit.ts`\n- `[p]lan` \u2014 re-launch planning session (call `launchPlanningSession`)\n- `[b]ack` \u2014 optional, only shown if there are existing notes. Returns to planning.\n- `[q]uit` \u2014 exit the entire plan command\n\nBefore showing the menu, display the current planning notes content (read `planning-notes.md` and print it, or show 'No planning notes yet').\n\nThe function should accept dependencies (menu helper, edit function, launch function) as injectable params for testability.\n\nTest: menu dispatches correctly, edit calls runEdit with correct path, plan re-launches session, generate signals exit with continue flag, quit signals exit with stop flag.",
       "directory": "",
       "status": "pending",
-      "files": ["src/commands/plan.ts", "test/commands/plan.test.ts", "src/menu.ts", "src/commands/edit.ts"],
-      "tests": ["bun test"],
-      "dependencies": [3, 7],
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts",
+        "src/menu.ts",
+        "src/commands/edit.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        3,
+        7
+      ],
       "model": "opus"
     },
     {
       "id": 9,
       "priority": 4,
       "title": "TDD: Port task review loop",
-      "description": "Add a `reviewTasksLoop` function to `src/commands/plan.ts` with tests.\n\nUse the shared menu helper from `src/menu.ts` to implement the task review menu from `lib/ralph_plan.sh`.\n\nMenu options:\n- `[r]un` — delegate to `shellFallback('run', [])` from `src/commands/fallback.ts` (temporary until Phase 4 ports the run command)\n- `[e]dit` — open `tasks.json` in $EDITOR using `runEdit` from `src/commands/edit.ts`\n- `[v]iew` — show task summary (reuse preflight display functions from task #4)\n- `[p]lan` — go back to planning phase (exit menu, return signal to restart)\n- `[q]uit` — exit the entire plan command\n\nBefore showing the menu, display the current task summary.\n\nThe function should accept dependencies as injectable params for testability.\n\nTest: menu dispatches correctly, run calls shellFallback, edit calls runEdit with tasks.json path, view shows summary, plan signals restart, quit signals exit.",
+      "description": "Add a `reviewTasksLoop` function to `src/commands/plan.ts` with tests.\n\nUse the shared menu helper from `src/menu.ts` to implement the task review menu from `lib/ralph_plan.sh`.\n\nMenu options:\n- `[r]un` \u2014 delegate to `shellFallback('run', [])` from `src/commands/fallback.ts` (temporary until Phase 4 ports the run command)\n- `[e]dit` \u2014 open `tasks.json` in $EDITOR using `runEdit` from `src/commands/edit.ts`\n- `[v]iew` \u2014 show task summary (reuse preflight display functions from task #4)\n- `[p]lan` \u2014 go back to planning phase (exit menu, return signal to restart)\n- `[q]uit` \u2014 exit the entire plan command\n\nBefore showing the menu, display the current task summary.\n\nThe function should accept dependencies as injectable params for testability.\n\nTest: menu dispatches correctly, run calls shellFallback, edit calls runEdit with tasks.json path, view shows summary, plan signals restart, quit signals exit.",
       "directory": "",
       "status": "pending",
-      "files": ["src/commands/plan.ts", "test/commands/plan.test.ts", "src/menu.ts", "src/commands/edit.ts", "src/commands/fallback.ts"],
-      "tests": ["bun test"],
-      "dependencies": [3, 7],
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts",
+        "src/menu.ts",
+        "src/commands/edit.ts",
+        "src/commands/fallback.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        3,
+        7
+      ],
       "model": "opus"
     },
     {
       "id": 10,
       "priority": 5,
       "title": "Wire plan into Commander and remove from fallback",
-      "description": "Update `src/index.ts` to register `plan` as a native Commander command:\n\n1. Remove `'plan'` from `SHELL_FALLBACK_COMMANDS` array\n2. Add a `program.command('plan').description('...').action(async () => { ... })` that calls the main `runPlan` function from `src/commands/plan.ts`\n3. In `src/commands/fallback.ts`, remove `plan: 'ralph_plan.sh'` from `COMMAND_SCRIPT_MAP`\n4. Verify `RALPH_FORCE_SHELL=1` still delegates everything to shell (this is handled by existing logic in index.ts — just confirm it still works)\n5. Update `test/index.test.ts` and `test/commands/fallback.test.ts` to reflect the changes\n\nThe `runPlan` function should orchestrate the full flow: preflight → planning session → notes review loop → task generation → task review loop, with the loops allowing back-navigation between phases.",
+      "description": "Update `src/index.ts` to register `plan` as a native Commander command:\n\n1. Remove `'plan'` from `SHELL_FALLBACK_COMMANDS` array\n2. Add a `program.command('plan').description('...').action(async () => { ... })` that calls the main `runPlan` function from `src/commands/plan.ts`\n3. In `src/commands/fallback.ts`, remove `plan: 'ralph_plan.sh'` from `COMMAND_SCRIPT_MAP`\n4. Verify `RALPH_FORCE_SHELL=1` still delegates everything to shell (this is handled by existing logic in index.ts \u2014 just confirm it still works)\n5. Update `test/index.test.ts` and `test/commands/fallback.test.ts` to reflect the changes\n\nThe `runPlan` function should orchestrate the full flow: preflight \u2192 planning session \u2192 notes review loop \u2192 task generation \u2192 task review loop, with the loops allowing back-navigation between phases.",
       "directory": "",
       "status": "pending",
-      "files": ["src/index.ts", "src/commands/fallback.ts", "src/commands/plan.ts", "test/index.test.ts", "test/commands/fallback.test.ts"],
-      "tests": ["bun test"],
-      "dependencies": [4, 8, 9],
+      "files": [
+        "src/index.ts",
+        "src/commands/fallback.ts",
+        "src/commands/plan.ts",
+        "test/index.test.ts",
+        "test/commands/fallback.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        4,
+        8,
+        9
+      ],
       "model": "sonnet"
     },
     {
       "id": 11,
       "priority": 6,
       "title": "Verify bun build --compile produces working binary",
-      "description": "Run `bun build --compile` (check package.json for the exact build script) and verify the compiled binary works:\n\n1. Run the build command\n2. Test `./ralph-bin plan --help` (or whatever the binary name is) doesn't crash\n3. Test `./ralph-bin status` still works (regression check on previously ported commands)\n4. Test `./ralph-bin logs` still works\n5. If the build embeds `src/tasks-schema.json`, verify it's included (the prompt builder reads it via `fs.readFileSync` relative to `import.meta.dir` — this may need adjustment for compiled binaries)\n\nIf `import.meta.dir` doesn't resolve correctly in the compiled binary for reading `tasks-schema.json`, the schema content may need to be inlined as a string constant at build time or imported directly. Fix any issues found.",
+      "description": "Run `bun build --compile` (check package.json for the exact build script) and verify the compiled binary works:\n\n1. Run the build command\n2. Test `./ralph-bin plan --help` (or whatever the binary name is) doesn't crash\n3. Test `./ralph-bin status` still works (regression check on previously ported commands)\n4. Test `./ralph-bin logs` still works\n5. If the build embeds `src/tasks-schema.json`, verify it's included (the prompt builder reads it via `fs.readFileSync` relative to `import.meta.dir` \u2014 this may need adjustment for compiled binaries)\n\nIf `import.meta.dir` doesn't resolve correctly in the compiled binary for reading `tasks-schema.json`, the schema content may need to be inlined as a string constant at build time or imported directly. Fix any issues found.",
       "directory": "",
       "status": "pending",
-      "files": ["package.json", "src/commands/plan.ts", "src/tasks-schema.json"],
-      "tests": ["bun test"],
-      "dependencies": [10],
+      "files": [
+        "package.json",
+        "src/commands/plan.ts",
+        "src/tasks-schema.json"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        10
+      ],
       "model": "sonnet"
     },
     {
@@ -143,8 +217,12 @@
       "description": "The ralph.json healthCheck is set to `bun build` which fails because it has no entrypoint. Change it to `bun run build` so it uses the build script from package.json (`bun build --compile src/index.ts --outfile dist/ralph`).",
       "directory": "",
       "status": "pending",
-      "files": ["ralph.json"],
-      "tests": ["bun run build"],
+      "files": [
+        "ralph.json"
+      ],
+      "tests": [
+        "bun run build"
+      ],
       "dependencies": [],
       "model": "sonnet"
     }
