@@ -3,6 +3,7 @@ import { join } from 'path';
 import { findProjectRoot, resolveRalphRoot } from './utils';
 import { loadConfig, autoDetectHealthCheck, setConfigEnvVars } from './config';
 import { shellFallback, forceShellFallback } from './commands/fallback';
+import { runStatus } from './commands/status';
 
 const RALPH_VERSION = '0.1.0';
 
@@ -72,7 +73,9 @@ export function createProgram(): Command {
     .command('status')
     .description('Show current task list overview')
     .action(() => {
-      console.log('status: not yet implemented');
+      const projectRoot = process.env.RALPH_PROJECT_ROOT!;
+      const dataDir = process.env.RALPH_DATA_DIR!;
+      runStatus(projectRoot, dataDir);
     });
 
   program

@@ -2,36 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 8,
-      "priority": 7,
-      "title": "TDD: Implement shell fallback",
-      "description": "Create `src/commands/fallback.ts` with the mechanism to delegate commands to the existing shell scripts.\n\nWrite tests FIRST in `test/commands/fallback.test.ts`, then implement.\n\n**Function to implement:**\n\n`shellFallback(command: string, args: string[]): void`\n\nThis function:\n1. Resolves `RALPH_LIB_DIR` \u2014 the `lib/` directory containing shell scripts. Use `resolveRalphRoot()` from utils.ts to find the repo root, then append `/lib`.\n\n2. Maps commands to shell scripts:\n   - `plan` \u2192 `ralph_plan.sh`\n   - `run` \u2192 `ralph_loop.sh`\n   - `summarize` \u2192 `ralph_summarize.sh`\n   - `init` \u2192 `ralph_init.sh` (sourced by bin/ralph, so delegate to `bin/ralph init`)\n   - `narrate` \u2192 handled inline in bin/ralph, so delegate to `bin/ralph narrate`\n\n3. Sets required env vars before spawning:\n   - `RALPH_PROJECT_ROOT`\n   - `RALPH_DATA_DIR`\n   - `RALPH_LIB_DIR`\n   - `RALPH_NARRATE_PYTHON`\n   - All `RALPH_*` config vars (via `setConfigEnvVars` from config.ts)\n\n4. Uses `Bun.spawnSync` (or `child_process.spawnSync`) with `stdio: 'inherit'` so the shell script behaves identically to running it directly.\n\n5. Exits with the shell script's exit code.\n\nAlso export a `forceShellFallback(args: string[]): void` that delegates the entire invocation to `bin/ralph` \u2014 used when `RALPH_FORCE_SHELL=1`.\n\n**Test approach:**\n- Test that the correct script path is constructed for each command\n- Test that the correct env vars are set\n- Test `RALPH_FORCE_SHELL=1` routes everything through `bin/ralph`\n- Mock `spawnSync` to avoid actually spawning processes in tests\n- Test that init and narrate correctly delegate to `bin/ralph` rather than sourcing lib scripts directly",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T15:20:00Z",
-      "completedBy": "iteration-8",
-      "notes": "Created src/commands/fallback.ts with shellFallback() and forceShellFallback(). shellFallback maps plan/run/summarize to lib/ scripts via bash, and init/narrate/unknown commands to bin/ralph. forceShellFallback delegates entire invocation to bin/ralph. Updated src/index.ts to import from commands/fallback and re-export for backward compat. 17 new tests in test/commands/fallback.test.ts, all 99 tests pass.",
-      "files": [
-        "src/commands/fallback.ts",
-        "src/utils.ts",
-        "src/config.ts",
-        "bin/ralph"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        7
-      ],
-      "model": "opus"
-    },
-    {
       "id": 9,
       "priority": 8,
       "title": "TDD: Port status command",
       "description": "Create `src/commands/status.ts` porting the status subcommand from `bin/ralph` lines 183-235.\n\nWrite tests FIRST in `test/commands/status.test.ts`, then implement.\n\n**Behavior to replicate:**\n- Print project name and root path\n- If `.ralph/` doesn't exist, print 'Not initialized' and return\n- If `tasks.completed.json` exists, print count of previously completed tasks\n- If `tasks.json` exists:\n  - Print status counts (e.g., '3 pending, 1 in-progress')\n  - Print each task with icon, id, priority, directory, title, dependencies\n  - Icons: complete=\u2713, in-progress=\u25b6, pending=\u25cb, blocked=\u2717\n- If no tasks.json, print 'No tasks.json found'\n\n**Implementation:**\n- Accept `projectRoot` and `dataDir` as parameters (from the CLI entry point env)\n- Read and parse tasks.json and tasks.completed.json using `Bun.file().json()` or `fs.readFileSync`\n- Use the `Task` type from types.ts\n- Output to stdout matching the shell version's format\n\n**Test approach:**\n- Create fixture tasks.json and tasks.completed.json in test/fixtures/\n- Test with: no .ralph dir, empty tasks, mixed statuses, tasks with dependencies/directories\n- Capture stdout and assert output matches expected format\n- Register this command in src/index.ts Commander setup",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-9",
+      "notes": "Created src/commands/status.ts with runStatus(projectRoot, dataDir). Tests in test/commands/status.test.ts use tmp dirs and fixture files in test/fixtures/. Updated src/index.ts to import and call runStatus. Updated index test that expected old stub message. All 112 tests pass.",
       "files": [
         "src/commands/status.ts",
         "bin/ralph"

@@ -1,0 +1,43 @@
+{
+  "project": "test-project",
+  "tasks": [
+    {
+      "id": 1,
+      "priority": 9,
+      "title": "Setup project",
+      "status": "complete",
+      "files": [],
+      "tests": [],
+      "dependencies": []
+    },
+    {
+      "id": 2,
+      "priority": 8,
+      "title": "Build feature",
+      "description": "Build the main feature",
+      "directory": "src/feature",
+      "status": "in-progress",
+      "files": [],
+      "tests": [],
+      "dependencies": [1]
+    },
+    {
+      "id": 3,
+      "priority": 7,
+      "title": "Write tests",
+      "status": "pending",
+      "files": [],
+      "tests": [],
+      "dependencies": []
+    },
+    {
+      "id": 4,
+      "priority": 6,
+      "title": "Deploy",
+      "status": "blocked",
+      "files": [],
+      "tests": [],
+      "dependencies": [2, 3]
+    }
+  ]
+}

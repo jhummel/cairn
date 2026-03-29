@@ -170,13 +170,13 @@ describe('main', () => {
     logSpy.mockRestore();
   });
 
-  test('status command runs stub', async () => {
+  test('status command outputs project info', async () => {
     const logSpy = spyOn(console, 'log').mockImplementation(() => {});
 
     await main(['node', 'ralph', 'status']);
 
     const output = logSpy.mock.calls.map((c) => String(c[0])).join(' ');
-    expect(output).toContain('status: not yet implemented');
+    expect(output).toContain('Project:');
 
     logSpy.mockRestore();
   });

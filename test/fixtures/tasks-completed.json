@@ -1,0 +1,27 @@
+{
+  "project": "test-project",
+  "tasks": [
+    {
+      "id": 1,
+      "priority": 9,
+      "title": "Initial setup",
+      "status": "complete",
+      "completedAt": "2025-01-01T00:00:00Z",
+      "completedBy": "iteration-1",
+      "files": [],
+      "tests": [],
+      "dependencies": []
+    },
+    {
+      "id": 2,
+      "priority": 8,
+      "title": "Core implementation",
+      "status": "complete",
+      "completedAt": "2025-01-02T00:00:00Z",
+      "completedBy": "iteration-2",
+      "files": [],
+      "tests": [],
+      "dependencies": []
+    }
+  ]
+}
