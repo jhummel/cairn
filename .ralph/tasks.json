@@ -2,32 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 2,
-      "priority": 1,
-      "title": "TDD: Extract narration/ntfy as standalone callable functions",
-      "description": "In `src/stream-filter.ts`, `sendToNarrate` and `sendNtfy` are already exported. Verify they are cleanly callable standalone (without needing the full stream-processing context). If they depend on ProcessStreamOptions or other stream state, refactor so they can be called independently with just the message text and config. Write tests in `test/stream-filter.test.ts` (or a new `test/notifications.test.ts`) that call `sendNtfy` and `sendToNarrate` directly, mocking the network/socket layer. The plan command will call these at session boundaries (start/end of planning, start/end of task generation).",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-2",
-      "notes": "sendToNarrate and sendNtfy were already cleanly standalone — both take only (text, socketPath) and (message, topic, opts) respectively, with no dependency on ProcessStreamOptions or stream state. Tests in test/stream-filter.test.ts (lines 403-514) already covered direct calls with mocked socket server and mocked fetch. No refactoring needed. All 270 tests pass.",
-      "files": [
-        "src/stream-filter.ts",
-        "test/stream-filter.test.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 3,
       "priority": 1,
       "title": "TDD: Build shared menu helper",
       "description": "Create `src/menu.ts` and `test/menu.test.ts`. The menu helper should:\n\n1. Accept a list of options, each with: `key` (single char), `label` (display string), `handler` (async function returning `{ exit: boolean }` or similar signal)\n2. Display the options formatted like `[g]enerate  [e]dit  [p]lan  [q]uit`\n3. Prompt for input using `readline/promises` (Node built-in)\n4. Match input to option key (case-insensitive), dispatch to handler\n5. Loop until a handler signals exit\n6. Accept an injectable readline interface for testability \u2014 tests should pass a mock readline that returns predetermined answers\n\nExport a function like `runMenu(options, readline?)` that returns the result of the exiting handler.\n\nTest cases: single selection exits, loop continues on non-exit handler, invalid input re-prompts, case-insensitive matching.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T12:00:00Z",
+      "completedBy": "iteration-3",
+      "notes": "Created src/menu.ts with runMenu, formatMenuPrompt, and types (MenuOption, MenuResult, ReadlineInterface). Tests cover: single exit, loop continuation, invalid input re-prompt, case-insensitive matching, whitespace trimming, handler result passthrough. 9 tests, all passing. The ReadlineInterface is injectable for testability — consumers pass a mock or real readline.",
       "files": [
         "src/menu.ts",
         "test/menu.test.ts"
