@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 7,
-      "priority": 6,
-      "title": "Build CLI entry point with Commander",
-      "description": "Replace the placeholder `src/index.ts` with the full Commander-based CLI entry point.\n\nThis is the TS equivalent of `bin/ralph` \u2014 it parses global flags, resolves the project root, loads config, and dispatches to subcommands.\n\n**Implementation:**\n\n```ts\nimport { Command } from 'commander';\n```\n\n1. At the top level, check `RALPH_FORCE_SHELL=1`. If set, immediately delegate ALL commands to the shell fallback (import from `commands/fallback.ts` \u2014 it may not exist yet, so gate this behind a dynamic import or handle gracefully).\n\n2. Create Commander program with:\n   - `name('ralph')`\n   - `version('0.1.0')` (match RALPH_VERSION from bin/ralph)\n   - `option('--project-root <path>', 'Override project root detection')`\n\n3. Register subcommands. For Phase 1, these are ported:\n   - `status` \u2192 import from `commands/status.ts`\n   - `edit` \u2192 import from `commands/edit.ts`\n   - `logs` \u2192 import from `commands/logs.ts`\n   - `help` \u2192 Commander built-in\n\n4. Unported commands delegate to shell fallback:\n   - `plan`, `run`, `summarize`, `init`, `narrate`\n   Register these as Commander commands that call the fallback function.\n\n5. Before dispatching, resolve project root (using `findProjectRoot` from utils.ts) and load config (using `loadConfig` from config.ts). Set env vars (`RALPH_PROJECT_ROOT`, `RALPH_DATA_DIR`, `RALPH_LIB_DIR`) so they're available to subcommands and shell fallback.\n\n6. Export the main function so it can be tested.\n\nFor now, the command handlers can be stubs that print 'not yet implemented' \u2014 tasks 8-11 will fill them in. The important thing is the Commander structure, flag parsing, config loading, and env var setup.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T15:10:00Z",
-      "completedBy": "iteration-7",
-      "notes": "Built Commander-based CLI entry point with: createProgram() (name, version, --project-root flag), setupProjectContext() (resolves project root, data dir, lib dir, loads config, sets all RALPH_* env vars), shellFallback() for unported commands (plan, run, summarize, init, narrate), stub handlers for ported commands (status, edit, logs), RALPH_FORCE_SHELL=1 support, preAction hook for project context setup. 18 new tests covering program structure, env var setup, command registration, and command dispatch. All 82 tests pass.",
-      "files": [
-        "src/index.ts",
-        "bin/ralph"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        5,
-        6
-      ],
-      "model": "opus"
-    },
-    {
       "id": 8,
       "priority": 7,
       "title": "TDD: Implement shell fallback",
       "description": "Create `src/commands/fallback.ts` with the mechanism to delegate commands to the existing shell scripts.\n\nWrite tests FIRST in `test/commands/fallback.test.ts`, then implement.\n\n**Function to implement:**\n\n`shellFallback(command: string, args: string[]): void`\n\nThis function:\n1. Resolves `RALPH_LIB_DIR` \u2014 the `lib/` directory containing shell scripts. Use `resolveRalphRoot()` from utils.ts to find the repo root, then append `/lib`.\n\n2. Maps commands to shell scripts:\n   - `plan` \u2192 `ralph_plan.sh`\n   - `run` \u2192 `ralph_loop.sh`\n   - `summarize` \u2192 `ralph_summarize.sh`\n   - `init` \u2192 `ralph_init.sh` (sourced by bin/ralph, so delegate to `bin/ralph init`)\n   - `narrate` \u2192 handled inline in bin/ralph, so delegate to `bin/ralph narrate`\n\n3. Sets required env vars before spawning:\n   - `RALPH_PROJECT_ROOT`\n   - `RALPH_DATA_DIR`\n   - `RALPH_LIB_DIR`\n   - `RALPH_NARRATE_PYTHON`\n   - All `RALPH_*` config vars (via `setConfigEnvVars` from config.ts)\n\n4. Uses `Bun.spawnSync` (or `child_process.spawnSync`) with `stdio: 'inherit'` so the shell script behaves identically to running it directly.\n\n5. Exits with the shell script's exit code.\n\nAlso export a `forceShellFallback(args: string[]): void` that delegates the entire invocation to `bin/ralph` \u2014 used when `RALPH_FORCE_SHELL=1`.\n\n**Test approach:**\n- Test that the correct script path is constructed for each command\n- Test that the correct env vars are set\n- Test `RALPH_FORCE_SHELL=1` routes everything through `bin/ralph`\n- Mock `spawnSync` to avoid actually spawning processes in tests\n- Test that init and narrate correctly delegate to `bin/ralph` rather than sourcing lib scripts directly",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T15:20:00Z",
+      "completedBy": "iteration-8",
+      "notes": "Created src/commands/fallback.ts with shellFallback() and forceShellFallback(). shellFallback maps plan/run/summarize to lib/ scripts via bash, and init/narrate/unknown commands to bin/ralph. forceShellFallback delegates entire invocation to bin/ralph. Updated src/index.ts to import from commands/fallback and re-export for backward compat. 17 new tests in test/commands/fallback.test.ts, all 99 tests pass.",
       "files": [
         "src/commands/fallback.ts",
         "src/utils.ts",

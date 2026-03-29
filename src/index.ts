@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { join } from 'path';
 import { findProjectRoot, resolveRalphRoot } from './utils';
 import { loadConfig, autoDetectHealthCheck, setConfigEnvVars } from './config';
+import { shellFallback, forceShellFallback } from './commands/fallback';
 
 const RALPH_VERSION = '0.1.0';
 
@@ -47,23 +48,9 @@ export function setupProjectContext(projectRootOverride?: string): {
   return { projectRoot, dataDir, ralphRoot, libDir };
 }
 
-/**
- * Shell fallback: delegates a command to the original shell scripts.
- * Used for unported commands and when RALPH_FORCE_SHELL=1.
- */
-export function shellFallback(command: string, args: string[]): void {
-  const { spawnSync } = require('child_process') as typeof import('child_process');
-
-  const ralphRoot = resolveRalphRoot();
-  const binRalph = join(ralphRoot, 'bin', 'ralph');
-
-  const result = spawnSync(binRalph, [command, ...args], {
-    stdio: 'inherit',
-    env: { ...process.env },
-  });
-
-  process.exit(result.status ?? 1);
-}
+// shellFallback and forceShellFallback are imported from ./commands/fallback
+// Re-export for backward compatibility with existing tests
+export { shellFallback, forceShellFallback } from './commands/fallback';
 
 /**
  * Build and return the Commander program.
@@ -128,7 +115,7 @@ export async function main(argv?: string[]): Promise<void> {
   if (process.env.RALPH_FORCE_SHELL === '1') {
     // Strip 'node'/'bun' and script path from args to get the raw command
     const cmdArgs = args.slice(2);
-    shellFallback(cmdArgs[0] ?? 'help', cmdArgs.slice(1));
+    forceShellFallback(cmdArgs);
     return; // shellFallback calls process.exit, but for testing clarity
   }
 
