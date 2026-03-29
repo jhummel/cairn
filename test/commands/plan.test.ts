@@ -13,6 +13,7 @@ import {
   launchPlanningSession,
   launchTaskGeneration,
   reviewNotesLoop,
+  reviewTasksLoop,
 } from '../../src/commands/plan';
 import type { AgentInfo } from '../../src/types';
 import type { SpawnSyncReturns } from 'child_process';
@@ -1723,6 +1724,399 @@ describe('reviewNotesLoop', () => {
       consoleSpy.mockRestore();
       const output = lines.join('\n');
       expect(output).toContain('Planning notes saved');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
+
+describe('reviewTasksLoop', () => {
+  // Helper: create a mock readline that returns answers in sequence
+  function mockRl(answers: string[]): ReadlineInterface {
+    let idx = 0;
+    return {
+      question: async () => answers[idx++] ?? 'q',
+      close: () => {},
+    };
+  }
+
+  // Helper: capture a runMenu call's options without running the real menu
+  function captureMenuOptions(): {
+    captured: MenuOption[];
+    runMenuFn: (options: MenuOption[], rl: ReadlineInterface) => Promise<MenuResult>;
+  } {
+    const captured: MenuOption[] = [];
+    const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+      captured.push(...options);
+      return { exit: true, action: 'quit' };
+    };
+    return { captured, runMenuFn };
+  }
+
+  function writeTasksFile(ralphDir: string, tasks: object[] = []) {
+    fs.writeFileSync(
+      path.join(ralphDir, 'tasks.json'),
+      JSON.stringify({ project: 'test', tasks }, null, 2),
+    );
+  }
+
+  test('displays task summary before menu', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      writeTasksFile(ralphDir, [
+        { id: 1, priority: 1, title: 'Do thing', status: 'pending', directory: '', files: [], dependencies: [], tests: [] },
+      ]);
+      const lines: string[] = [];
+      const consoleSpy = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+
+      const { runMenuFn } = captureMenuOptions();
+
+      await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        shellFallbackFn: () => {},
+        editFn: () => {},
+        launchPlanningFn: () => {},
+      });
+
+      consoleSpy.mockRestore();
+      const output = lines.join('\n');
+      expect(output).toContain('Do thing');
+      expect(output).toContain('pending');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('shows "No tasks" message when tasks.json is missing', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const lines: string[] = [];
+      const consoleSpy = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+
+      const { runMenuFn } = captureMenuOptions();
+
+      await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        shellFallbackFn: () => {},
+        editFn: () => {},
+        launchPlanningFn: () => {},
+      });
+
+      consoleSpy.mockRestore();
+      const output = lines.join('\n');
+      expect(output).toContain('No pending tasks');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('menu includes r, e, v, p, q options', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      writeTasksFile(ralphDir);
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+      const { captured, runMenuFn } = captureMenuOptions();
+
+      await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        shellFallbackFn: () => {},
+        editFn: () => {},
+        launchPlanningFn: () => {},
+      });
+
+      consoleSpy.mockRestore();
+      const keys = captured.map(o => o.key);
+      expect(keys).toContain('r');
+      expect(keys).toContain('e');
+      expect(keys).toContain('v');
+      expect(keys).toContain('p');
+      expect(keys).toContain('q');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('run handler calls shellFallbackFn', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      writeTasksFile(ralphDir, [
+        { id: 1, priority: 1, title: 'Task 1', status: 'pending', directory: '', files: [], dependencies: [], tests: [] },
+      ]);
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+      let fallbackCalled = false;
+      let fallbackCommand = '';
+
+      const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        const run = options.find(o => o.key === 'r')!;
+        return run.handler();
+      };
+
+      const result = await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        shellFallbackFn: (cmd: string, args: string[]) => {
+          fallbackCalled = true;
+          fallbackCommand = cmd;
+        },
+        editFn: () => {},
+        launchPlanningFn: () => {},
+      });
+
+      consoleSpy.mockRestore();
+      expect(fallbackCalled).toBe(true);
+      expect(fallbackCommand).toBe('run');
+      expect(result).toEqual({ exit: true, action: 'run' });
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('run handler warns when no tasks.json exists', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const lines: string[] = [];
+      const consoleSpy = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+      let fallbackCalled = false;
+
+      let callCount = 0;
+      const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        callCount++;
+        if (callCount === 1) {
+          const run = options.find(o => o.key === 'r')!;
+          return run.handler();
+        }
+        const quit = options.find(o => o.key === 'q')!;
+        return quit.handler();
+      };
+
+      await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        shellFallbackFn: () => { fallbackCalled = true; },
+        editFn: () => {},
+        launchPlanningFn: () => {},
+      });
+
+      consoleSpy.mockRestore();
+      expect(fallbackCalled).toBe(false);
+      const output = lines.join('\n');
+      expect(output).toContain('No tasks.json');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('edit handler calls editFn with tasks.json path', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      writeTasksFile(ralphDir);
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+      let editPath = '';
+
+      let callCount = 0;
+      const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        callCount++;
+        if (callCount === 1) {
+          const edit = options.find(o => o.key === 'e')!;
+          return edit.handler();
+        }
+        const quit = options.find(o => o.key === 'q')!;
+        return quit.handler();
+      };
+
+      await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        shellFallbackFn: () => {},
+        editFn: (p: string) => { editPath = p; },
+        launchPlanningFn: () => {},
+      });
+
+      consoleSpy.mockRestore();
+      expect(editPath).toBe(path.join(ralphDir, 'tasks.json'));
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('view handler displays task summary and loops back', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      writeTasksFile(ralphDir, [
+        { id: 1, priority: 1, title: 'Build widget', status: 'pending', directory: '', files: [], dependencies: [], tests: [] },
+      ]);
+      const lines: string[] = [];
+      const consoleSpy = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+
+      let callCount = 0;
+      const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        callCount++;
+        if (callCount === 1) {
+          const view = options.find(o => o.key === 'v')!;
+          return view.handler();
+        }
+        const quit = options.find(o => o.key === 'q')!;
+        return quit.handler();
+      };
+
+      await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        shellFallbackFn: () => {},
+        editFn: () => {},
+        launchPlanningFn: () => {},
+      });
+
+      consoleSpy.mockRestore();
+      const output = lines.join('\n');
+      // View handler should display the summary again
+      expect(output).toContain('Build widget');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('plan handler calls launchPlanningFn and returns restart signal', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      writeTasksFile(ralphDir);
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+      let planCalled = false;
+
+      const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        const plan = options.find(o => o.key === 'p')!;
+        return plan.handler();
+      };
+
+      const result = await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        shellFallbackFn: () => {},
+        editFn: () => {},
+        launchPlanningFn: () => { planCalled = true; },
+      });
+
+      consoleSpy.mockRestore();
+      expect(planCalled).toBe(true);
+      expect(result).toEqual({ exit: true, action: 'plan' });
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('quit handler returns quit signal', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      writeTasksFile(ralphDir);
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+
+      const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        const quit = options.find(o => o.key === 'q')!;
+        return quit.handler();
+      };
+
+      const result = await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        shellFallbackFn: () => {},
+        editFn: () => {},
+        launchPlanningFn: () => {},
+      });
+
+      consoleSpy.mockRestore();
+      expect(result).toEqual({ exit: true, action: 'quit' });
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('quit handler prints tasks path when tasks.json exists', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      writeTasksFile(ralphDir, [
+        { id: 1, priority: 1, title: 'Task 1', status: 'pending', directory: '', files: [], dependencies: [], tests: [] },
+      ]);
+      const lines: string[] = [];
+      const consoleSpy = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+
+      const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        const quit = options.find(o => o.key === 'q')!;
+        return quit.handler();
+      };
+
+      await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        shellFallbackFn: () => {},
+        editFn: () => {},
+        launchPlanningFn: () => {},
+      });
+
+      consoleSpy.mockRestore();
+      const output = lines.join('\n');
+      expect(output).toContain('Tasks saved');
+      expect(output).toContain('ralph run');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('edit handler warns when no tasks.json exists', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const lines: string[] = [];
+      const consoleSpy = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+      let editCalled = false;
+
+      let callCount = 0;
+      const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        callCount++;
+        if (callCount === 1) {
+          const edit = options.find(o => o.key === 'e')!;
+          return edit.handler();
+        }
+        const quit = options.find(o => o.key === 'q')!;
+        return quit.handler();
+      };
+
+      await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        shellFallbackFn: () => {},
+        editFn: () => { editCalled = true; },
+        launchPlanningFn: () => {},
+      });
+
+      consoleSpy.mockRestore();
+      expect(editCalled).toBe(false);
+      const output = lines.join('\n');
+      expect(output).toContain('No tasks.json');
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }

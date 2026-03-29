@@ -2,37 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 8,
-      "priority": 4,
-      "title": "TDD: Port notes review loop",
-      "description": "Add a `reviewNotesLoop` function to `src/commands/plan.ts` with tests.\n\nUse the shared menu helper from `src/menu.ts` to implement the notes review menu from `lib/ralph_plan.sh`.\n\nMenu options:\n- `[g]enerate` \u2014 proceed to task generation (exit menu, return signal to continue)\n- `[e]dit` \u2014 open `planning-notes.md` in $EDITOR using `runEdit` from `src/commands/edit.ts`\n- `[p]lan` \u2014 re-launch planning session (call `launchPlanningSession`)\n- `[b]ack` \u2014 optional, only shown if there are existing notes. Returns to planning.\n- `[q]uit` \u2014 exit the entire plan command\n\nBefore showing the menu, display the current planning notes content (read `planning-notes.md` and print it, or show 'No planning notes yet').\n\nThe function should accept dependencies (menu helper, edit function, launch function) as injectable params for testability.\n\nTest: menu dispatches correctly, edit calls runEdit with correct path, plan re-launches session, generate signals exit with continue flag, quit signals exit with stop flag.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T12:45:00Z",
-      "completedBy": "iteration-8",
-      "notes": "Added reviewNotesLoop to src/commands/plan.ts with 11 new tests (368 total, all passing). Function accepts injectable dependencies (runMenuFn, editFn, launchPlanningFn, launchTaskGenFn) for testability. Menu options: [g]enerate (validates notes exist, calls launchTaskGenFn, returns continue signal), [e]dit (calls editFn with notes path), [p]lan (calls launchPlanningFn, loops back), [b]ack (conditional on hasBack, returns back signal), [q]uit (prints save message if notes exist, returns quit signal). Displays planning notes content before menu, or 'No planning notes yet' if missing. Uses the shared runMenu helper from src/menu.ts.",
-      "files": [
-        "src/commands/plan.ts",
-        "test/commands/plan.test.ts",
-        "src/menu.ts",
-        "src/commands/edit.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        3,
-        7
-      ],
-      "model": "opus"
-    },
-    {
       "id": 9,
       "priority": 4,
       "title": "TDD: Port task review loop",
       "description": "Add a `reviewTasksLoop` function to `src/commands/plan.ts` with tests.\n\nUse the shared menu helper from `src/menu.ts` to implement the task review menu from `lib/ralph_plan.sh`.\n\nMenu options:\n- `[r]un` \u2014 delegate to `shellFallback('run', [])` from `src/commands/fallback.ts` (temporary until Phase 4 ports the run command)\n- `[e]dit` \u2014 open `tasks.json` in $EDITOR using `runEdit` from `src/commands/edit.ts`\n- `[v]iew` \u2014 show task summary (reuse preflight display functions from task #4)\n- `[p]lan` \u2014 go back to planning phase (exit menu, return signal to restart)\n- `[q]uit` \u2014 exit the entire plan command\n\nBefore showing the menu, display the current task summary.\n\nThe function should accept dependencies as injectable params for testability.\n\nTest: menu dispatches correctly, run calls shellFallback, edit calls runEdit with tasks.json path, view shows summary, plan signals restart, quit signals exit.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T15:45:00Z",
+      "completedBy": "iteration-9",
+      "notes": "Added reviewTasksLoop to src/commands/plan.ts with 11 new tests (379 total, all passing). Function accepts injectable dependencies (runMenuFn, shellFallbackFn, editFn, launchPlanningFn) for testability. Menu options: [r]un (validates tasks.json exists, calls shellFallbackFn('run', []), returns run signal), [e]dit (validates tasks.json exists, calls editFn with tasks path), [v]iew (re-displays task summary using formatTasksSummary), [p]lan (calls launchPlanningFn, returns plan signal), [q]uit (prints save message if tasks exist, returns quit signal). Displays task summary before menu using formatTasksSummary. Guards on run/edit/view prevent actions when tasks.json is missing.",
       "files": [
         "src/commands/plan.ts",
         "test/commands/plan.test.ts",

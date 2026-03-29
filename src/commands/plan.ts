@@ -458,6 +458,7 @@ export function displayPreflight(projectName: string, dataDir: string): void {
 }
 
 type RunMenuFn = (options: MenuOption[], rl: ReadlineInterface) => Promise<MenuResult>;
+type ShellFallbackFn = (command: string, args: string[]) => void;
 
 export interface ReviewNotesLoopOpts {
   dataDir: string;
@@ -548,6 +549,117 @@ export async function reviewNotesLoop(opts: ReviewNotesLoopOpts): Promise<MenuRe
         return { exit: true, action: 'quit' };
       },
     });
+
+    const result = await runMenuFn(options, rl);
+    if (result.exit) {
+      return result;
+    }
+  }
+}
+
+export interface ReviewTasksLoopOpts {
+  dataDir: string;
+  runMenuFn?: RunMenuFn;
+  rl: ReadlineInterface;
+  shellFallbackFn: ShellFallbackFn;
+  editFn: (filePath: string) => void;
+  launchPlanningFn: () => void;
+}
+
+export async function reviewTasksLoop(opts: ReviewTasksLoopOpts): Promise<MenuResult> {
+  const {
+    dataDir,
+    runMenuFn = defaultRunMenu,
+    rl,
+    shellFallbackFn,
+    editFn,
+    launchPlanningFn,
+  } = opts;
+
+  const tasksPath = path.join(dataDir, 'tasks.json');
+
+  while (true) {
+    // Display current task summary
+    console.log('');
+    if (fs.existsSync(tasksPath)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(tasksPath, 'utf8')) as TasksFile;
+        const tasks = data.tasks ?? [];
+        console.log(formatTasksSummary(tasks));
+      } catch {
+        console.log('  Could not read tasks.json.');
+      }
+    } else {
+      console.log(formatTasksSummary([]));
+    }
+    console.log('');
+
+    // Build menu options
+    const options: MenuOption[] = [
+      {
+        key: 'r',
+        label: 'run',
+        handler: async (): Promise<MenuResult> => {
+          if (!fs.existsSync(tasksPath)) {
+            console.log('No tasks.json to run. Generate tasks first.');
+            return { exit: false };
+          }
+          shellFallbackFn('run', []);
+          return { exit: true, action: 'run' };
+        },
+      },
+      {
+        key: 'e',
+        label: 'edit',
+        handler: async (): Promise<MenuResult> => {
+          if (!fs.existsSync(tasksPath)) {
+            console.log('No tasks.json to edit.');
+            return { exit: false };
+          }
+          editFn(tasksPath);
+          return { exit: false };
+        },
+      },
+      {
+        key: 'v',
+        label: 'view',
+        handler: async (): Promise<MenuResult> => {
+          if (fs.existsSync(tasksPath)) {
+            try {
+              const data = JSON.parse(fs.readFileSync(tasksPath, 'utf8')) as TasksFile;
+              const tasks = data.tasks ?? [];
+              console.log('');
+              console.log(formatTasksSummary(tasks));
+              console.log('');
+            } catch {
+              console.log('  Could not read tasks.json.');
+            }
+          } else {
+            console.log('No tasks.json to view.');
+          }
+          return { exit: false };
+        },
+      },
+      {
+        key: 'p',
+        label: 'plan',
+        handler: async (): Promise<MenuResult> => {
+          launchPlanningFn();
+          return { exit: true, action: 'plan' };
+        },
+      },
+      {
+        key: 'q',
+        label: 'quit',
+        handler: async (): Promise<MenuResult> => {
+          if (fs.existsSync(tasksPath)) {
+            console.log(`Tasks saved at: ${tasksPath}`);
+            console.log('Run later with: ralph run');
+          }
+          return { exit: true, action: 'quit' };
+        },
+      },
+    ];
 
     const result = await runMenuFn(options, rl);
     if (result.exit) {
