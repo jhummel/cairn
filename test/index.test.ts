@@ -32,14 +32,24 @@ describe('createProgram', () => {
     expect(commandNames).toContain('logs');
   });
 
-  test('registers shell fallback commands (plan, run, summarize, init, narrate)', () => {
+  test('registers shell fallback commands (plan, run, narrate)', () => {
     const program = createProgram();
     const commandNames = program.commands.map((c) => c.name());
     expect(commandNames).toContain('plan');
     expect(commandNames).toContain('run');
-    expect(commandNames).toContain('summarize');
-    expect(commandNames).toContain('init');
     expect(commandNames).toContain('narrate');
+  });
+
+  test('registers native init command', () => {
+    const program = createProgram();
+    const commandNames = program.commands.map((c) => c.name());
+    expect(commandNames).toContain('init');
+  });
+
+  test('registers native summarize command', () => {
+    const program = createProgram();
+    const commandNames = program.commands.map((c) => c.name());
+    expect(commandNames).toContain('summarize');
   });
 });
 
@@ -220,12 +230,12 @@ describe('command registration', () => {
     expect(commandNames).toContain('status');
     expect(commandNames).toContain('edit');
     expect(commandNames).toContain('logs');
+    expect(commandNames).toContain('init');
+    expect(commandNames).toContain('summarize');
 
     // Shell fallback
     expect(commandNames).toContain('plan');
     expect(commandNames).toContain('run');
-    expect(commandNames).toContain('summarize');
-    expect(commandNames).toContain('init');
     expect(commandNames).toContain('narrate');
   });
 

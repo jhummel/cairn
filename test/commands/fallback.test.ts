@@ -89,38 +89,6 @@ describe('shellFallback', () => {
     spawnMock.mockRestore();
   });
 
-  test('summarize command maps to lib/ralph_summarize.sh', async () => {
-    const child_process = await import('child_process');
-    const spawnMock = spyOn(child_process, 'spawnSync').mockReturnValue({
-      status: 0, signal: null, output: [], pid: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0),
-    } as any);
-
-    const { shellFallback } = await import('../../src/commands/fallback');
-    shellFallback('summarize', []);
-
-    const call = spawnMock.mock.calls[0];
-    expect(call[0]).toBe('bash');
-    expect(call[1]).toContain(path.join(ralphRoot, 'lib', 'ralph_summarize.sh'));
-
-    spawnMock.mockRestore();
-  });
-
-  test('init command delegates to bin/ralph init', async () => {
-    const child_process = await import('child_process');
-    const spawnMock = spyOn(child_process, 'spawnSync').mockReturnValue({
-      status: 0, signal: null, output: [], pid: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0),
-    } as any);
-
-    const { shellFallback } = await import('../../src/commands/fallback');
-    shellFallback('init', []);
-
-    const call = spawnMock.mock.calls[0];
-    expect(call[0]).toBe(path.join(ralphRoot, 'bin', 'ralph'));
-    expect(call[1]).toEqual(['init']);
-
-    spawnMock.mockRestore();
-  });
-
   test('narrate command delegates to bin/ralph narrate', async () => {
     const child_process = await import('child_process');
     const spawnMock = spyOn(child_process, 'spawnSync').mockReturnValue({
@@ -300,20 +268,21 @@ describe('COMMAND_SCRIPT_MAP', () => {
     const { COMMAND_SCRIPT_MAP } = await import('../../src/commands/fallback');
     expect(COMMAND_SCRIPT_MAP.plan).toBe('ralph_plan.sh');
     expect(COMMAND_SCRIPT_MAP.run).toBe('ralph_loop.sh');
-    expect(COMMAND_SCRIPT_MAP.summarize).toBe('ralph_summarize.sh');
   });
 
-  test('init and narrate are not in script map (they use bin/ralph)', async () => {
+  test('init, summarize, and narrate are not in script map', async () => {
     const { COMMAND_SCRIPT_MAP } = await import('../../src/commands/fallback');
     expect(COMMAND_SCRIPT_MAP).not.toHaveProperty('init');
+    expect(COMMAND_SCRIPT_MAP).not.toHaveProperty('summarize');
     expect(COMMAND_SCRIPT_MAP).not.toHaveProperty('narrate');
   });
 });
 
 describe('BIN_RALPH_COMMANDS', () => {
-  test('includes init and narrate', async () => {
+  test('includes narrate (not init or summarize)', async () => {
     const { BIN_RALPH_COMMANDS } = await import('../../src/commands/fallback');
-    expect(BIN_RALPH_COMMANDS).toContain('init');
     expect(BIN_RALPH_COMMANDS).toContain('narrate');
+    expect(BIN_RALPH_COMMANDS).not.toContain('init');
+    expect(BIN_RALPH_COMMANDS).not.toContain('summarize');
   });
 });

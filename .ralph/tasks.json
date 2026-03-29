@@ -2,37 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 8,
-      "priority": 6,
-      "title": "TDD: Port summarize command \u2014 claude agent spawning",
-      "description": "Add claude agent spawning with stream-json output to the summarize command. Write tests first.\n\nImplement runSummarize() in src/commands/summarize.ts:\n1. Call buildSummarizePrompt() to get the system prompt.\n2. Build the user prompt (the actual instruction to update/create the implementation file).\n3. Spawn `claude -p '<user_prompt>' --append-system-prompt '<system_prompt>' --output-format stream-json --model sonnet --dangerously-skip-permissions` as a child process.\n4. Pipe stdout through the TS stream filter (processStream from src/stream-filter.ts).\n5. Implement timeout handling: 15 minutes default, configurable. Use AbortController + setTimeout or a process kill timer. Print a message if timed out.\n6. After completion, check if the implementation file exists and report line count, or report 'was not created'.\n7. Print banner header/footer matching the shell version's style.\n\nFor testing: mock child_process.spawn to return a fake process with controllable stdout. Verify the correct claude CLI arguments are constructed. Test timeout behavior. Test result reporting for both success and 'not created' cases.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T19:15:00Z",
-      "completedBy": "iteration-9",
-      "notes": "Implemented runSummarize() with injectable SpawnFn for testability. Spawns claude with -p, --append-system-prompt, --output-format stream-json, --model sonnet, --dangerously-skip-permissions. Pipes stdout through processStream. Timeout handling via setTimeout + child.kill(). Reports line count or 'was not created'. Banner header/footer matches shell version. 8 new tests (22 total in file), all 270 project tests pass. Key pattern: set up close event listener before awaiting processStream to avoid missing events in tests.",
-      "files": [
-        "src/commands/summarize.ts",
-        "test/commands/summarize.test.ts",
-        "src/stream-filter.ts",
-        "lib/ralph_summarize.sh"
-      ],
-      "tests": [
-        "bun test test/commands/summarize.test.ts"
-      ],
-      "dependencies": [
-        3,
-        7
-      ],
-      "model": "opus"
-    },
-    {
       "id": 9,
       "priority": 7,
       "title": "Wire init and summarize into Commander, update fallbacks",
       "description": "Register init and summarize as native Commander commands and remove them from shell fallback maps.\n\nChanges needed:\n\n1. src/index.ts:\n   - Import runInit from ./commands/init and runSummarize from ./commands/summarize\n   - Add 'init' command: program.command('init').description('Initialize Ralph in the current project').action(() => runInit(...))\n   - Add 'summarize' command: program.command('summarize').description('Update implementation documentation').action(() => runSummarize(...))\n   - Remove 'init' and 'summarize' from SHELL_FALLBACK_COMMANDS array\n   - Note: init needs special handling \u2014 it should work WITHOUT an existing .ralph/ dir (setupProjectContext may need adjustment since findProjectRoot looks for .ralph/)\n\n2. src/commands/fallback.ts:\n   - Remove 'summarize' from COMMAND_SCRIPT_MAP\n   - Remove 'init' from BIN_RALPH_COMMANDS\n\n3. Update tests:\n   - test/index.test.ts: update SHELL_FALLBACK_COMMANDS expectations, add tests for init and summarize command registration\n   - test/commands/fallback.test.ts: update expectations for removed entries\n   - Verify RALPH_FORCE_SHELL=1 still delegates everything to shell (existing test should still pass)\n\nRun the full test suite: bun test",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-10",
+      "notes": "Imported runInit and runSummarize into src/index.ts. Registered both as native Commander commands. init creates a readline interface inline for the PromptInterface. summarize reads env vars set by preAction hook. Removed 'init' and 'summarize' from SHELL_FALLBACK_COMMANDS (now ['plan','run','narrate']). Removed 'summarize' from COMMAND_SCRIPT_MAP and 'init' from BIN_RALPH_COMMANDS in fallback.ts. Updated all test expectations accordingly. All 270 tests pass.",
       "files": [
         "src/index.ts",
         "src/commands/fallback.ts",

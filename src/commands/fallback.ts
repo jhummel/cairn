@@ -9,14 +9,13 @@ import { resolveRalphRoot } from '../utils';
 export const COMMAND_SCRIPT_MAP: Record<string, string> = {
   plan: 'ralph_plan.sh',
   run: 'ralph_loop.sh',
-  summarize: 'ralph_summarize.sh',
 };
 
 /**
  * Commands that delegate to bin/ralph directly (not lib/ scripts).
  * init is sourced by bin/ralph; narrate is handled inline in bin/ralph.
  */
-export const BIN_RALPH_COMMANDS = ['init', 'narrate'] as const;
+export const BIN_RALPH_COMMANDS = ['narrate'] as const;
 
 /**
  * Shell fallback: delegates a command to the original shell scripts.

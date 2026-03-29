@@ -1,16 +1,19 @@
 import { Command } from 'commander';
 import { join } from 'path';
+import * as readline from 'readline';
 import { findProjectRoot, resolveRalphRoot } from './utils';
 import { loadConfig, autoDetectHealthCheck, setConfigEnvVars } from './config';
 import { shellFallback, forceShellFallback } from './commands/fallback';
 import { runStatus } from './commands/status';
 import { runEdit } from './commands/edit';
 import { runLogs } from './commands/logs';
+import { runInit } from './commands/init';
+import { runSummarize } from './commands/summarize';
 
 const RALPH_VERSION = '0.1.0';
 
 /** Shell-fallback commands that haven't been ported to TS yet */
-const SHELL_FALLBACK_COMMANDS = ['plan', 'run', 'summarize', 'init', 'narrate'] as const;
+const SHELL_FALLBACK_COMMANDS = ['plan', 'run', 'narrate'] as const;
 
 /** Ported commands with stub handlers (filled in by tasks 8-11) */
 const PORTED_COMMANDS = ['status', 'edit', 'logs'] as const;
@@ -95,6 +98,35 @@ export function createProgram(): Command {
     .action(() => {
       const dataDir = process.env.RALPH_DATA_DIR!;
       runLogs(dataDir);
+    });
+
+  program
+    .command('init')
+    .description('Initialize Ralph in the current project')
+    .action(async () => {
+      const projectRoot = process.env.RALPH_PROJECT_ROOT!;
+      const dataDir = process.env.RALPH_DATA_DIR!;
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      const promptInterface = {
+        question: (query: string) =>
+          new Promise<string>((resolve) => rl.question(query, resolve)),
+        close: () => rl.close(),
+      };
+      await runInit(projectRoot, dataDir, promptInterface);
+    });
+
+  program
+    .command('summarize')
+    .description('Update implementation documentation')
+    .action(async () => {
+      const projectRoot = process.env.RALPH_PROJECT_ROOT!;
+      await runSummarize({
+        projectRoot,
+        projectName: process.env.RALPH_PROJECT_NAME ?? '',
+        implFile: process.env.RALPH_IMPL_FILE ?? 'IMPLEMENTATION.md',
+        completedTasksPath: join(projectRoot, '.ralph', 'tasks.completed.json'),
+        claudeMdPattern: process.env.RALPH_CLAUDE_MD_PATTERN ?? '',
+      });
     });
 
   // --- Shell fallback commands ---
