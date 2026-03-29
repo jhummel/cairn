@@ -2,32 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 1,
-      "priority": 1,
-      "title": "TDD: Process management module",
-      "description": "Create src/process.ts and test/process.test.ts. Port the process lifecycle management from ralph_execute.sh (lines 1-29 trap setup, process group kills, PID tracking).\n\nImplement a ProcessManager class (or set of functions) that handles:\n- Signal traps: SIGINT, SIGTERM, SIGHUP → cleanup registered processes then exit. Use process.on('SIGINT', ...) etc.\n- Process group kills: spawn with detached: true and use process.kill(-pid, signal) for group kill.\n- PID registration/deregistration: track running Claude pipeline PID and narration server PID. Cleanup function kills both on signal.\n- Timeout: setTimeout + child.kill() with AbortController pattern. Cleaner than the shell gtimeout/timeout approach.\n\nMake it injectable for testing — mock the actual process killing. Export types and the ProcessManager so other modules (run.ts, narrate.ts) can compose it.\n\nFollow existing TDD patterns in the codebase (bun:test with describe/test/expect). Write tests first, watch them fail, then implement.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T12:00:00Z",
-      "completedBy": "iteration-1",
-      "notes": "ProcessManager class with injectable KillFn. Tracks named PIDs, kills process groups (-pid) then process (pid) on cleanup. Signal handlers for SIGINT/SIGTERM/SIGHUP with exit 130. AbortController-based timeout with timer cleanup on dispose. 14 tests covering register/unregister, cleanup idempotency, error swallowing, signal handler install/removal, and timeout behavior.",
-      "files": [
-        "src/process.ts",
-        "test/process.test.ts",
-        "lib/ralph_execute.sh",
-        "src/types.ts"
-      ],
-      "tests": ["bun test test/process.test.ts"],
-      "dependencies": [],
-      "model": "opus"
-    },
-    {
       "id": 2,
       "priority": 2,
       "title": "TDD: Task selector module",
-      "description": "Create src/task-selector.ts and test/task-selector.test.ts. Port the task selection logic from the inline Python block in ralph_execute.sh (lines 305-398).\n\nImplement pure functions:\n- loadCompletedIds(dataDir: string): Set<number> — Union of IDs from .ralph_completed_ids file + IDs from tasks.completed.json archive. Handle missing files gracefully.\n- selectNextTask(tasks: Task[], completedIds: Set<number>): Task | null — In-progress first, then highest-priority pending with all deps satisfied (deps checked against both active task statuses and completedIds). Returns null if none actionable.\n- buildIterationPrompt(task: Task, iteration: number, maxIterations: number, prevNotes: string | null): string — Builds the full prompt string with task context (id, title, description, files, tests, directory), in-progress warning if already started, prev notes block, remaining iteration count.\n\nUse the Task type from src/types.ts. All pure functions with no I/O side effects beyond file reads. Highly testable with fixture data — see test/fixtures/ for example task JSON files.",
+      "description": "Create src/task-selector.ts and test/task-selector.test.ts. Port the task selection logic from the inline Python block in ralph_execute.sh (lines 305-398).\n\nImplement pure functions:\n- loadCompletedIds(dataDir: string): Set<number> \u2014 Union of IDs from .ralph_completed_ids file + IDs from tasks.completed.json archive. Handle missing files gracefully.\n- selectNextTask(tasks: Task[], completedIds: Set<number>): Task | null \u2014 In-progress first, then highest-priority pending with all deps satisfied (deps checked against both active task statuses and completedIds). Returns null if none actionable.\n- buildIterationPrompt(task: Task, iteration: number, maxIterations: number, prevNotes: string | null): string \u2014 Builds the full prompt string with task context (id, title, description, files, tests, directory), in-progress warning if already started, prev notes block, remaining iteration count.\n\nUse the Task type from src/types.ts. All pure functions with no I/O side effects beyond file reads. Highly testable with fixture data \u2014 see test/fixtures/ for example task JSON files.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Pure functions loadCompletedIds, selectNextTask, buildIterationPrompt all implemented. loadCompletedIds handles both .ralph_completed_ids (JSON array) and tasks.completed.json (array or {tasks:[]} wrapper). selectNextTask unions active complete + completedIds set for dep satisfaction. buildIterationPrompt signature takes totalRemaining as 5th arg (caller computes it). 36 tests passing.",
       "files": [
         "src/task-selector.ts",
         "test/task-selector.test.ts",
@@ -35,7 +18,9 @@
         "src/types.ts",
         "test/fixtures/tasks-mixed.json"
       ],
-      "tests": ["bun test test/task-selector.test.ts"],
+      "tests": [
+        "bun test test/task-selector.test.ts"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
@@ -51,7 +36,9 @@
         "test/health-check.test.ts",
         "lib/ralph_execute.sh"
       ],
-      "tests": ["bun test test/health-check.test.ts"],
+      "tests": [
+        "bun test test/health-check.test.ts"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
@@ -59,7 +46,7 @@
       "id": 4,
       "priority": 4,
       "title": "TDD: Test validator module",
-      "description": "Create src/test-validator.ts and test/test-validator.test.ts. Port the post-iteration test validation from ralph_execute.sh (lines 551-627).\n\nImplement:\n- validateTaskTests(opts: { task: Task, tasksFilePath: string, projectRoot: string }): Promise<{ status: 'passed' | 'failed' | 'error' | 'skipped', message?: string }>\n\nBehavior:\n- Read task meta to get test commands from task.tests array\n- If no tests defined, return { status: 'skipped' }\n- Check if the task was marked complete in tasks.json (re-read file to get current status)\n- Run each test command from the task's resolved directory (projectRoot + task.directory) with a 120s timeout\n- Smart failure detection: distinguish 'can't run' (missing script, MODULE_NOT_FOUND, command not found → exit code 127) from 'ran but failed' (non-zero exit with test output)\n- On real test failure: revert task status to 'in-progress' in tasks.json, append failure note to task.notes, return { status: 'failed', message }\n- On infrastructure error (can't run): append note but DON'T revert status, return { status: 'error', message }\n- On all tests passing: return { status: 'passed' }\n\nMake the file I/O (reading/writing tasks.json) injectable or use the filesystem directly as the shell version does.",
+      "description": "Create src/test-validator.ts and test/test-validator.test.ts. Port the post-iteration test validation from ralph_execute.sh (lines 551-627).\n\nImplement:\n- validateTaskTests(opts: { task: Task, tasksFilePath: string, projectRoot: string }): Promise<{ status: 'passed' | 'failed' | 'error' | 'skipped', message?: string }>\n\nBehavior:\n- Read task meta to get test commands from task.tests array\n- If no tests defined, return { status: 'skipped' }\n- Check if the task was marked complete in tasks.json (re-read file to get current status)\n- Run each test command from the task's resolved directory (projectRoot + task.directory) with a 120s timeout\n- Smart failure detection: distinguish 'can't run' (missing script, MODULE_NOT_FOUND, command not found \u2192 exit code 127) from 'ran but failed' (non-zero exit with test output)\n- On real test failure: revert task status to 'in-progress' in tasks.json, append failure note to task.notes, return { status: 'failed', message }\n- On infrastructure error (can't run): append note but DON'T revert status, return { status: 'error', message }\n- On all tests passing: return { status: 'passed' }\n\nMake the file I/O (reading/writing tasks.json) injectable or use the filesystem directly as the shell version does.",
       "directory": "",
       "status": "pending",
       "files": [
@@ -68,7 +55,9 @@
         "lib/ralph_execute.sh",
         "src/types.ts"
       ],
-      "tests": ["bun test test/test-validator.test.ts"],
+      "tests": [
+        "bun test test/test-validator.test.ts"
+      ],
       "dependencies": [],
       "model": "opus"
     },
@@ -85,7 +74,9 @@
         "lib/ralph_execute.sh",
         "src/types.ts"
       ],
-      "tests": ["bun test test/task-archiver.test.ts"],
+      "tests": [
+        "bun test test/task-archiver.test.ts"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
@@ -93,7 +84,7 @@
       "id": 6,
       "priority": 6,
       "title": "TDD: Shared narration helpers",
-      "description": "Create src/narration.ts and test/narration.test.ts. Extract narration server lifecycle logic shared by both run.ts and narrate.ts.\n\nImplement:\n- startNarrationServer(opts: { pythonPath: string, scriptPath: string, voice: string, socketPath?: string }): Promise<number> — Spawn the Python narration server as a detached child process. Returns PID. Verify startup via health check after ~1s delay. socketPath defaults to /tmp/ralph-tts.sock.\n- stopNarrationServer(pid: number, socketPath?: string): Promise<void> — Kill the server process, clean up socket file.\n- checkNarrationHealth(socketPath?: string): Promise<boolean> — PING/PONG health check over Unix domain socket with 2s timeout. Returns true if healthy.\n\nNote: sendToNarrate() already exists in src/stream-filter.ts (lines 110-132) — that handles sending text TO the server. These helpers manage the server LIFECYCLE (start/stop/health).\n\nBoth the run command (managed lifecycle during loop) and narrate command (daemon lifecycle with PID file) will compose these helpers. Use detached: true and child.unref() for background spawning.",
+      "description": "Create src/narration.ts and test/narration.test.ts. Extract narration server lifecycle logic shared by both run.ts and narrate.ts.\n\nImplement:\n- startNarrationServer(opts: { pythonPath: string, scriptPath: string, voice: string, socketPath?: string }): Promise<number> \u2014 Spawn the Python narration server as a detached child process. Returns PID. Verify startup via health check after ~1s delay. socketPath defaults to /tmp/ralph-tts.sock.\n- stopNarrationServer(pid: number, socketPath?: string): Promise<void> \u2014 Kill the server process, clean up socket file.\n- checkNarrationHealth(socketPath?: string): Promise<boolean> \u2014 PING/PONG health check over Unix domain socket with 2s timeout. Returns true if healthy.\n\nNote: sendToNarrate() already exists in src/stream-filter.ts (lines 110-132) \u2014 that handles sending text TO the server. These helpers manage the server LIFECYCLE (start/stop/health).\n\nBoth the run command (managed lifecycle during loop) and narrate command (daemon lifecycle with PID file) will compose these helpers. Use detached: true and child.unref() for background spawning.",
       "directory": "",
       "status": "pending",
       "files": [
@@ -102,7 +93,9 @@
         "src/stream-filter.ts",
         "lib/ralph_execute.sh"
       ],
-      "tests": ["bun test test/narration.test.ts"],
+      "tests": [
+        "bun test test/narration.test.ts"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
@@ -119,15 +112,19 @@
         "src/narration.ts",
         "bin/ralph"
       ],
-      "tests": ["bun test test/commands/narrate.test.ts"],
-      "dependencies": [6],
+      "tests": [
+        "bun test test/commands/narrate.test.ts"
+      ],
+      "dependencies": [
+        6
+      ],
       "model": "sonnet"
     },
     {
       "id": 8,
       "priority": 8,
       "title": "TDD: System prompt builder for run command",
-      "description": "Create the initial src/commands/run.ts and test/commands/run.test.ts with the system prompt builder.\n\nImplement:\n- buildSystemPrompt(opts: { taskDir: string, taskAgent: string, projectRoot: string, dataDir: string, config: RalphConfig, agents: AgentInfo[], iteration: number, commitPrefix?: string }): string\n\nPort build_system_prompt() from ralph_execute.sh (lines 148-259). Pure function that returns the prompt string.\n\nPrompt sections:\n1. SPECIALIST INSTRUCTIONS — if taskAgent is set, find matching agent in agents array, read its .md file, strip YAML frontmatter (reuse the pattern from discoverAgents in config.ts lines 95-106), embed body\n2. PROJECT CONTEXT — project name, description, personal instructions from $dataDir/instructions.md (if exists)\n3. DIRECTORY — working directory info based on taskDir (relative path or project root)\n4. WORKFLOW — 6-point numbered workflow: set in-progress, implement, run tests, mark complete with ISO timestamp + iteration-N, create .ralph_complete flag if no remaining tasks, git commit with [$commitPrefix] Task #<id>: <title>\n5. DISCOVERY RULES — up to 3 new tasks, update CLAUDE.md operationally\n6. CRITICAL RULES — work on exactly one task, set status first, mark complete before flag\n\nFollow the same pattern as buildPlanningPrompt() and buildTaskGenPrompt() in plan.ts.",
+      "description": "Create the initial src/commands/run.ts and test/commands/run.test.ts with the system prompt builder.\n\nImplement:\n- buildSystemPrompt(opts: { taskDir: string, taskAgent: string, projectRoot: string, dataDir: string, config: RalphConfig, agents: AgentInfo[], iteration: number, commitPrefix?: string }): string\n\nPort build_system_prompt() from ralph_execute.sh (lines 148-259). Pure function that returns the prompt string.\n\nPrompt sections:\n1. SPECIALIST INSTRUCTIONS \u2014 if taskAgent is set, find matching agent in agents array, read its .md file, strip YAML frontmatter (reuse the pattern from discoverAgents in config.ts lines 95-106), embed body\n2. PROJECT CONTEXT \u2014 project name, description, personal instructions from $dataDir/instructions.md (if exists)\n3. DIRECTORY \u2014 working directory info based on taskDir (relative path or project root)\n4. WORKFLOW \u2014 6-point numbered workflow: set in-progress, implement, run tests, mark complete with ISO timestamp + iteration-N, create .ralph_complete flag if no remaining tasks, git commit with [$commitPrefix] Task #<id>: <title>\n5. DISCOVERY RULES \u2014 up to 3 new tasks, update CLAUDE.md operationally\n6. CRITICAL RULES \u2014 work on exactly one task, set status first, mark complete before flag\n\nFollow the same pattern as buildPlanningPrompt() and buildTaskGenPrompt() in plan.ts.",
       "directory": "",
       "status": "pending",
       "files": [
@@ -138,7 +135,9 @@
         "src/config.ts",
         "src/types.ts"
       ],
-      "tests": ["bun test test/commands/run.test.ts"],
+      "tests": [
+        "bun test test/commands/run.test.ts"
+      ],
       "dependencies": [],
       "model": "opus"
     },
@@ -146,7 +145,7 @@
       "id": 9,
       "priority": 9,
       "title": "TDD: Claude agent spawner",
-      "description": "Add the Claude agent spawning logic to src/commands/run.ts and test/commands/run.test.ts.\n\nImplement:\n- spawnClaude(opts: { prompt: string, systemPrompt: string, model: string, projectRoot: string, taskDir: string, timeout: number, processManager: ProcessManager, streamOpts?: ProcessStreamOptions }): Promise<{ exitCode: number }>\n\nPort the run_claude() function from ralph_execute.sh (lines 502-530).\n\nBehavior:\n- Unset ANTHROPIC_API_KEY in the child env (forces Max plan, matching shell behavior)\n- Spawn claude -p with args: --append-system-prompt <systemPrompt>, --dangerously-skip-permissions, --output-format stream-json, --model <model>, --verbose\n- Set cwd to resolved task directory (projectRoot + taskDir, or projectRoot if empty)\n- Write the prompt to stdin, then close stdin\n- Pipe stdout through processStream() from src/stream-filter.ts (already ported, supports narrate/ntfy callbacks)\n- Register the child process with ProcessManager for cleanup on signals\n- Timeout via setTimeout + child.kill() — deregister timeout on normal exit\n- Return { exitCode } from the child process\n\nUse child_process.spawn (NOT spawnSync — need async for stream piping). Make it testable by allowing mock of the actual spawn call.",
+      "description": "Add the Claude agent spawning logic to src/commands/run.ts and test/commands/run.test.ts.\n\nImplement:\n- spawnClaude(opts: { prompt: string, systemPrompt: string, model: string, projectRoot: string, taskDir: string, timeout: number, processManager: ProcessManager, streamOpts?: ProcessStreamOptions }): Promise<{ exitCode: number }>\n\nPort the run_claude() function from ralph_execute.sh (lines 502-530).\n\nBehavior:\n- Unset ANTHROPIC_API_KEY in the child env (forces Max plan, matching shell behavior)\n- Spawn claude -p with args: --append-system-prompt <systemPrompt>, --dangerously-skip-permissions, --output-format stream-json, --model <model>, --verbose\n- Set cwd to resolved task directory (projectRoot + taskDir, or projectRoot if empty)\n- Write the prompt to stdin, then close stdin\n- Pipe stdout through processStream() from src/stream-filter.ts (already ported, supports narrate/ntfy callbacks)\n- Register the child process with ProcessManager for cleanup on signals\n- Timeout via setTimeout + child.kill() \u2014 deregister timeout on normal exit\n- Return { exitCode } from the child process\n\nUse child_process.spawn (NOT spawnSync \u2014 need async for stream piping). Make it testable by allowing mock of the actual spawn call.",
       "directory": "",
       "status": "pending",
       "files": [
@@ -156,15 +155,19 @@
         "src/stream-filter.ts",
         "lib/ralph_execute.sh"
       ],
-      "tests": ["bun test test/commands/run.test.ts"],
-      "dependencies": [1],
+      "tests": [
+        "bun test test/commands/run.test.ts"
+      ],
+      "dependencies": [
+        1
+      ],
       "model": "opus"
     },
     {
       "id": 10,
       "priority": 10,
-      "title": "TDD: Run command — core loop",
-      "description": "Add the main run command orchestration to src/commands/run.ts and test/commands/run.test.ts.\n\nImplement:\n- runRun(opts: { maxIterations?: number, projectRoot: string, dataDir: string, config: RalphConfig, agents: AgentInfo[] }): Promise<void>\n\nPort the main loop from ralph_execute.sh (lines 269-737) and the 'no tasks.json' UX from ralph_loop.sh.\n\nBehavior:\n1. Check for tasks.json — if missing, prompt 'No tasks.json found. Launch planner?' (preserve UX from ralph_loop.sh). If yes, call runPlan() from plan.ts.\n2. PATH augmentation: prepend ~/.bun/bin, ~/.cargo/bin, /opt/homebrew/bin, /usr/local/bin to process.env.PATH\n3. Initialize ProcessManager, register signal handlers\n4. Main iteration loop (up to maxIterations, default 30):\n   a. Check for .ralph_complete flag → break if found\n   b. Load completed IDs via loadCompletedIds()\n   c. Select next task via selectNextTask() → break if null\n   d. Run health check via runHealthCheck() → prepend failure output to prompt if failed\n   e. Build iteration prompt via buildIterationPrompt()\n   f. Build system prompt via buildSystemPrompt()\n   g. Spawn Claude via spawnClaude()\n   h. Post-iteration: validate tests via validateTaskTests()\n   i. Archive completed tasks via archiveCompletedTasks()\n   j. Carry forward prevNotes for next iteration\n5. Clean up temp files (.ralph_complete, .ralph_prev_notes, .ralph_completed_ids)\n\nCompose all previously built modules. Make dependencies injectable for testing.",
+      "title": "TDD: Run command \u2014 core loop",
+      "description": "Add the main run command orchestration to src/commands/run.ts and test/commands/run.test.ts.\n\nImplement:\n- runRun(opts: { maxIterations?: number, projectRoot: string, dataDir: string, config: RalphConfig, agents: AgentInfo[] }): Promise<void>\n\nPort the main loop from ralph_execute.sh (lines 269-737) and the 'no tasks.json' UX from ralph_loop.sh.\n\nBehavior:\n1. Check for tasks.json \u2014 if missing, prompt 'No tasks.json found. Launch planner?' (preserve UX from ralph_loop.sh). If yes, call runPlan() from plan.ts.\n2. PATH augmentation: prepend ~/.bun/bin, ~/.cargo/bin, /opt/homebrew/bin, /usr/local/bin to process.env.PATH\n3. Initialize ProcessManager, register signal handlers\n4. Main iteration loop (up to maxIterations, default 30):\n   a. Check for .ralph_complete flag \u2192 break if found\n   b. Load completed IDs via loadCompletedIds()\n   c. Select next task via selectNextTask() \u2192 break if null\n   d. Run health check via runHealthCheck() \u2192 prepend failure output to prompt if failed\n   e. Build iteration prompt via buildIterationPrompt()\n   f. Build system prompt via buildSystemPrompt()\n   g. Spawn Claude via spawnClaude()\n   h. Post-iteration: validate tests via validateTaskTests()\n   i. Archive completed tasks via archiveCompletedTasks()\n   j. Carry forward prevNotes for next iteration\n5. Clean up temp files (.ralph_complete, .ralph_prev_notes, .ralph_completed_ids)\n\nCompose all previously built modules. Make dependencies injectable for testing.",
       "directory": "",
       "status": "pending",
       "files": [
@@ -178,15 +181,25 @@
         "lib/ralph_execute.sh",
         "lib/ralph_loop.sh"
       ],
-      "tests": ["bun test test/commands/run.test.ts"],
-      "dependencies": [1, 2, 3, 4, 5, 8, 9],
+      "tests": [
+        "bun test test/commands/run.test.ts"
+      ],
+      "dependencies": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
       "model": "opus"
     },
     {
       "id": 11,
       "priority": 11,
-      "title": "TDD: Run command — narration + summary",
-      "description": "Add narration server lifecycle management and final summary to the run command in src/commands/run.ts and test/commands/run.test.ts.\n\nNarration lifecycle within the loop:\n- If config.narration.enabled: start narration server before first iteration using startNarrationServer()\n- Health check the narration server each iteration via checkNarrationHealth() — auto-restart if dead\n- Pass narrate callback to processStream options so tool results get narrated\n- Stop narration server on loop exit (normal or signal) via stopNarrationServer()\n- Register narration server PID with ProcessManager for signal cleanup\n\nIteration logging:\n- Log iteration number, task being worked on, start/end times to .ralph_iterations.log\n- Format: timestamp + iteration number + task id + task title\n\nFinal summary:\n- Print total iterations completed, tasks completed/remaining counts\n- If config.narration.ntfyTopic set, send ntfy notification via sendNtfy() from stream-filter.ts with completion summary\n- Narrate the final summary if narration is enabled",
+      "title": "TDD: Run command \u2014 narration + summary",
+      "description": "Add narration server lifecycle management and final summary to the run command in src/commands/run.ts and test/commands/run.test.ts.\n\nNarration lifecycle within the loop:\n- If config.narration.enabled: start narration server before first iteration using startNarrationServer()\n- Health check the narration server each iteration via checkNarrationHealth() \u2014 auto-restart if dead\n- Pass narrate callback to processStream options so tool results get narrated\n- Stop narration server on loop exit (normal or signal) via stopNarrationServer()\n- Register narration server PID with ProcessManager for signal cleanup\n\nIteration logging:\n- Log iteration number, task being worked on, start/end times to .ralph_iterations.log\n- Format: timestamp + iteration number + task id + task title\n\nFinal summary:\n- Print total iterations completed, tasks completed/remaining counts\n- If config.narration.ntfyTopic set, send ntfy notification via sendNtfy() from stream-filter.ts with completion summary\n- Narrate the final summary if narration is enabled",
       "directory": "",
       "status": "pending",
       "files": [
@@ -196,15 +209,20 @@
         "src/stream-filter.ts",
         "lib/ralph_execute.sh"
       ],
-      "tests": ["bun test test/commands/run.test.ts"],
-      "dependencies": [6, 10],
+      "tests": [
+        "bun test test/commands/run.test.ts"
+      ],
+      "dependencies": [
+        6,
+        10
+      ],
       "model": "opus"
     },
     {
       "id": 12,
       "priority": 12,
       "title": "Wire run + narrate into Commander",
-      "description": "Register both commands in Commander and remove from shell fallback.\n\nIn src/index.ts:\n- Register 'run' command with optional [max] argument for max iterations (default 30). Handler calls runRun() from src/commands/run.ts.\n- Register 'narrate' command with required <action> argument (on/off/status or text to speak). Handler calls runNarrate() from src/commands/narrate.ts.\n- Remove 'run' and 'narrate' from SHELL_FALLBACK_COMMANDS — the array becomes empty: []\n\nIn src/commands/fallback.ts:\n- Remove 'run: \"ralph_loop.sh\"' from COMMAND_SCRIPT_MAP (object becomes empty: {})\n- Remove 'narrate' from BIN_RALPH_COMMANDS (array becomes empty: [])\n\nUpdate tests:\n- test/index.test.ts: add tests for new command registration, update fallback tests\n- test/commands/fallback.test.ts: update to reflect empty maps\n\nRALPH_FORCE_SHELL=1 still delegates everything to shell (existing forceShellFallback logic unchanged).",
+      "description": "Register both commands in Commander and remove from shell fallback.\n\nIn src/index.ts:\n- Register 'run' command with optional [max] argument for max iterations (default 30). Handler calls runRun() from src/commands/run.ts.\n- Register 'narrate' command with required <action> argument (on/off/status or text to speak). Handler calls runNarrate() from src/commands/narrate.ts.\n- Remove 'run' and 'narrate' from SHELL_FALLBACK_COMMANDS \u2014 the array becomes empty: []\n\nIn src/commands/fallback.ts:\n- Remove 'run: \"ralph_loop.sh\"' from COMMAND_SCRIPT_MAP (object becomes empty: {})\n- Remove 'narrate' from BIN_RALPH_COMMANDS (array becomes empty: [])\n\nUpdate tests:\n- test/index.test.ts: add tests for new command registration, update fallback tests\n- test/commands/fallback.test.ts: update to reflect empty maps\n\nRALPH_FORCE_SHELL=1 still delegates everything to shell (existing forceShellFallback logic unchanged).",
       "directory": "",
       "status": "pending",
       "files": [
@@ -213,15 +231,22 @@
         "test/index.test.ts",
         "test/commands/fallback.test.ts"
       ],
-      "tests": ["bun test test/index.test.ts", "bun test test/commands/fallback.test.ts"],
-      "dependencies": [7, 10, 11],
+      "tests": [
+        "bun test test/index.test.ts",
+        "bun test test/commands/fallback.test.ts"
+      ],
+      "dependencies": [
+        7,
+        10,
+        11
+      ],
       "model": "sonnet"
     },
     {
       "id": 13,
       "priority": 13,
       "title": "Update plan [r]un to call native run",
-      "description": "In src/commands/plan.ts, the reviewTasksLoop function's [r]un handler currently calls shellFallbackFn('run', []) (line ~624). Change this to call the native runRun() function directly.\n\nChanges:\n- Update the ShellFallbackFn type or add a new RunFn type for the injectable dependency\n- In reviewTasksLoop, replace shellFallbackFn('run', []) with a call to the native run function\n- In runPlan() (line ~765-770), update the lazy-loaded dependency injection to provide the native run function instead of shellFallback\n- The injectable dependency pattern already supports this — just swap what gets injected\n\nUpdate test/commands/plan.test.ts:\n- Update mocks to reflect the new dependency type\n- Verify that [r]un menu option calls the native run function",
+      "description": "In src/commands/plan.ts, the reviewTasksLoop function's [r]un handler currently calls shellFallbackFn('run', []) (line ~624). Change this to call the native runRun() function directly.\n\nChanges:\n- Update the ShellFallbackFn type or add a new RunFn type for the injectable dependency\n- In reviewTasksLoop, replace shellFallbackFn('run', []) with a call to the native run function\n- In runPlan() (line ~765-770), update the lazy-loaded dependency injection to provide the native run function instead of shellFallback\n- The injectable dependency pattern already supports this \u2014 just swap what gets injected\n\nUpdate test/commands/plan.test.ts:\n- Update mocks to reflect the new dependency type\n- Verify that [r]un menu option calls the native run function",
       "directory": "",
       "status": "pending",
       "files": [
@@ -229,15 +254,19 @@
         "test/commands/plan.test.ts",
         "src/commands/run.ts"
       ],
-      "tests": ["bun test test/commands/plan.test.ts"],
-      "dependencies": [12],
+      "tests": [
+        "bun test test/commands/plan.test.ts"
+      ],
+      "dependencies": [
+        12
+      ],
       "model": "sonnet"
     },
     {
       "id": 14,
       "priority": 14,
       "title": "Verify bun build --compile with run + narrate",
-      "description": "Verify that the compiled binary includes and correctly dispatches the new run and narrate commands.\n\nSteps:\n1. Run 'bun build --compile src/index.ts --outfile dist/ralph' (the existing build script)\n2. Test the binary: dist/ralph --version, dist/ralph --help\n3. Verify 'dist/ralph run --help' shows the run command with [max] argument\n4. Verify 'dist/ralph narrate --help' shows the narrate command with <action> argument\n5. Verify that no shell fallback commands remain (SHELL_FALLBACK_COMMANDS should be empty)\n6. Run the full test suite: bun test\n7. If any issues found, fix them and re-verify\n\nThis is a validation task — the goal is to catch any compilation or runtime issues before the phase is considered complete.",
+      "description": "Verify that the compiled binary includes and correctly dispatches the new run and narrate commands.\n\nSteps:\n1. Run 'bun build --compile src/index.ts --outfile dist/ralph' (the existing build script)\n2. Test the binary: dist/ralph --version, dist/ralph --help\n3. Verify 'dist/ralph run --help' shows the run command with [max] argument\n4. Verify 'dist/ralph narrate --help' shows the narrate command with <action> argument\n5. Verify that no shell fallback commands remain (SHELL_FALLBACK_COMMANDS should be empty)\n6. Run the full test suite: bun test\n7. If any issues found, fix them and re-verify\n\nThis is a validation task \u2014 the goal is to catch any compilation or runtime issues before the phase is considered complete.",
       "directory": "",
       "status": "pending",
       "files": [
@@ -245,8 +274,13 @@
         "package.json",
         "dist/"
       ],
-      "tests": ["bun test"],
-      "dependencies": [12, 13],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        12,
+        13
+      ],
       "model": "opus"
     }
   ]
