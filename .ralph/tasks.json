@@ -2,36 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 5,
-      "priority": 2,
-      "title": "TDD: Port planning prompt builder",
-      "description": "Add a `buildPlanningPrompt` pure function to `src/commands/plan.ts` with tests.\n\nPort the planning system prompt from `lib/ralph_plan.sh`. The prompt includes:\n- Project context (name, root, data dir)\n- Briefing materials section: reads and embeds content from CLAUDE.md, README.md, package.json/Cargo.toml/Makefile, existing planning-notes.md, tasks.completed.json, IMPLEMENTATION.md \u2014 each wrapped in labeled sections, skipped if file doesn't exist\n- Agent discovery section: if agents exist (from `discoverAgents()` in config.ts), list them with name, description, model\n- Planning-notes.md format specification (what the output file should contain)\n- Rules (write to planning-notes.md, no code changes, etc.)\n\nThe function should accept `{ projectName, projectRoot, dataDir, agents }` and return the prompt string. Read files inside the function using `fs.readFileSync` with existence checks.\n\nTest that output contains expected section headers, embeds file contents when present, omits sections when files don't exist, includes agent list when agents are provided.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T12:15:00Z",
-      "completedBy": "iteration-5",
-      "notes": "Added buildPlanningPrompt pure function to src/commands/plan.ts. Ports the planning system prompt from ralph_plan.sh. Reads and embeds CLAUDE.md, README.md, package.json, Cargo.toml, Makefile, planning-notes.md, tasks.completed.json, and IMPLEMENTATION.md with existence checks. Agent discovery section included when agents array is non-empty. 18 new tests added (41 total in plan.test.ts), all passing. Full suite: 320 pass.",
-      "files": [
-        "src/commands/plan.ts",
-        "test/commands/plan.test.ts",
-        "lib/ralph_plan.sh",
-        "src/config.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        1
-      ],
-      "model": "opus"
-    },
-    {
       "id": 6,
       "priority": 2,
       "title": "TDD: Port task generation prompt builder",
       "description": "Add a `buildTaskGenPrompt` pure function to `src/commands/plan.ts` with tests.\n\nPort the task generation system prompt from `lib/ralph_plan.sh`. The prompt includes:\n- Project context (name, root, data dir, tasks file path)\n- The full tasks.json schema embedded from `src/tasks-schema.json` (read via `fs.readFileSync`)\n- Task structure guidelines (what each field means, how to scope tasks)\n- Directory guidelines table (module work vs cross-module)\n- Test command guidelines (prefer project test scripts over direct tool invocations, read package.json)\n- Agent section (if agents discovered)\n- Rules (never modify complete tasks, keep IDs unique, etc.)\n- Git status (current branch, recent commits)\n\nThe function should accept `{ projectName, projectRoot, dataDir, agents, gitStatus }` and return the prompt string.\n\nTest that output embeds the schema, contains guideline sections, includes agents when provided, omits agent section when empty.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T16:45:00Z",
+      "completedBy": "iteration-6",
+      "notes": "Added buildTaskGenPrompt pure function and TaskGenPromptInput interface to src/commands/plan.ts. Ports the full task generation system prompt from ralph_plan.sh lines 217-270. Reads and embeds tasks-schema.json via fs.readFileSync. Includes all sections: project context, workflow, schema, task structure, directory guidelines, test command guidelines, rules, optional agents section, and optional git status. 15 new tests added (56 total in plan.test.ts), all passing. Full suite: 335 pass. Note: bun build health check fails due to missing entrypoints config — unrelated to this task.",
       "files": [
         "src/commands/plan.ts",
         "test/commands/plan.test.ts",

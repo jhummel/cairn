@@ -9,6 +9,7 @@ import {
   formatTasksSummary,
   displayPreflight,
   buildPlanningPrompt,
+  buildTaskGenPrompt,
 } from '../../src/commands/plan';
 import type { AgentInfo } from '../../src/types';
 
@@ -589,6 +590,278 @@ describe('buildPlanningPrompt', () => {
         agents: [],
       });
       expect(result).toContain(ralphDir);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
+
+describe('buildTaskGenPrompt', () => {
+  test('includes project name and root', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'my-app',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).toContain('PROJECT: my-app');
+      expect(result).toContain(`PROJECT ROOT: ${tmpDir}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes tasks file path', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).toContain(`TASKS FILE: ${path.join(ralphDir, 'tasks.json')}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes task generation assistant role', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).toContain('task generation assistant');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('embeds the tasks.json schema from src/tasks-schema.json', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).toContain('TASKS.JSON SCHEMA:');
+      // Schema should contain key fields from tasks-schema.json
+      expect(result).toContain('"$schema"');
+      expect(result).toContain('"tasks"');
+      expect(result).toContain('"priority"');
+      expect(result).toContain('"dependencies"');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes task structure guidelines', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).toContain('TASK STRUCTURE:');
+      expect(result).toContain('id: unique integer');
+      expect(result).toContain('priority: integer');
+      expect(result).toContain('description: detailed implementation');
+      expect(result).toContain('dependencies: array of task IDs');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes directory guidelines table', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).toContain('DIRECTORY GUIDELINES:');
+      expect(result).toContain('Module work');
+      expect(result).toContain('Cross-module');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes test command guidelines', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).toContain('TEST COMMAND GUIDELINES:');
+      expect(result).toContain('prefer the project\'s own test scripts');
+      expect(result).toContain('package.json');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes rules section', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).toContain('RULES:');
+      expect(result).toContain('NEVER modify tasks with status \'complete\'');
+      expect(result).toContain('Keep task IDs unique');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes agents section when agents provided', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const agents: AgentInfo[] = [
+      { name: 'reviewer', description: 'Code review', model: 'opus', file: 'reviewer.md' },
+      { name: 'tester', description: 'Test writer', model: 'sonnet', file: 'tester.md' },
+    ];
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents,
+        gitStatus: '',
+      });
+      expect(result).toContain('AVAILABLE SPECIALIST AGENTS');
+      expect(result).toContain('reviewer');
+      expect(result).toContain('Code review');
+      expect(result).toContain('(model: opus)');
+      expect(result).toContain('tester');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('omits agent section when agents array is empty', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).not.toContain('AVAILABLE SPECIALIST AGENTS');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes git status when provided', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: 'On branch main\nnothing to commit',
+      });
+      expect(result).toContain('GIT STATUS:');
+      expect(result).toContain('On branch main');
+      expect(result).toContain('nothing to commit');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('omits git status section when empty string', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).not.toContain('GIT STATUS:');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes workflow steps', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).toContain('YOUR WORKFLOW:');
+      expect(result).toContain('Read planning-notes.md');
+      expect(result).toContain('Present your proposed task breakdown');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('mentions model options in task structure', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).toContain("'opus'");
+      expect(result).toContain("'sonnet'");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes tasks file path in rules section', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const tasksFile = path.join(ralphDir, 'tasks.json');
+      const result = buildTaskGenPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+      });
+      expect(result).toContain(`ONLY write to: ${tasksFile}`);
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
