@@ -1,10 +1,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { spawn as nodeSpawn, type ChildProcess } from 'child_process';
 import type { Readable, Writable } from 'stream';
-import type { RalphConfig, AgentInfo } from '../types';
-import { type ProcessManager } from '../process';
+import type { RalphConfig, AgentInfo, Task } from '../types';
+import { ProcessManager, type ProcessManagerOptions } from '../process';
 import { processStream, type ProcessStreamOptions } from '../stream-filter';
+import { loadCompletedIds as defaultLoadCompletedIds, selectNextTask as defaultSelectNextTask, buildIterationPrompt as defaultBuildIterationPrompt } from '../task-selector';
+import { runHealthCheck as defaultRunHealthCheck, type HealthCheckResult } from '../health-check';
+import { validateTaskTests as defaultValidateTaskTests, type ValidateTaskTestsOpts, type ValidationResult } from '../test-validator';
+import { archiveCompletedTasks as defaultArchiveCompletedTasks, type ArchiveResult } from '../task-archiver';
 
 export interface SystemPromptInput {
   taskDir: string;
@@ -250,4 +255,248 @@ export async function spawnClaude(opts: SpawnClaudeOpts): Promise<{ exitCode: nu
   processManager.unregister('claude');
 
   return { exitCode };
+}
+
+// --- Run command orchestration ---
+
+export interface RunRunOpts {
+  maxIterations?: number;
+  iterationTimeout?: number; // seconds; default 900
+  projectRoot: string;
+  dataDir: string;
+  config: RalphConfig;
+  agents: AgentInfo[];
+}
+
+export interface RunRunDeps {
+  loadCompletedIds: (dataDir: string) => Set<number>;
+  selectNextTask: (tasks: Task[], completedIds: Set<number>) => Task | null;
+  buildIterationPrompt: (task: Task, iteration: number, maxIterations: number, prevNotes: string | null, totalRemaining: number) => string;
+  buildSystemPrompt: (input: SystemPromptInput) => string;
+  runHealthCheck: (opts: { healthCheck: string; taskDir: string; projectRoot: string }) => Promise<HealthCheckResult>;
+  spawnClaude: (opts: SpawnClaudeOpts) => Promise<{ exitCode: number }>;
+  validateTaskTests: (opts: ValidateTaskTestsOpts) => Promise<ValidationResult>;
+  archiveCompletedTasks: (opts: { tasksFilePath: string; dataDir: string }) => Promise<ArchiveResult>;
+  runPlan: (opts: any) => Promise<void>;
+  createProcessManager: (opts?: ProcessManagerOptions) => ProcessManager;
+  prompt: (question: string) => Promise<string>;
+  existsSync: (p: string) => boolean;
+  readFileSync: (p: string, encoding: string) => string;
+  mkdirSync: (p: string, opts?: { recursive: boolean }) => void;
+  unlinkSync: (p: string) => void;
+  log: (...args: unknown[]) => void;
+}
+
+function defaultDeps(): RunRunDeps {
+  return {
+    loadCompletedIds: defaultLoadCompletedIds,
+    selectNextTask: defaultSelectNextTask,
+    buildIterationPrompt: defaultBuildIterationPrompt,
+    buildSystemPrompt,
+    runHealthCheck: defaultRunHealthCheck,
+    spawnClaude,
+    validateTaskTests: defaultValidateTaskTests,
+    archiveCompletedTasks: defaultArchiveCompletedTasks,
+    runPlan: async () => {
+      // Lazy-load to avoid circular dependency
+      const { runPlan } = await import('./plan');
+      // This would need readline setup — for now it's a placeholder
+      // Task #13 will wire this properly
+      throw new Error('runPlan not wired yet');
+    },
+    createProcessManager: (opts?) => new ProcessManager(opts),
+    prompt: async (question: string) => {
+      const rl = await import('readline');
+      const iface = rl.createInterface({ input: process.stdin, output: process.stdout });
+      return new Promise<string>((resolve) => {
+        iface.question(question, (answer) => {
+          iface.close();
+          resolve(answer);
+        });
+      });
+    },
+    existsSync: fs.existsSync,
+    readFileSync: fs.readFileSync as (p: string, encoding: string) => string,
+    mkdirSync: fs.mkdirSync as (p: string, opts?: { recursive: boolean }) => void,
+    unlinkSync: fs.unlinkSync,
+    log: console.log,
+  };
+}
+
+const PATH_ADDITIONS = [
+  path.join(os.homedir(), '.bun', 'bin'),
+  path.join(os.homedir(), '.cargo', 'bin'),
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+];
+
+const TEMP_FILES = ['.ralph_complete', '.ralph_prev_notes', '.ralph_completed_ids'];
+
+export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps()): Promise<void> {
+  const { projectRoot, dataDir, config, agents } = opts;
+  const maxIterations = opts.maxIterations ?? 30;
+  const iterationTimeout = (opts.iterationTimeout ?? 900) * 1000; // convert to ms
+  const tasksFilePath = path.join(dataDir, 'tasks.json');
+
+  // 1. Check for tasks.json — prompt to launch planner if missing
+  if (!deps.existsSync(tasksFilePath)) {
+    const answer = await deps.prompt('No tasks.json found. Launch planner? [Y/n] ');
+    if (answer.toLowerCase() === 'n' || answer.toLowerCase() === 'no') {
+      throw new Error('tasks.json not found. Create it first with \'ralph plan\'');
+    }
+    await deps.runPlan({ projectRoot, dataDir, config, agents });
+    // After plan, tasks.json should exist. If still missing, bail.
+    if (!deps.existsSync(tasksFilePath)) {
+      throw new Error('tasks.json not found after planning');
+    }
+  }
+
+  // 2. PATH augmentation
+  const currentPath = process.env.PATH ?? '';
+  const newPaths = PATH_ADDITIONS.filter(p => !currentPath.includes(p));
+  if (newPaths.length > 0) {
+    process.env.PATH = [...newPaths, currentPath].join(':');
+  }
+
+  // 3. Initialize ProcessManager
+  const processManager = deps.createProcessManager();
+
+  let prevNotes: string | null = null;
+
+  try {
+    // 4. Main iteration loop
+    for (let iteration = 1; iteration <= maxIterations; iteration++) {
+      // a. Check for .ralph_complete flag
+      const completeFlag = path.join(dataDir, '.ralph_complete');
+      if (deps.existsSync(completeFlag)) {
+        deps.log('Completion flag found. All tasks complete!');
+        break;
+      }
+
+      // b. Load completed IDs
+      const completedIds = deps.loadCompletedIds(dataDir);
+
+      // Read tasks from file
+      let tasks: Task[];
+      try {
+        const data = JSON.parse(deps.readFileSync(tasksFilePath, 'utf-8'));
+        tasks = data.tasks ?? [];
+      } catch {
+        deps.log('ERROR: Failed to parse tasks.json');
+        break;
+      }
+
+      // c. Select next task
+      const task = deps.selectNextTask(tasks, completedIds);
+      if (!task) {
+        deps.log('No actionable tasks remain.');
+        break;
+      }
+
+      // Resolve model — default to opus, with agent override
+      let taskModel = task.model ?? 'opus';
+      if (task.agent && !task.model) {
+        // Agent can override model when task uses default
+        const agentInfo = agents.find(a => a.name === task.agent);
+        if (agentInfo?.model) {
+          taskModel = agentInfo.model;
+        }
+      }
+
+      const taskDir = task.directory ?? '';
+
+      // Set RALPH_TASK_CONTEXT env var
+      process.env.RALPH_TASK_CONTEXT = task.title;
+
+      deps.log(`\n--- ITERATION ${iteration}/${maxIterations} ---`);
+      deps.log(`Task #${task.id}: ${task.title}`);
+      deps.log(`Model: ${taskModel}`);
+      deps.log(`Directory: ${taskDir || '<project root>'}`);
+
+      // Create task directory if needed
+      const taskDirAbs = taskDir ? path.join(projectRoot, taskDir) : projectRoot;
+      deps.mkdirSync(taskDirAbs, { recursive: true });
+
+      // d. Run health check
+      const healthResult = await deps.runHealthCheck({
+        healthCheck: config.healthCheck,
+        taskDir,
+        projectRoot,
+      });
+
+      // e. Build iteration prompt
+      const totalRemaining = tasks.filter(t => t.status === 'pending' || t.status === 'in-progress').length;
+      let iterPrompt = deps.buildIterationPrompt(task, iteration, maxIterations, prevNotes, totalRemaining);
+
+      // Prepend health check failure to prompt
+      if (healthResult.status === 'failed' && healthResult.output) {
+        iterPrompt = `${healthResult.output}\n\n---\n\n${iterPrompt}`;
+      }
+
+      // f. Build system prompt
+      const systemPrompt = deps.buildSystemPrompt({
+        taskDir,
+        taskAgent: task.agent ?? '',
+        projectRoot,
+        dataDir,
+        config,
+        agents,
+        iteration,
+      });
+
+      // g. Spawn Claude
+      const { exitCode } = await deps.spawnClaude({
+        prompt: iterPrompt,
+        systemPrompt,
+        model: taskModel,
+        projectRoot,
+        taskDir,
+        timeout: iterationTimeout,
+        processManager,
+        streamOpts: {
+          truncateText: config.truncateText,
+          taskContext: task.title,
+        },
+      });
+
+      if (exitCode === 0) {
+        deps.log(`Iteration ${iteration} completed successfully`);
+      } else if (exitCode === 124) {
+        deps.log(`Iteration ${iteration} timed out`);
+      } else {
+        deps.log(`Iteration ${iteration} encountered errors (exit code: ${exitCode})`);
+      }
+
+      // h. Post-iteration: validate tests
+      await deps.validateTaskTests({
+        task,
+        tasksFilePath,
+        projectRoot,
+      });
+
+      // i. Archive completed tasks
+      const archiveResult = await deps.archiveCompletedTasks({
+        tasksFilePath,
+        dataDir,
+      });
+
+      // j. Carry forward prevNotes
+      prevNotes = archiveResult.prevNotes;
+    }
+  } finally {
+    // 5. Clean up
+    processManager.dispose();
+
+    // Clean up temp files
+    for (const file of TEMP_FILES) {
+      const filePath = path.join(dataDir, file);
+      if (deps.existsSync(filePath)) {
+        try {
+          deps.unlinkSync(filePath);
+        } catch {
+          // ignore cleanup errors
+        }
+      }
+    }
+  }
 }

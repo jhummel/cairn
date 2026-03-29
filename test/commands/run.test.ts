@@ -4,9 +4,9 @@ import * as path from 'path';
 import * as os from 'os';
 import { EventEmitter } from 'events';
 import { Readable, Writable, PassThrough } from 'stream';
-import { buildSystemPrompt, spawnClaude, type SystemPromptInput, type SpawnClaudeDeps } from '../../src/commands/run';
+import { buildSystemPrompt, spawnClaude, runRun, type SystemPromptInput, type SpawnClaudeDeps, type RunRunOpts, type RunRunDeps } from '../../src/commands/run';
 import { ProcessManager } from '../../src/process';
-import type { RalphConfig, AgentInfo } from '../../src/types';
+import type { RalphConfig, AgentInfo, Task } from '../../src/types';
 
 function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
   return {
@@ -583,5 +583,619 @@ describe('spawnClaude', () => {
 
     // child.kill should NOT have been called since we exited normally
     expect(child.kill).not.toHaveBeenCalled();
+  });
+});
+
+// --- runRun tests ---
+
+function makeTestConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
+  return {
+    projectName: 'test-project',
+    projectDescription: '',
+    healthCheck: '',
+    defaultTestCommand: 'bun test',
+    implementationFile: 'IMPLEMENTATION.md',
+    truncateText: true,
+    summarize: { claudeMdPattern: '' },
+    narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
+    ...overrides,
+  };
+}
+
+function makeTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 1,
+    priority: 1,
+    title: 'Test task',
+    status: 'pending',
+    ...overrides,
+  };
+}
+
+function makeRunDeps(overrides: Partial<RunRunDeps> = {}): RunRunDeps {
+  return {
+    loadCompletedIds: overrides.loadCompletedIds ?? mock(() => new Set<number>()),
+    selectNextTask: overrides.selectNextTask ?? mock(() => null),
+    buildIterationPrompt: overrides.buildIterationPrompt ?? mock(() => 'iteration prompt'),
+    buildSystemPrompt: overrides.buildSystemPrompt ?? mock(() => 'system prompt'),
+    runHealthCheck: overrides.runHealthCheck ?? mock(async () => ({ status: 'skipped' as const })),
+    spawnClaude: overrides.spawnClaude ?? mock(async () => ({ exitCode: 0 })),
+    validateTaskTests: overrides.validateTaskTests ?? mock(async () => ({ status: 'passed' as const })),
+    archiveCompletedTasks: overrides.archiveCompletedTasks ?? mock(async () => ({ archivedCount: 0, prevNotes: null })),
+    runPlan: overrides.runPlan ?? mock(async () => {}),
+    createProcessManager: overrides.createProcessManager ?? mock(() => new ProcessManager({ kill: () => true })),
+    prompt: overrides.prompt ?? mock(async () => 'y'),
+    existsSync: overrides.existsSync ?? mock((p: string) => {
+      // Default: tasks.json exists, temp files don't
+      if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
+      return false;
+    }),
+    readFileSync: overrides.readFileSync ?? mock(() => JSON.stringify({ tasks: [makeTask()] })),
+    mkdirSync: overrides.mkdirSync ?? mock(() => undefined),
+    unlinkSync: overrides.unlinkSync ?? mock(() => undefined),
+    log: overrides.log ?? mock(() => {}),
+  };
+}
+
+function makeRunOpts(overrides: Partial<RunRunOpts> = {}): RunRunOpts {
+  return {
+    projectRoot: '/projects/myapp',
+    dataDir: '/projects/myapp/.ralph',
+    config: makeTestConfig(),
+    agents: [],
+    ...overrides,
+  };
+}
+
+describe('runRun', () => {
+  // --- No tasks.json handling ---
+
+  test('prompts to launch planner when tasks.json missing and user says yes', async () => {
+    const runPlan = mock(async () => {});
+    let planCalled = false;
+    // existsSync returns false for tasks.json initially, then true after plan runs
+    const existsSync = mock((p: string) => {
+      if (typeof p === 'string' && p.endsWith('tasks.json')) return planCalled;
+      return false;
+    });
+
+    const deps = makeRunDeps({
+      existsSync,
+      runPlan: mock(async () => { planCalled = true; }),
+      selectNextTask: mock(() => null), // no tasks after plan
+      prompt: mock(async () => 'y'),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(deps.prompt).toHaveBeenCalled();
+    expect(deps.runPlan).toHaveBeenCalled();
+  });
+
+  test('exits with error when tasks.json missing and user declines planner', async () => {
+    const existsSync = mock((p: string) => {
+      if (typeof p === 'string' && p.endsWith('tasks.json')) return false;
+      return false;
+    });
+
+    const deps = makeRunDeps({
+      existsSync,
+      prompt: mock(async () => 'n'),
+    });
+
+    await expect(runRun(makeRunOpts(), deps)).rejects.toThrow('tasks.json not found');
+  });
+
+  // --- PATH augmentation ---
+
+  test('augments PATH with standard directories', async () => {
+    const originalPath = process.env.PATH;
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => null),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(process.env.PATH).toContain('.bun/bin');
+    expect(process.env.PATH).toContain('.cargo/bin');
+    expect(process.env.PATH).toContain('/opt/homebrew/bin');
+    expect(process.env.PATH).toContain('/usr/local/bin');
+
+    // Restore
+    process.env.PATH = originalPath;
+  });
+
+  // --- Complete flag ---
+
+  test('breaks loop when .ralph_complete flag exists', async () => {
+    const existsSync = mock((p: string) => {
+      if (typeof p === 'string' && p.endsWith('.ralph_complete')) return true;
+      if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
+      return false;
+    });
+
+    const deps = makeRunDeps({ existsSync });
+
+    await runRun(makeRunOpts(), deps);
+
+    // spawnClaude should never be called since we break on complete flag
+    expect(deps.spawnClaude).not.toHaveBeenCalled();
+  });
+
+  // --- Task selection ---
+
+  test('breaks loop when no task is selected', async () => {
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => null),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(deps.spawnClaude).not.toHaveBeenCalled();
+  });
+
+  test('loads completed IDs each iteration', async () => {
+    let callCount = 0;
+    const selectNextTask = mock(() => {
+      callCount++;
+      if (callCount <= 1) return makeTask();
+      return null;
+    });
+
+    const deps = makeRunDeps({ selectNextTask });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(deps.loadCompletedIds).toHaveBeenCalled();
+  });
+
+  // --- Full iteration flow ---
+
+  test('runs full iteration: health check → prompts → spawn → validate → archive', async () => {
+    let callCount = 0;
+    const task = makeTask({ id: 1, title: 'Build feature', directory: 'src', model: 'opus' });
+    const selectNextTask = mock(() => {
+      callCount++;
+      if (callCount <= 1) return task;
+      return null;
+    });
+
+    const deps = makeRunDeps({
+      selectNextTask,
+      runHealthCheck: mock(async () => ({ status: 'ok' as const })),
+      spawnClaude: mock(async () => ({ exitCode: 0 })),
+      validateTaskTests: mock(async () => ({ status: 'passed' as const })),
+      archiveCompletedTasks: mock(async () => ({ archivedCount: 1, prevNotes: 'did stuff' })),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    // All steps should have been called
+    expect(deps.runHealthCheck).toHaveBeenCalledTimes(1);
+    expect(deps.buildIterationPrompt).toHaveBeenCalledTimes(1);
+    expect(deps.buildSystemPrompt).toHaveBeenCalledTimes(1);
+    expect(deps.spawnClaude).toHaveBeenCalledTimes(1);
+    expect(deps.validateTaskTests).toHaveBeenCalledTimes(1);
+    expect(deps.archiveCompletedTasks).toHaveBeenCalledTimes(1);
+  });
+
+  test('passes health check failure output to iteration prompt', async () => {
+    let callCount = 0;
+    const task = makeTask();
+    const selectNextTask = mock(() => {
+      callCount++;
+      return callCount <= 1 ? task : null;
+    });
+
+    const healthOutput = 'BUILD HEALTH CHECK FAILED:\nerror stuff';
+    const deps = makeRunDeps({
+      selectNextTask,
+      runHealthCheck: mock(async () => ({ status: 'failed' as const, output: healthOutput })),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    // buildIterationPrompt should have been called
+    const call = (deps.buildIterationPrompt as ReturnType<typeof mock>).mock.calls[0];
+    // The iteration prompt itself is built, then health failure is prepended before passing to spawnClaude
+    const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
+    expect(spawnCall[0].prompt).toContain(healthOutput);
+  });
+
+  test('creates task directory before spawning', async () => {
+    let callCount = 0;
+    const task = makeTask({ directory: 'src/new-module' });
+    const selectNextTask = mock(() => {
+      callCount++;
+      return callCount <= 1 ? task : null;
+    });
+
+    const deps = makeRunDeps({ selectNextTask });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(deps.mkdirSync).toHaveBeenCalled();
+    const mkdirCall = (deps.mkdirSync as ReturnType<typeof mock>).mock.calls[0];
+    expect(mkdirCall[0]).toBe('/projects/myapp/src/new-module');
+  });
+
+  // --- Iteration limits ---
+
+  test('respects maxIterations', async () => {
+    // Always return a task, so the loop is limited by maxIterations
+    const task = makeTask();
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => task),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 3 }), deps);
+
+    expect(deps.spawnClaude).toHaveBeenCalledTimes(3);
+  });
+
+  test('defaults maxIterations to 30', async () => {
+    // We'll verify by checking selectNextTask calls don't exceed 30
+    let iterations = 0;
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        iterations++;
+        return iterations <= 30 ? makeTask() : null;
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    // Should have called spawnClaude exactly 30 times (default max)
+    expect(deps.spawnClaude).toHaveBeenCalledTimes(30);
+  });
+
+  // --- prevNotes threading ---
+
+  test('carries prevNotes from archive to next iteration prompt', async () => {
+    let callCount = 0;
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 2 ? makeTask({ id: callCount }) : null;
+      }),
+      archiveCompletedTasks: mock(async () => ({
+        archivedCount: 1,
+        prevNotes: callCount === 1 ? 'notes from first task' : null,
+      })),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    // Second call to buildIterationPrompt should have prevNotes
+    const calls = (deps.buildIterationPrompt as ReturnType<typeof mock>).mock.calls;
+    expect(calls.length).toBe(2);
+    // First iteration: no prevNotes
+    expect(calls[0][3]).toBeNull(); // prevNotes arg
+    // Second iteration: has prevNotes from first archive
+    expect(calls[1][3]).toBe('notes from first task');
+  });
+
+  // --- Model resolution ---
+
+  test('uses task model (defaults to opus)', async () => {
+    let callCount = 0;
+    const task = makeTask({ model: 'sonnet' });
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
+    expect(spawnCall[0].model).toBe('sonnet');
+  });
+
+  test('defaults to opus when task has no model', async () => {
+    let callCount = 0;
+    const task = makeTask(); // no model specified
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
+    expect(spawnCall[0].model).toBe('opus');
+  });
+
+  // --- Agent model override ---
+
+  test('overrides model from agent frontmatter when task uses default opus', async () => {
+    let callCount = 0;
+    const task = makeTask({ agent: 'fast-agent' }); // no explicit model → defaults to opus
+    const agents: AgentInfo[] = [
+      { name: 'fast-agent', description: 'Fast', model: 'sonnet', file: 'fast-agent.md' },
+    ];
+
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+    });
+
+    await runRun(makeRunOpts({ agents }), deps);
+
+    const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
+    expect(spawnCall[0].model).toBe('sonnet');
+  });
+
+  test('does not override model when task explicitly sets model', async () => {
+    let callCount = 0;
+    const task = makeTask({ agent: 'fast-agent', model: 'sonnet' });
+    const agents: AgentInfo[] = [
+      { name: 'fast-agent', description: 'Fast', model: 'opus', file: 'fast-agent.md' },
+    ];
+
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+    });
+
+    await runRun(makeRunOpts({ agents }), deps);
+
+    const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
+    // Task explicitly set sonnet, agent says opus, but agent override only applies when task uses default opus
+    expect(spawnCall[0].model).toBe('sonnet');
+  });
+
+  // --- ProcessManager lifecycle ---
+
+  test('creates and disposes ProcessManager', async () => {
+    let disposed = false;
+    const mockPm = new ProcessManager({ kill: () => true });
+    const origDispose = mockPm.dispose.bind(mockPm);
+    mockPm.dispose = () => { disposed = true; origDispose(); };
+
+    const deps = makeRunDeps({
+      createProcessManager: mock(() => mockPm),
+      selectNextTask: mock(() => null),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(deps.createProcessManager).toHaveBeenCalled();
+    expect(disposed).toBe(true);
+  });
+
+  // --- Cleanup temp files ---
+
+  test('cleans up temp files on exit', async () => {
+    const unlinkCalls: string[] = [];
+    const existsSync = mock((p: string) => {
+      if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
+      if (typeof p === 'string' && (p.endsWith('.ralph_complete') || p.endsWith('.ralph_prev_notes') || p.endsWith('.ralph_completed_ids'))) return true;
+      return false;
+    });
+
+    const deps = makeRunDeps({
+      existsSync,
+      selectNextTask: mock(() => null),
+      unlinkSync: mock((p: string) => { unlinkCalls.push(p); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    // Should attempt to clean up temp files
+    expect(unlinkCalls.some(p => p.endsWith('.ralph_complete'))).toBe(true);
+    expect(unlinkCalls.some(p => p.endsWith('.ralph_prev_notes'))).toBe(true);
+    expect(unlinkCalls.some(p => p.endsWith('.ralph_completed_ids'))).toBe(true);
+  });
+
+  // --- RALPH_TASK_CONTEXT env ---
+
+  test('sets RALPH_TASK_CONTEXT env var during iteration', async () => {
+    let capturedContext: string | undefined;
+    let callCount = 0;
+    const task = makeTask({ title: 'Build the widget' });
+
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+      spawnClaude: mock(async () => {
+        capturedContext = process.env.RALPH_TASK_CONTEXT;
+        return { exitCode: 0 };
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(capturedContext).toBe('Build the widget');
+  });
+
+  // --- Validate tests receives correct task ---
+
+  test('passes current task to validateTaskTests', async () => {
+    let callCount = 0;
+    const task = makeTask({ id: 42, title: 'Important task', tests: ['bun test'] });
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    const validateCall = (deps.validateTaskTests as ReturnType<typeof mock>).mock.calls[0];
+    expect(validateCall[0].task.id).toBe(42);
+    expect(validateCall[0].tasksFilePath).toBe('/projects/myapp/.ralph/tasks.json');
+    expect(validateCall[0].projectRoot).toBe('/projects/myapp');
+  });
+
+  // --- Tasks file read for task list ---
+
+  test('reads tasks.json to get task list for selectNextTask', async () => {
+    const tasks = [makeTask({ id: 1 }), makeTask({ id: 2, status: 'complete' })];
+    const deps = makeRunDeps({
+      readFileSync: mock(() => JSON.stringify({ tasks })),
+      selectNextTask: mock(() => null),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(deps.readFileSync).toHaveBeenCalled();
+    const selectCall = (deps.selectNextTask as ReturnType<typeof mock>).mock.calls[0];
+    expect(selectCall[0]).toHaveLength(2);
+  });
+
+  // --- Timeout passed to spawnClaude ---
+
+  test('passes timeout to spawnClaude (default 900s)', async () => {
+    let callCount = 0;
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? makeTask() : null;
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
+    expect(spawnCall[0].timeout).toBe(900_000); // 900 seconds in ms
+  });
+
+  test('passes custom timeout to spawnClaude', async () => {
+    let callCount = 0;
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? makeTask() : null;
+      }),
+    });
+
+    await runRun(makeRunOpts({ iterationTimeout: 600 }), deps);
+
+    const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
+    expect(spawnCall[0].timeout).toBe(600_000);
+  });
+
+  // --- Multiple iterations ---
+
+  test('runs multiple iterations until no tasks remain', async () => {
+    let callCount = 0;
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        if (callCount <= 3) return makeTask({ id: callCount });
+        return null;
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(deps.spawnClaude).toHaveBeenCalledTimes(3);
+    expect(deps.archiveCompletedTasks).toHaveBeenCalledTimes(3);
+  });
+
+  // --- buildIterationPrompt args ---
+
+  test('passes correct args to buildIterationPrompt', async () => {
+    let callCount = 0;
+    const task = makeTask({ id: 5, title: 'My task' });
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 10 }), deps);
+
+    const call = (deps.buildIterationPrompt as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0]).toEqual(task);     // task
+    expect(call[1]).toBe(1);           // iteration (1-indexed)
+    expect(call[2]).toBe(10);          // maxIterations
+    expect(call[3]).toBeNull();        // prevNotes (first iteration)
+    expect(typeof call[4]).toBe('number'); // totalRemaining
+  });
+
+  // --- buildSystemPrompt args ---
+
+  test('passes correct args to buildSystemPrompt', async () => {
+    let callCount = 0;
+    const task = makeTask({ id: 5, directory: 'src/lib', agent: 'test-agent' });
+    const agents: AgentInfo[] = [
+      { name: 'test-agent', description: 'Tester', model: 'sonnet', file: 'test-agent.md' },
+    ];
+
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+    });
+
+    await runRun(makeRunOpts({ agents }), deps);
+
+    const call = (deps.buildSystemPrompt as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0].taskDir).toBe('src/lib');
+    expect(call[0].taskAgent).toBe('test-agent');
+    expect(call[0].projectRoot).toBe('/projects/myapp');
+    expect(call[0].dataDir).toBe('/projects/myapp/.ralph');
+    expect(call[0].agents).toEqual(agents);
+    expect(call[0].iteration).toBe(1);
+  });
+
+  // --- spawnClaude receives processManager ---
+
+  test('passes processManager to spawnClaude', async () => {
+    let callCount = 0;
+    const mockPm = new ProcessManager({ kill: () => true });
+    const deps = makeRunDeps({
+      createProcessManager: mock(() => mockPm),
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? makeTask() : null;
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
+    expect(spawnCall[0].processManager).toBe(mockPm);
+
+    mockPm.dispose();
+  });
+
+  // --- Remaining count calculation ---
+
+  test('calculates remaining tasks for iteration prompt', async () => {
+    const tasks = [
+      makeTask({ id: 1, status: 'pending' }),
+      makeTask({ id: 2, status: 'pending', priority: 2 }),
+      makeTask({ id: 3, status: 'complete', priority: 3 }),
+    ];
+
+    let callCount = 0;
+    const deps = makeRunDeps({
+      readFileSync: mock(() => JSON.stringify({ tasks })),
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? tasks[0] : null;
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    // totalRemaining should count pending + in-progress tasks
+    const call = (deps.buildIterationPrompt as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[4]).toBe(2); // 2 pending tasks
   });
 });
