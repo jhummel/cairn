@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { CYAN, DIM, GREEN, RED, YELLOW, BOLD, RESET, shortPath, fmtTool, fmtResult } from '../src/stream-filter';
+import { CYAN, DIM, GREEN, RED, YELLOW, BOLD, RESET, shortPath, fmtTool, fmtResult, processStream } from '../src/stream-filter';
+import { Readable, Writable } from 'stream';
 
 describe('ANSI constants', () => {
   it('exports all color constants', () => {
@@ -139,5 +140,258 @@ describe('fmtResult', () => {
     // Checking that it's either 4 or 5 seconds
     const result = fmtResult(event);
     expect(result).toMatch(/[45]s/);
+  });
+});
+
+// --- processStream tests ---
+
+/** Helper: create a readable stream from an array of lines */
+function linesStream(lines: string[]): Readable {
+  const data = lines.join('\n') + '\n';
+  return Readable.from(Buffer.from(data));
+}
+
+/** Helper: collect all writes to a writable into a string */
+function collectWritable(): { writable: Writable; output: () => string } {
+  const chunks: Buffer[] = [];
+  const writable = new Writable({
+    write(chunk, _encoding, callback) {
+      chunks.push(Buffer.from(chunk));
+      callback();
+    },
+  });
+  return { writable, output: () => Buffer.concat(chunks).toString() };
+}
+
+describe('processStream', () => {
+  it('skips empty lines', async () => {
+    const { writable, output } = collectWritable();
+    await processStream(linesStream(['', '  ', '']), writable);
+    expect(output()).toBe('');
+  });
+
+  it('passes through non-JSON lines as-is', async () => {
+    const { writable, output } = collectWritable();
+    await processStream(linesStream(['hello world', 'not json {']), writable);
+    const lines = output().trimEnd().split('\n');
+    expect(lines).toEqual(['hello world', 'not json {']);
+  });
+
+  it('handles system/init events', async () => {
+    const event = JSON.stringify({ type: 'system', subtype: 'init', model: 'claude-sonnet', permissionMode: 'plan' });
+    const { writable, output } = collectWritable();
+    await processStream(linesStream([event]), writable);
+    const out = output();
+    expect(out).toContain('[init]');
+    expect(out).toContain('claude-sonnet');
+    expect(out).toContain('plan');
+    expect(out).toContain(DIM);
+  });
+
+  it('ignores system events without subtype=init', async () => {
+    const event = JSON.stringify({ type: 'system', subtype: 'other' });
+    const { writable, output } = collectWritable();
+    await processStream(linesStream([event]), writable);
+    expect(output()).toBe('');
+  });
+
+  it('handles assistant tool_use blocks', async () => {
+    const event = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', name: 'Read', input: { file_path: '/a/b/c/d/e.ts' } },
+        ],
+      },
+    });
+    const { writable, output } = collectWritable();
+    await processStream(linesStream([event]), writable);
+    const out = output();
+    expect(out).toContain('> ');
+    expect(out).toContain('Read');
+    expect(out).toContain('.../c/d/e.ts');
+  });
+
+  it('handles assistant text blocks with truncation (default)', async () => {
+    const longText = 'A'.repeat(100);
+    const event = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [{ type: 'text', text: longText }],
+      },
+    });
+    const { writable, output } = collectWritable();
+    await processStream(linesStream([event]), writable, { truncateText: true });
+    const out = output();
+    // Should be truncated to 77 chars + '...'
+    expect(out).toContain('A'.repeat(77) + '...');
+    expect(out).toContain(YELLOW);
+  });
+
+  it('handles assistant text blocks without truncation', async () => {
+    const text = 'line one\nline two\nline three';
+    const event = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [{ type: 'text', text }],
+      },
+    });
+    const { writable, output } = collectWritable();
+    await processStream(linesStream([event]), writable, { truncateText: false });
+    const out = output();
+    expect(out).toContain('line one');
+    expect(out).toContain('line two');
+    expect(out).toContain('line three');
+    // Each line should be indented and yellow
+    const lines = out.trimEnd().split('\n');
+    expect(lines.length).toBe(3);
+    for (const line of lines) {
+      expect(line).toContain(YELLOW);
+      expect(line).toContain(RESET);
+    }
+  });
+
+  it('truncates first line of text to 80 chars when truncateText=true', async () => {
+    const text = 'B'.repeat(80); // exactly 80, should be truncated (>80 triggers)
+    const event = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text }] },
+    });
+    const { writable, output } = collectWritable();
+    await processStream(linesStream([event]), writable, { truncateText: true });
+    const out = output();
+    // 80 chars: len > 80 is false, so it should NOT be truncated
+    expect(out).toContain('B'.repeat(80));
+    expect(out).not.toContain('...');
+  });
+
+  it('truncates text longer than 80 chars', async () => {
+    const text = 'C'.repeat(81);
+    const event = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text }] },
+    });
+    const { writable, output } = collectWritable();
+    await processStream(linesStream([event]), writable, { truncateText: true });
+    const out = output();
+    expect(out).toContain('C'.repeat(77) + '...');
+  });
+
+  it('skips empty text blocks', async () => {
+    const event = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: '   ' }] },
+    });
+    const { writable, output } = collectWritable();
+    await processStream(linesStream([event]), writable);
+    expect(output()).toBe('');
+  });
+
+  it('handles result events', async () => {
+    const event = JSON.stringify({
+      type: 'result',
+      duration_ms: 10000,
+      total_cost_usd: 0.05,
+      num_turns: 3,
+      is_error: false,
+    });
+    const { writable, output } = collectWritable();
+    await processStream(linesStream([event]), writable);
+    const out = output();
+    expect(out).toContain('Done');
+    expect(out).toContain('10s');
+    expect(out).toContain('3 turns');
+    expect(out).toContain('$0.0500');
+  });
+
+  it('handles error result events', async () => {
+    const event = JSON.stringify({
+      type: 'result',
+      duration_ms: 5000,
+      total_cost_usd: 0.01,
+      num_turns: 1,
+      is_error: true,
+      errors: ['boom'],
+    });
+    const { writable, output } = collectWritable();
+    await processStream(linesStream([event]), writable);
+    const out = output();
+    expect(out).toContain('FAILED');
+    expect(out).toContain('boom');
+  });
+
+  it('handles multiple events in sequence', async () => {
+    const events = [
+      JSON.stringify({ type: 'system', subtype: 'init', model: 'opus', permissionMode: 'full' }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'ls', description: 'List files' } }] },
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Working on it' }] },
+      }),
+      JSON.stringify({ type: 'result', duration_ms: 2000, total_cost_usd: 0.003, num_turns: 2, is_error: false }),
+    ];
+    const { writable, output } = collectWritable();
+    await processStream(linesStream(events), writable);
+    const out = output();
+    expect(out).toContain('[init]');
+    expect(out).toContain('Bash');
+    expect(out).toContain('Working on it');
+    expect(out).toContain('Done');
+  });
+
+  it('accepts narrate/ntfy options as no-ops without crashing', async () => {
+    const event = JSON.stringify({ type: 'system', subtype: 'init', model: 'test', permissionMode: 'plan' });
+    const { writable, output } = collectWritable();
+    // These are no-op placeholders for task 3
+    await processStream(linesStream([event]), writable, {
+      narrate: (_text: string) => {},
+      ntfy: (_msg: string, _opts?: Record<string, string>) => {},
+      taskContext: 'test task',
+    });
+    const out = output();
+    expect(out).toContain('[init]');
+  });
+
+  it('reads RALPH_TRUNCATE_TEXT from env when option not provided', async () => {
+    const originalEnv = process.env.RALPH_TRUNCATE_TEXT;
+    try {
+      process.env.RALPH_TRUNCATE_TEXT = 'false';
+      const text = 'line1\nline2';
+      const event = JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text }] },
+      });
+      const { writable, output } = collectWritable();
+      await processStream(linesStream([event]), writable);
+      const out = output();
+      // With truncateText=false, both lines should appear
+      expect(out).toContain('line1');
+      expect(out).toContain('line2');
+      const lines = out.trimEnd().split('\n');
+      expect(lines.length).toBe(2);
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.RALPH_TRUNCATE_TEXT;
+      } else {
+        process.env.RALPH_TRUNCATE_TEXT = originalEnv;
+      }
+    }
+  });
+
+  it('handles mixed JSON and non-JSON lines', async () => {
+    const lines = [
+      'some stderr output',
+      JSON.stringify({ type: 'system', subtype: 'init', model: 'haiku', permissionMode: 'ask' }),
+      'another non-json line',
+    ];
+    const { writable, output } = collectWritable();
+    await processStream(linesStream(lines), writable);
+    const out = output();
+    expect(out).toContain('some stderr output');
+    expect(out).toContain('[init]');
+    expect(out).toContain('another non-json line');
   });
 });

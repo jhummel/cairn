@@ -1,3 +1,6 @@
+import { Readable, Writable } from 'stream';
+import { createInterface } from 'readline';
+
 // ANSI color constants matching lib/ralph_stream_filter.py
 export const CYAN = '\x1b[36m';
 export const DIM = '\x1b[2m';
@@ -88,5 +91,76 @@ export function fmtResult(event: ResultEvent): string {
     return `${RED}FAILED${RESET} ${DIM}${durStr}s | ${turns} turns | $${costStr}${RESET} -- ${errMsg}`;
   } else {
     return `${GREEN}Done${RESET} ${DIM}${durStr}s | ${turns} turns | $${costStr}${RESET}`;
+  }
+}
+
+export interface ProcessStreamOptions {
+  truncateText?: boolean;
+  /** No-op placeholder for task 3: narration socket forwarding */
+  narrate?: (text: string) => void;
+  /** No-op placeholder for task 3: ntfy push notification */
+  ntfy?: (msg: string, opts?: Record<string, string>) => void;
+  /** Task context string for narration */
+  taskContext?: string;
+}
+
+/**
+ * Read stream-json lines from input, write formatted output to output.
+ * Matches the main loop in lib/ralph_stream_filter.py exactly.
+ */
+export async function processStream(
+  input: Readable,
+  output: Writable,
+  options?: ProcessStreamOptions,
+): Promise<void> {
+  const truncateText = options?.truncateText
+    ?? (process.env.RALPH_TRUNCATE_TEXT?.toLowerCase() !== 'false');
+
+  const rl = createInterface({ input, crlfDelay: Infinity });
+
+  for await (const rawLine of rl) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    let e: Record<string, any>;
+    try {
+      e = JSON.parse(line);
+    } catch {
+      // Not JSON — pass through as-is
+      output.write(line + '\n');
+      continue;
+    }
+
+    const t = e.type ?? '';
+
+    if (t === 'system' && e.subtype === 'init') {
+      const model = e.model ?? '?';
+      const mode = e.permissionMode ?? '?';
+      output.write(`  ${DIM}[init]${RESET} ${model} | ${mode}\n`);
+    } else if (t === 'assistant') {
+      const content: any[] = e.message?.content ?? [];
+      for (const block of content) {
+        const bt = block.type ?? '';
+        if (bt === 'tool_use') {
+          output.write(`  > ${fmtTool(block)}\n`);
+        } else if (bt === 'text') {
+          const text = (block.text ?? '').trim();
+          if (!text) continue;
+          if (truncateText) {
+            let firstLine = text.split('\n')[0];
+            if (firstLine.length > 80) {
+              firstLine = firstLine.slice(0, 77) + '...';
+            }
+            output.write(`  ${YELLOW}${firstLine}${RESET}\n`);
+          } else {
+            for (const tline of text.split('\n')) {
+              output.write(`  ${YELLOW}${tline}${RESET}\n`);
+            }
+          }
+        }
+      }
+    } else if (t === 'result') {
+      output.write(`  ${fmtResult(e)}\n`);
+    }
   }
 }

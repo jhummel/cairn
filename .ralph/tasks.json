@@ -7,7 +7,10 @@
       "title": "TDD: Port stream filter \u2014 stream processing",
       "description": "Implement the processStream() function in src/stream-filter.ts that reads stream-json lines and writes formatted output. Write tests first.\n\nprocessStream should accept a readable stream (or async iterable of lines) and a writable stream, plus options for dependencies (narration, ntfy \u2014 leave as no-ops for now, task 3 will fill those in).\n\nEvent handling (match the Python main loop exactly):\n1. Skip empty lines. Parse each line as JSON; if parse fails, pass through as-is.\n2. type='system' + subtype='init': print '[init] <model> | <permissionMode>' in dim.\n3. type='assistant': iterate content blocks. For tool_use blocks, print '  > <fmtTool(block)>'. For text blocks, if RALPH_TRUNCATE_TEXT is true (default), show first line truncated to 80 chars. If false, show full text indented. Use YELLOW color for text.\n4. type='result': print fmtResult(event).\n\nDesign for testability: use string/buffer streams in tests. Read RALPH_TRUNCATE_TEXT from env (or accept as option).\n\nAll output should be flushed immediately (write with newlines).",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T12:00:00Z",
+      "completedBy": "iteration-5",
+      "notes": "Implemented processStream() in src/stream-filter.ts matching Python main loop exactly. Handles: empty line skipping, non-JSON passthrough, system/init events, assistant tool_use + text blocks (with truncation option), result events. Options include truncateText (defaults to env RALPH_TRUNCATE_TEXT), plus narrate/ntfy/taskContext placeholders for task 3. 17 new tests added (38 total in file), all passing. Full suite: 189 tests pass.",
       "files": [
         "src/stream-filter.ts",
         "test/stream-filter.test.ts",
@@ -79,27 +82,6 @@
       "dependencies": [
         5
       ],
-      "model": "sonnet"
-    },
-    {
-      "id": 7,
-      "priority": 1,
-      "title": "TDD: Port summarize command \u2014 system prompt building",
-      "status": "complete",
-      "completedAt": "2026-03-29T12:00:00Z",
-      "completedBy": "iteration-4",
-      "notes": "Created src/commands/summarize.ts with buildContext(), buildClaudeMdPruning(), and buildSummarizePrompt(). All match shell logic in ralph_summarize.sh exactly. 14 tests in test/commands/summarize.test.ts, all pass. buildContext() computes relative path from projectRoot to completedTasksPath using path.relative(). buildSummarizePrompt() opts includes projectRoot, projectName, implFile, completedTasksPath, claudeMdPattern — caller must supply these from config. NOTE: tasks.json had a duplicate status field bug (both complete and pending) — fixed in this iteration.",
-      "description": "Port the system prompt building logic from lib/ralph_summarize.sh to src/commands/summarize.ts. Write tests first in test/commands/summarize.test.ts.",
-      "directory": "",
-      "files": [
-        "src/commands/summarize.ts",
-        "test/commands/summarize.test.ts",
-        "lib/ralph_summarize.sh"
-      ],
-      "tests": [
-        "bun test test/commands/summarize.test.ts"
-      ],
-      "dependencies": [],
       "model": "sonnet"
     },
     {
