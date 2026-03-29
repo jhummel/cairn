@@ -2,34 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 4,
-      "priority": 4,
-      "title": "TDD: Test validator module",
-      "description": "Create src/test-validator.ts and test/test-validator.test.ts. Port the post-iteration test validation from ralph_execute.sh (lines 551-627).\n\nImplement:\n- validateTaskTests(opts: { task: Task, tasksFilePath: string, projectRoot: string }): Promise<{ status: 'passed' | 'failed' | 'error' | 'skipped', message?: string }>\n\nBehavior:\n- Read task meta to get test commands from task.tests array\n- If no tests defined, return { status: 'skipped' }\n- Check if the task was marked complete in tasks.json (re-read file to get current status)\n- Run each test command from the task's resolved directory (projectRoot + task.directory) with a 120s timeout\n- Smart failure detection: distinguish 'can't run' (missing script, MODULE_NOT_FOUND, command not found \u2192 exit code 127) from 'ran but failed' (non-zero exit with test output)\n- On real test failure: revert task status to 'in-progress' in tasks.json, append failure note to task.notes, return { status: 'failed', message }\n- On infrastructure error (can't run): append note but DON'T revert status, return { status: 'error', message }\n- On all tests passing: return { status: 'passed' }\n\nMake the file I/O (reading/writing tasks.json) injectable or use the filesystem directly as the shell version does.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T12:15:00Z",
-      "completedBy": "iteration-4",
-      "notes": "17 tests passing. Covers: skipped (no tests, empty tests, not complete, not found), passed (single/multiple commands), failed (reverts status, appends notes, stops at first failure), error (exit 127, missing script, MODULE_NOT_FOUND, ENOENT — does NOT revert), timeout (configurable via timeoutMs opt), directory resolution, re-reads tasks.json for current status. Used 'true' instead of 'exit 0' in tests to avoid sh spawning timeouts in bun test.",
-      "files": [
-        "src/test-validator.ts",
-        "test/test-validator.test.ts",
-        "lib/ralph_execute.sh",
-        "src/types.ts"
-      ],
-      "tests": [
-        "bun test test/test-validator.test.ts"
-      ],
-      "dependencies": [],
-      "model": "opus"
-    },
-    {
       "id": 5,
       "priority": 5,
       "title": "TDD: Task archiver module",
       "description": "Create src/task-archiver.ts and test/task-archiver.test.ts. Port the post-iteration archival from ralph_execute.sh (lines 631-691).\n\nImplement:\n- archiveCompletedTasks(opts: { tasksFilePath: string, dataDir: string }): Promise<{ archivedCount: number, prevNotes: string | null }>\n\nBehavior:\n1. Read tasks.json, find all tasks with status 'complete'\n2. If none completed, return { archivedCount: 0, prevNotes: null }\n3. Append completed task IDs to .ralph_completed_ids (one per line, create if missing)\n4. Save the last completed task's notes to .ralph_prev_notes for carry-forward to next iteration\n5. Read existing tasks.completed.json (or initialize empty array), append completed tasks to it, write back\n6. Remove completed tasks from tasks.json, write back\n7. Return { archivedCount, prevNotes: lastCompletedTask.notes || null }\n\nHandle edge cases: missing files, empty arrays, concurrent access (simple read-modify-write is fine, matching shell behavior).",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-5",
+      "notes": "22 tests passing. Covers: no-op (missing file, no completed tasks, empty array), archival (single/multiple tasks, removes from tasks.json, appends to tasks.completed.json, appends to existing archive), completed IDs file (create, merge, dedup, sort), prev notes (null when missing, reads last task, writes .ralph_prev_notes, removes old file when no notes), edge cases (corrupt IDs file, corrupt archive, preserves project field). Note: .ralph_completed_ids uses JSON array format (not one-per-line) to match shell behavior and loadCompletedIds() in task-selector.ts.",
       "files": [
         "src/task-archiver.ts",
         "test/task-archiver.test.ts",
