@@ -1,5 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'child_process';
+import { processStream } from '../stream-filter';
 
 export interface SummarizePromptOpts {
   projectRoot: string;
@@ -115,4 +117,93 @@ RULES:
 - Write to ${implFile} and prune CLAUDE.md files — do not modify any other files
 - Do not include a table of contents
 - Use subagents to read files in parallel — be efficient with tokens`;
+}
+
+export type SpawnFn = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => ChildProcess;
+
+export interface RunSummarizeOpts extends SummarizePromptOpts {
+  spawnFn?: SpawnFn;
+  timeoutMs?: number;
+}
+
+const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+
+export async function runSummarize(opts: RunSummarizeOpts): Promise<void> {
+  const {
+    projectRoot,
+    projectName,
+    implFile,
+    completedTasksPath,
+    claudeMdPattern,
+    spawnFn = nodeSpawn,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+  } = opts;
+
+  const systemPrompt = buildSummarizePrompt({
+    projectRoot,
+    projectName,
+    implFile,
+    completedTasksPath,
+    claudeMdPattern,
+  });
+
+  const userPrompt = `Update ${implFile} with the current state of the entire system. Read the codebase thoroughly and write a comprehensive but concise summary.`;
+
+  // Banner header
+  console.log('');
+  console.log('=========================================');
+  console.log(`Updating ${implFile}`);
+  console.log('=========================================');
+  console.log('');
+
+  const child = spawnFn('claude', [
+    '-p', userPrompt,
+    '--append-system-prompt', systemPrompt,
+    '--output-format', 'stream-json',
+    '--model', 'sonnet',
+    '--dangerously-skip-permissions',
+  ], {
+    cwd: projectRoot,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, ANTHROPIC_API_KEY: '' },
+  });
+
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill();
+  }, timeoutMs);
+
+  // Set up close listener before awaiting processStream to avoid missing the event
+  const closed = new Promise<void>((resolve) => {
+    child.on('close', () => resolve());
+  });
+
+  try {
+    if (child.stdout) {
+      await processStream(child.stdout, process.stdout);
+    }
+    await closed;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (timedOut) {
+    console.log(`Summarize timed out after ${Math.round(timeoutMs / 1000)} seconds`);
+  }
+
+  // Report result
+  console.log('');
+  const implPath = path.join(projectRoot, implFile);
+  if (fs.existsSync(implPath)) {
+    const content = fs.readFileSync(implPath, 'utf-8');
+    const lines = content.split('\n').length;
+    console.log(`${implFile} updated (${lines} lines)`);
+  } else {
+    console.log(`${implFile} was not created`);
+  }
 }

@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 6,
-      "priority": 5,
-      "title": "TDD: Port init command \u2014 instructions.md and narration hooks",
-      "description": "Add optional instructions.md creation and narration hooks installation to the init command. Write tests first.\n\n1. instructions.md: After ralph.json prompts, ask if the user wants to create .ralph/instructions.md. If yes, create the file with a template/placeholder, then open it in $EDITOR (fall back to vi). If $EDITOR launch fails, just print the path.\n2. Narration hooks: Ask if the user wants to install Claude Code narration hooks. If yes, create .claude/hooks/ directory and install the hook scripts (match the shell version's behavior for what hooks are installed).\n3. Display 'Next steps' message at the end showing what was created and suggesting next commands (ralph plan, etc.).\n\nWire everything together into a top-level runInit() function that calls initCoreFiles, runs prompts, then handles instructions.md and hooks.\n\nFor testing: mock $EDITOR and child_process.spawnSync. Test the prompt flow, file creation, and next-steps output. Use temp directories.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-8",
-      "notes": "Implemented createInstructionsFile (prompts, creates file, launches $EDITOR via injectable SpawnSyncFn, falls back to vi, adds to .gitignore), installNarrationHooks (only when narration enabled, installs narrate.sh/speak.sh/notify.sh matching shell version's content), showNextSteps, and runInit top-level orchestrator. SpawnSyncFn is injectable for test mocking. 67 tests total (23 new), all pass. Build health check bun PATH error is pre-existing (task #11).",
-      "files": [
-        "src/commands/init.ts",
-        "test/commands/init.test.ts",
-        "lib/ralph_init.sh"
-      ],
-      "tests": [
-        "bun test test/commands/init.test.ts"
-      ],
-      "dependencies": [
-        5
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 8,
       "priority": 6,
       "title": "TDD: Port summarize command \u2014 claude agent spawning",
       "description": "Add claude agent spawning with stream-json output to the summarize command. Write tests first.\n\nImplement runSummarize() in src/commands/summarize.ts:\n1. Call buildSummarizePrompt() to get the system prompt.\n2. Build the user prompt (the actual instruction to update/create the implementation file).\n3. Spawn `claude -p '<user_prompt>' --append-system-prompt '<system_prompt>' --output-format stream-json --model sonnet --dangerously-skip-permissions` as a child process.\n4. Pipe stdout through the TS stream filter (processStream from src/stream-filter.ts).\n5. Implement timeout handling: 15 minutes default, configurable. Use AbortController + setTimeout or a process kill timer. Print a message if timed out.\n6. After completion, check if the implementation file exists and report line count, or report 'was not created'.\n7. Print banner header/footer matching the shell version's style.\n\nFor testing: mock child_process.spawn to return a fake process with controllable stdout. Verify the correct claude CLI arguments are constructed. Test timeout behavior. Test result reporting for both success and 'not created' cases.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T19:15:00Z",
+      "completedBy": "iteration-9",
+      "notes": "Implemented runSummarize() with injectable SpawnFn for testability. Spawns claude with -p, --append-system-prompt, --output-format stream-json, --model sonnet, --dangerously-skip-permissions. Pipes stdout through processStream. Timeout handling via setTimeout + child.kill(). Reports line count or 'was not created'. Banner header/footer matches shell version. 8 new tests (22 total in file), all 270 project tests pass. Key pattern: set up close event listener before awaiting processStream to avoid missing events in tests.",
       "files": [
         "src/commands/summarize.ts",
         "test/commands/summarize.test.ts",
