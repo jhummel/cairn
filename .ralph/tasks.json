@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 2,
-      "priority": 2,
-      "title": "TDD: Task selector module",
-      "description": "Create src/task-selector.ts and test/task-selector.test.ts. Port the task selection logic from the inline Python block in ralph_execute.sh (lines 305-398).\n\nImplement pure functions:\n- loadCompletedIds(dataDir: string): Set<number> \u2014 Union of IDs from .ralph_completed_ids file + IDs from tasks.completed.json archive. Handle missing files gracefully.\n- selectNextTask(tasks: Task[], completedIds: Set<number>): Task | null \u2014 In-progress first, then highest-priority pending with all deps satisfied (deps checked against both active task statuses and completedIds). Returns null if none actionable.\n- buildIterationPrompt(task: Task, iteration: number, maxIterations: number, prevNotes: string | null): string \u2014 Builds the full prompt string with task context (id, title, description, files, tests, directory), in-progress warning if already started, prev notes block, remaining iteration count.\n\nUse the Task type from src/types.ts. All pure functions with no I/O side effects beyond file reads. Highly testable with fixture data \u2014 see test/fixtures/ for example task JSON files.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-2",
-      "notes": "Pure functions loadCompletedIds, selectNextTask, buildIterationPrompt all implemented. loadCompletedIds handles both .ralph_completed_ids (JSON array) and tasks.completed.json (array or {tasks:[]} wrapper). selectNextTask unions active complete + completedIds set for dep satisfaction. buildIterationPrompt signature takes totalRemaining as 5th arg (caller computes it). 36 tests passing.",
-      "files": [
-        "src/task-selector.ts",
-        "test/task-selector.test.ts",
-        "lib/ralph_execute.sh",
-        "src/types.ts",
-        "test/fixtures/tasks-mixed.json"
-      ],
-      "tests": [
-        "bun test test/task-selector.test.ts"
-      ],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 3,
       "priority": 3,
       "title": "TDD: Health check module",
       "description": "Create src/health-check.ts and test/health-check.test.ts. Port the pre-iteration health check from ralph_execute.sh (lines 466-500).\n\nImplement:\n- runHealthCheck(opts: { healthCheck: string, taskDir: string, projectRoot: string }): Promise<{ status: 'ok' | 'skipped' | 'failed', output?: string }>\n\nBehavior:\n- If no health check configured (empty string), return { status: 'skipped' }\n- Context-aware skipping: if health check is 'npm run type-check', verify the task directory has a package.json with a 'type-check' script before running. If not present, skip.\n- For 'cargo check': run unconditionally\n- Run the command via child_process (async), capture stdout+stderr. On failure, return last ~30 lines of error output in the output field.\n- Return { status: 'ok' } on success, { status: 'failed', output: '...' } on failure\n\nThe output from a failed health check gets prepended to the iteration prompt by the caller (run.ts), so format it clearly.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-3",
+      "notes": "13 tests passing. runHealthCheck implements: empty string → skipped, npm run type-check → context-aware skip (no package.json or no type-check script), all other commands run unconditionally. Failure output formatted with BUILD HEALTH CHECK FAILED header + last 30 lines. cwd resolved as projectRoot+taskDir (or projectRoot if taskDir empty).",
       "files": [
         "src/health-check.ts",
         "test/health-check.test.ts",
