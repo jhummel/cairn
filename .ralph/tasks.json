@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 3,
-      "priority": 3,
-      "title": "TDD: Port stream filter \u2014 narration and ntfy",
-      "description": "Add narration socket forwarding and ntfy push notifications to the stream filter. Write tests first.\n\n1. sendToNarrate(text, socketPath): Forward text to a Unix domain socket. Best-effort, non-blocking. Skip if socketPath is empty, socket doesn't exist, or text is empty. Use 1s timeout. Catch all errors silently.\n2. sendNtfy(message, topic, opts?): POST to https://ntfy.sh/<topic>. Support optional Title, Priority, Tags headers. 5s timeout. Best-effort, catch all errors.\n3. Wire into processStream via injectable options (e.g., { narrate?: (text: string) => void, ntfy?: (msg: string, opts?) => void }) so tests can mock these.\n4. Narration triggers (match Python):\n   - On system/init with RALPH_TASK_CONTEXT: narrate 'Starting work on: <context>' and ntfy same.\n   - On assistant text blocks: forward text (prepend task context if set), truncated to 1000 chars.\n   - On result: narrate and ntfy a summary with status/turns/duration. Use different ntfy tags/priority for success vs error.\n\nTest with mock functions passed as options. Also test sendToNarrate with a real Unix socket server in the test, and sendNtfy with a mock HTTP intercept if feasible.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-6",
-      "notes": "Implemented sendToNarrate (Unix socket, 1s timeout, best-effort) and sendNtfy (fetch POST to ntfy.sh, 5s timeout, best-effort). Both exported from stream-filter.ts. Wired into processStream: system/init with taskContext triggers narrate+ntfy; assistant text blocks forward to narrate (truncated to 1000 chars, prepends taskContext if set); result events trigger narrate+ntfy with success/error tags. 19 new tests added (57 total in file), all pass. Full suite: 208 tests pass.",
-      "files": [
-        "src/stream-filter.ts",
-        "test/stream-filter.test.ts",
-        "lib/ralph_stream_filter.py"
-      ],
-      "tests": [
-        "bun test test/stream-filter.test.ts"
-      ],
-      "dependencies": [
-        2
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 5,
       "priority": 4,
       "title": "TDD: Port init command \u2014 interactive prompts",
       "description": "Add interactive prompts for ralph.json configuration to src/commands/init.ts. Write tests first.\n\nRead lib/ralph_init.sh to understand all prompts. Use Node's built-in readline/promises for interactive input. Key behaviors:\n\n1. Prompt for each ralph.json field with sensible defaults (auto-detected where possible):\n   - Project name (default: directory basename)\n   - Health check command (auto-detect from package.json/Cargo.toml/Makefile)\n   - Test command\n   - Implementation file name (default: IMPLEMENTATION.md)\n   - Model preference (default: opus)\n   - Max iterations (default: 25)\n   - And other fields from the shell version\n2. Boolean prompts: show [Y/n] when default is true, [y/N] when default is false. Accept y/yes/n/no case-insensitive, empty = default.\n3. Re-init support: if ralph.json already exists, load its values as defaults for all prompts.\n4. Write ralph.json with the collected values.\n\nExtract prompt helpers as testable functions. For testing, create a mock readline interface that returns predetermined answers. Test default values, boolean parsing, re-init default loading, and final JSON output.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T12:15:00Z",
+      "completedBy": "iteration-7",
+      "notes": "Implemented interactive prompt system for ralph.json configuration. Exported: parseBooleanInput (y/yes/n/no case-insensitive, empty=default), getConfigDefaults (loads from existing ralph.json + auto-detects health check), promptForConfig (runs all prompts via PromptInterface abstraction), writeRalphJson. PromptInterface allows easy mocking for tests. Conditional narration sub-prompts only appear when narration is enabled. 44 tests (31 new), all pass. Full suite: 239 tests pass.",
       "files": [
         "src/commands/init.ts",
         "test/commands/init.test.ts",
