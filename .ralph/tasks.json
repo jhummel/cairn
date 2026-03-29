@@ -2,34 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 10,
-      "priority": 8,
-      "title": "TDD: Port edit command",
-      "description": "Create `src/commands/edit.ts` porting the edit subcommand from `bin/ralph` lines 236-259.\n\nWrite tests FIRST in `test/commands/edit.test.ts`, then implement.\n\n**Behavior to replicate:**\n- Accept an optional target argument: `tasks` (default), `plan`/`notes`, or `config`\n- Map targets to file paths:\n  - `tasks` \u2192 `$RALPH_DATA_DIR/tasks.json`\n  - `plan` or `notes` \u2192 `$RALPH_DATA_DIR/planning-notes.md`\n  - `config` \u2192 `$RALPH_PROJECT_ROOT/ralph.json`\n- If unknown target, print error and usage, exit 1\n- If file doesn't exist, print error, exit 1\n- Open with `$EDITOR` (fallback to `vi`): spawn `${process.env.EDITOR || 'vi'}` with the file path, stdio inherited\n\n**Implementation:**\n- Accept `target`, `projectRoot`, and `dataDir` as parameters\n- Use `Bun.spawnSync` or `child_process.spawnSync` with `stdio: 'inherit'`\n\n**Test approach:**\n- Test target-to-path mapping\n- Test unknown target error\n- Test missing file error\n- Mock spawnSync to verify EDITOR is called with correct path\n- Register this command in src/index.ts Commander setup",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-10",
-      "notes": "Created src/commands/edit.ts with runEdit(target, projectRoot, dataDir). Tests in test/commands/edit.test.ts cover all target mappings, EDITOR env var, vi fallback, stdio inherit, unknown target error, missing file error. Updated src/index.ts to import and call runEdit. Updated index test: old stub assertion replaced with spawnSync mock to avoid vim launching during tests (the ralph project itself has .ralph/tasks.json which is found by findProjectRoot). All 121 tests pass.",
-      "files": [
-        "src/commands/edit.ts",
-        "bin/ralph"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        7
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 11,
       "priority": 8,
       "title": "TDD: Port logs command",
       "description": "Create `src/commands/logs.ts` porting the logs subcommand from `bin/ralph` lines 260-267.\n\nWrite tests FIRST in `test/commands/logs.test.ts`, then implement.\n\n**Behavior to replicate:**\n- Look for `$RALPH_DATA_DIR/.ralph_iterations.log`\n- If file doesn't exist, print 'No iteration log found.' and return\n- If file exists, print its contents to stdout\n\n**Implementation:**\n- Accept `dataDir` as parameter\n- Use `Bun.file().text()` or `fs.readFileSync` to read the log file\n- Print to stdout\n\n**Test approach:**\n- Test with missing log file\n- Test with existing log file (create fixture)\n- Capture stdout and assert output matches file contents\n- Register this command in src/index.ts Commander setup",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T18:35:00Z",
+      "completedBy": "iteration-11",
+      "notes": "Created src/commands/logs.ts with runLogs(dataDir). Tests in test/commands/logs.test.ts cover: missing log file prints 'No iteration log found.', existing log file prints contents, no false 'not found' message when file exists. Updated src/index.ts to import and call runLogs instead of stub. Updated index.test.ts: old stub assertion replaced with flexible check (log file exists on the ralph project itself so actual content is printed). All 124 tests pass.",
       "files": [
         "src/commands/logs.ts",
         "bin/ralph"

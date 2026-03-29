@@ -5,6 +5,7 @@ import { loadConfig, autoDetectHealthCheck, setConfigEnvVars } from './config';
 import { shellFallback, forceShellFallback } from './commands/fallback';
 import { runStatus } from './commands/status';
 import { runEdit } from './commands/edit';
+import { runLogs } from './commands/logs';
 
 const RALPH_VERSION = '0.1.0';
 
@@ -92,7 +93,8 @@ export function createProgram(): Command {
     .command('logs')
     .description('Show iteration log')
     .action(() => {
-      console.log('logs: not yet implemented');
+      const dataDir = process.env.RALPH_DATA_DIR!;
+      runLogs(dataDir);
     });
 
   // --- Shell fallback commands ---

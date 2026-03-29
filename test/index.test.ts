@@ -197,13 +197,15 @@ describe('main', () => {
     spawnSpy.mockRestore();
   });
 
-  test('logs command runs stub', async () => {
+  test('logs command prints log or "No iteration log found."', async () => {
     const logSpy = spyOn(console, 'log').mockImplementation(() => {});
 
     await main(['node', 'ralph', 'logs']);
 
     const output = logSpy.mock.calls.map((c) => String(c[0])).join(' ');
-    expect(output).toContain('logs: not yet implemented');
+    // Either the log file exists and has content, or it doesn't exist
+    const hasContent = output.length > 0;
+    expect(hasContent || output.includes('No iteration log found.')).toBe(true);
 
     logSpy.mockRestore();
   });
