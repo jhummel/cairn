@@ -1,5 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawnSync as nodeSpawnSync, type SpawnSyncReturns, type SpawnSyncOptions } from 'child_process';
+import { sendToNarrate as defaultSendToNarrate, sendNtfy as defaultSendNtfy, type NtfyOpts } from '../stream-filter';
 import { Task, AgentInfo } from '../types';
 
 const STATUS_ICONS: Record<string, string> = {
@@ -287,6 +289,140 @@ RULES:
 - When specialist agents are available, assign them to tasks that match their expertise. Not every task needs a specialist — use the default generalist for tasks without a clear match.${agentsSection}${gitSection}`;
 
   return prompt;
+}
+
+export type SpawnSyncFn = (
+  command: string,
+  args: readonly string[],
+  options: SpawnSyncOptions,
+) => SpawnSyncReturns<Buffer>;
+
+type SendToNarrateFn = (text: string, socketPath: string) => Promise<void>;
+type SendNtfyFn = (message: string, topic: string, opts?: NtfyOpts) => Promise<void>;
+
+export interface LaunchPlanningSessionOpts extends PlanningPromptInput {
+  spawnSyncFn?: SpawnSyncFn;
+  narrateSocketPath?: string;
+  sendToNarrateFn?: SendToNarrateFn;
+  ntfyTopic?: string;
+  sendNtfyFn?: SendNtfyFn;
+}
+
+export interface LaunchTaskGenerationOpts extends TaskGenPromptInput {
+  spawnSyncFn?: SpawnSyncFn;
+  narrateSocketPath?: string;
+  sendToNarrateFn?: SendToNarrateFn;
+  ntfyTopic?: string;
+  sendNtfyFn?: SendNtfyFn;
+}
+
+export function launchPlanningSession(opts: LaunchPlanningSessionOpts): void {
+  const {
+    projectName,
+    projectRoot,
+    dataDir,
+    agents,
+    implementationFile,
+    spawnSyncFn = nodeSpawnSync,
+    narrateSocketPath = process.env.RALPH_NARRATE_SOCKET ?? '',
+    sendToNarrateFn = defaultSendToNarrate,
+    ntfyTopic = process.env.RALPH_NTFY_TOPIC ?? '',
+    sendNtfyFn = defaultSendNtfy,
+  } = opts;
+
+  console.log('Launching planning discussion...');
+  console.log('Discuss your goals. Claude will write planning-notes.md when ready.');
+  console.log('Exit the session (Ctrl+C or /exit) when done.');
+  console.log('');
+
+  if (narrateSocketPath) {
+    sendToNarrateFn(
+      `Starting the planning discussion for project ${projectName}. Time to figure out what we're building next.`,
+      narrateSocketPath,
+    );
+  }
+  if (ntfyTopic) {
+    sendNtfyFn(`Planning session started for ${projectName}`, ntfyTopic, {
+      title: 'Ralph - Planning',
+      tags: 'memo',
+    });
+  }
+
+  const prompt = buildPlanningPrompt({ projectName, projectRoot, dataDir, agents, implementationFile });
+
+  spawnSyncFn('claude', [
+    '--append-system-prompt', prompt,
+    '--allowedTools', 'Read,Glob,Grep,Write,Edit',
+  ], {
+    stdio: 'inherit',
+    cwd: projectRoot,
+    env: { ...process.env, ANTHROPIC_API_KEY: '' },
+  });
+
+  if (narrateSocketPath) {
+    sendToNarrateFn('Planning discussion complete. Let\'s see what we came up with.', narrateSocketPath);
+  }
+  if (ntfyTopic) {
+    sendNtfyFn('Planning discussion complete', ntfyTopic, {
+      title: 'Ralph - Planning',
+      tags: 'white_check_mark',
+    });
+  }
+}
+
+export function launchTaskGeneration(opts: LaunchTaskGenerationOpts): void {
+  const {
+    projectName,
+    projectRoot,
+    dataDir,
+    agents,
+    gitStatus,
+    spawnSyncFn = nodeSpawnSync,
+    narrateSocketPath = process.env.RALPH_NARRATE_SOCKET ?? '',
+    sendToNarrateFn = defaultSendToNarrate,
+    ntfyTopic = process.env.RALPH_NTFY_TOPIC ?? '',
+    sendNtfyFn = defaultSendNtfy,
+  } = opts;
+
+  console.log('Launching task generation from planning notes...');
+  console.log('Claude will propose tasks for your approval, then write tasks.json.');
+  console.log('Exit the session (Ctrl+C or /exit) when done.');
+  console.log('');
+
+  if (narrateSocketPath) {
+    sendToNarrateFn(
+      'Switching to task generation mode. Turning the plan into a concrete task list.',
+      narrateSocketPath,
+    );
+  }
+  if (ntfyTopic) {
+    sendNtfyFn('Task generation started', ntfyTopic, {
+      title: 'Ralph - Tasks',
+      tags: 'gear',
+    });
+  }
+
+  const prompt = buildTaskGenPrompt({ projectName, projectRoot, dataDir, agents, gitStatus });
+
+  spawnSyncFn('claude', [
+    '--append-system-prompt', prompt,
+    '--allowedTools', 'Read,Glob,Grep,Write,Edit',
+    'Read planning-notes.md and generate the task breakdown. Show me the proposed tasks for approval before writing tasks.json.',
+  ], {
+    stdio: 'inherit',
+    cwd: projectRoot,
+    env: { ...process.env, ANTHROPIC_API_KEY: '' },
+  });
+
+  if (narrateSocketPath) {
+    sendToNarrateFn('Task generation complete. Let\'s review what we\'ve got.', narrateSocketPath);
+  }
+  if (ntfyTopic) {
+    sendNtfyFn('Task generation complete', ntfyTopic, {
+      title: 'Ralph - Tasks',
+      tags: 'white_check_mark',
+    });
+  }
 }
 
 export function displayPreflight(projectName: string, dataDir: string): void {

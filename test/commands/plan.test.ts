@@ -10,8 +10,11 @@ import {
   displayPreflight,
   buildPlanningPrompt,
   buildTaskGenPrompt,
+  launchPlanningSession,
+  launchTaskGeneration,
 } from '../../src/commands/plan';
 import type { AgentInfo } from '../../src/types';
+import type { SpawnSyncReturns } from 'child_process';
 
 const FIXTURES_DIR = path.join(__dirname, '..', 'fixtures');
 
@@ -862,6 +865,498 @@ describe('buildTaskGenPrompt', () => {
         gitStatus: '',
       });
       expect(result).toContain(`ONLY write to: ${tasksFile}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
+
+// ── Session launcher tests ──────────────────────────────────────────
+
+function makeSpawnSyncSpy() {
+  const calls: Array<{ command: string; args: readonly string[]; options: any }> = [];
+  const spawnFn = (command: string, args: readonly string[], options: any): SpawnSyncReturns<Buffer> => {
+    calls.push({ command, args, options });
+    return { status: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), pid: 123, output: [], signal: null };
+  };
+  return { spawnFn, calls };
+}
+
+function makeNotificationSpies() {
+  const narrations: string[] = [];
+  const ntfyCalls: Array<{ message: string; topic: string; opts?: any }> = [];
+  return {
+    narrations,
+    ntfyCalls,
+    narrate: async (text: string, _socketPath: string) => { narrations.push(text); },
+    ntfy: async (message: string, topic: string, opts?: any) => { ntfyCalls.push({ message, topic, opts }); },
+  };
+}
+
+describe('launchPlanningSession', () => {
+  let consoleSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+  });
+
+  test('spawns claude with --append-system-prompt and --allowedTools', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchPlanningSession({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+      });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].command).toBe('claude');
+      expect(calls[0].args).toContain('--append-system-prompt');
+      expect(calls[0].args).toContain('--allowedTools');
+      expect(calls[0].args).toContain('Read,Glob,Grep,Write,Edit');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('passes the planning prompt as second arg after --append-system-prompt', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchPlanningSession({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+      });
+      const args = calls[0].args;
+      const promptIdx = args.indexOf('--append-system-prompt');
+      const prompt = args[promptIdx + 1];
+      expect(prompt).toContain('planning assistant');
+      expect(prompt).toContain('PROJECT: proj');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('sets cwd to projectRoot', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchPlanningSession({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+      });
+      expect(calls[0].options.cwd).toBe(tmpDir);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('clears ANTHROPIC_API_KEY in spawned env', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchPlanningSession({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+      });
+      expect(calls[0].options.env.ANTHROPIC_API_KEY).toBe('');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('uses stdio inherit', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchPlanningSession({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+      });
+      expect(calls[0].options.stdio).toBe('inherit');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('calls narration at start and end', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    const { narrations, narrate } = makeNotificationSpies();
+    try {
+      launchPlanningSession({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+        narrateSocketPath: '/tmp/test.sock',
+        sendToNarrateFn: narrate,
+      });
+      expect(narrations.length).toBeGreaterThanOrEqual(2);
+      expect(narrations[0]).toContain('planning');
+      expect(narrations[narrations.length - 1]).toContain('complete');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('calls ntfy at start and end', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    const { ntfyCalls, ntfy } = makeNotificationSpies();
+    try {
+      launchPlanningSession({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+        ntfyTopic: 'test-topic',
+        sendNtfyFn: ntfy,
+      });
+      expect(ntfyCalls.length).toBeGreaterThanOrEqual(2);
+      expect(ntfyCalls[0].topic).toBe('test-topic');
+      expect(ntfyCalls[ntfyCalls.length - 1].topic).toBe('test-topic');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('skips narration when socketPath is empty', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    const { narrations, narrate } = makeNotificationSpies();
+    try {
+      launchPlanningSession({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+        narrateSocketPath: '',
+        sendToNarrateFn: narrate,
+      });
+      expect(narrations).toHaveLength(0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('skips ntfy when topic is empty', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    const { ntfyCalls, ntfy } = makeNotificationSpies();
+    try {
+      launchPlanningSession({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+        ntfyTopic: '',
+        sendNtfyFn: ntfy,
+      });
+      expect(ntfyCalls).toHaveLength(0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('prints launch banner messages', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    const lines: string[] = [];
+    consoleSpy.mockImplementation((...args: any[]) => { lines.push(args.join(' ')); });
+    try {
+      launchPlanningSession({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+      });
+      const output = lines.join('\n');
+      expect(output).toContain('planning');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
+
+describe('launchTaskGeneration', () => {
+  let consoleSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+  });
+
+  test('spawns claude with --append-system-prompt and --allowedTools', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+      });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].command).toBe('claude');
+      expect(calls[0].args).toContain('--append-system-prompt');
+      expect(calls[0].args).toContain('--allowedTools');
+      expect(calls[0].args).toContain('Read,Glob,Grep,Write,Edit');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('passes the task gen prompt as second arg after --append-system-prompt', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+      });
+      const args = calls[0].args;
+      const promptIdx = args.indexOf('--append-system-prompt');
+      const prompt = args[promptIdx + 1];
+      expect(prompt).toContain('task generation assistant');
+      expect(prompt).toContain('PROJECT: proj');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('includes user prompt as last positional arg', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+      });
+      const args = calls[0].args;
+      const lastArg = args[args.length - 1];
+      expect(lastArg).toContain('planning-notes.md');
+      expect(lastArg).toContain('task breakdown');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('sets cwd to projectRoot', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+      });
+      expect(calls[0].options.cwd).toBe(tmpDir);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('clears ANTHROPIC_API_KEY in spawned env', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+      });
+      expect(calls[0].options.env.ANTHROPIC_API_KEY).toBe('');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('uses stdio inherit', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+      });
+      expect(calls[0].options.stdio).toBe('inherit');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('calls narration at start and end', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    const { narrations, narrate } = makeNotificationSpies();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+        narrateSocketPath: '/tmp/test.sock',
+        sendToNarrateFn: narrate,
+      });
+      expect(narrations.length).toBeGreaterThanOrEqual(2);
+      expect(narrations[0]).toContain('task generation');
+      expect(narrations[narrations.length - 1]).toContain('complete');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('calls ntfy at start and end', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    const { ntfyCalls, ntfy } = makeNotificationSpies();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+        ntfyTopic: 'test-topic',
+        sendNtfyFn: ntfy,
+      });
+      expect(ntfyCalls.length).toBeGreaterThanOrEqual(2);
+      expect(ntfyCalls[0].topic).toBe('test-topic');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('skips narration when socketPath is empty', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    const { narrations, narrate } = makeNotificationSpies();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+        narrateSocketPath: '',
+        sendToNarrateFn: narrate,
+      });
+      expect(narrations).toHaveLength(0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('skips ntfy when topic is empty', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    const { ntfyCalls, ntfy } = makeNotificationSpies();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+        ntfyTopic: '',
+        sendNtfyFn: ntfy,
+      });
+      expect(ntfyCalls).toHaveLength(0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('passes gitStatus through to prompt', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: 'On branch main\nnothing to commit',
+        spawnSyncFn: spawnFn,
+      });
+      const args = calls[0].args;
+      const promptIdx = args.indexOf('--append-system-prompt');
+      const prompt = args[promptIdx + 1];
+      expect(prompt).toContain('GIT STATUS:');
+      expect(prompt).toContain('On branch main');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('prints launch banner messages', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    const lines: string[] = [];
+    consoleSpy.mockImplementation((...args: any[]) => { lines.push(args.join(' ')); });
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+      });
+      const output = lines.join('\n');
+      expect(output).toContain('task generation');
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
