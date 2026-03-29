@@ -2,37 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 9,
-      "priority": 7,
-      "title": "Wire init and summarize into Commander, update fallbacks",
-      "description": "Register init and summarize as native Commander commands and remove them from shell fallback maps.\n\nChanges needed:\n\n1. src/index.ts:\n   - Import runInit from ./commands/init and runSummarize from ./commands/summarize\n   - Add 'init' command: program.command('init').description('Initialize Ralph in the current project').action(() => runInit(...))\n   - Add 'summarize' command: program.command('summarize').description('Update implementation documentation').action(() => runSummarize(...))\n   - Remove 'init' and 'summarize' from SHELL_FALLBACK_COMMANDS array\n   - Note: init needs special handling \u2014 it should work WITHOUT an existing .ralph/ dir (setupProjectContext may need adjustment since findProjectRoot looks for .ralph/)\n\n2. src/commands/fallback.ts:\n   - Remove 'summarize' from COMMAND_SCRIPT_MAP\n   - Remove 'init' from BIN_RALPH_COMMANDS\n\n3. Update tests:\n   - test/index.test.ts: update SHELL_FALLBACK_COMMANDS expectations, add tests for init and summarize command registration\n   - test/commands/fallback.test.ts: update expectations for removed entries\n   - Verify RALPH_FORCE_SHELL=1 still delegates everything to shell (existing test should still pass)\n\nRun the full test suite: bun test",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-10",
-      "notes": "Imported runInit and runSummarize into src/index.ts. Registered both as native Commander commands. init creates a readline interface inline for the PromptInterface. summarize reads env vars set by preAction hook. Removed 'init' and 'summarize' from SHELL_FALLBACK_COMMANDS (now ['plan','run','narrate']). Removed 'summarize' from COMMAND_SCRIPT_MAP and 'init' from BIN_RALPH_COMMANDS in fallback.ts. Updated all test expectations accordingly. All 270 tests pass.",
-      "files": [
-        "src/index.ts",
-        "src/commands/fallback.ts",
-        "test/index.test.ts",
-        "test/commands/fallback.test.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        6,
-        8
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 10,
       "priority": 8,
       "title": "Verify bun build --compile produces working binary",
       "description": "Build the compiled binary and verify all commands work correctly.\n\n1. Run: bun build --compile src/index.ts --outfile dist/ralph\n2. Test the compiled binary:\n   - dist/ralph --version \u2192 should print version\n   - dist/ralph status \u2192 should work (in a project with .ralph/)\n   - dist/ralph edit \u2192 should work\n   - dist/ralph logs \u2192 should work\n   - dist/ralph init \u2192 should run interactive prompts (test in a temp dir)\n   - dist/ralph summarize \u2192 should attempt to spawn claude (will fail without claude CLI, but verify it gets to the spawn step)\n   - dist/ralph plan \u2192 should fall back to shell\n   - dist/ralph run \u2192 should fall back to shell\n3. Test RALPH_FORCE_SHELL=1 dist/ralph status \u2192 should delegate to shell\n4. If any command fails in compiled form, investigate and fix the issue.\n\nRun bun test first to make sure all tests pass, then build and do manual verification.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T18:30:00Z",
+      "completedBy": "iteration-11",
+      "notes": "All 270 tests pass. bun build --compile produces working binary at dist/ralph. All commands verified: --version, status, edit, logs, init (interactive prompts in temp dir), summarize (reaches spawn step with intentional empty ANTHROPIC_API_KEY matching shell version behavior), plan/run (shell fallback), RALPH_FORCE_SHELL=1. Build health check failure (bun not in PATH) is pre-existing and tracked in task #11.",
       "files": [
         "src/index.ts",
         "package.json"
