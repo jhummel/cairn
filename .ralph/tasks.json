@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 11,
-      "priority": 6,
-      "title": "Verify bun build --compile produces working binary",
-      "description": "Run `bun build --compile` (check package.json for the exact build script) and verify the compiled binary works:\n\n1. Run the build command\n2. Test `./ralph-bin plan --help` (or whatever the binary name is) doesn't crash\n3. Test `./ralph-bin status` still works (regression check on previously ported commands)\n4. Test `./ralph-bin logs` still works\n5. If the build embeds `src/tasks-schema.json`, verify it's included (the prompt builder reads it via `fs.readFileSync` relative to `import.meta.dir` \u2014 this may need adjustment for compiled binaries)\n\nIf `import.meta.dir` doesn't resolve correctly in the compiled binary for reading `tasks-schema.json`, the schema content may need to be inlined as a string constant at build time or imported directly. Fix any issues found.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T20:00:00Z",
-      "completedBy": "iteration-11",
-      "notes": "Build succeeds (bun run build → dist/ralph). All commands work: --version, status, logs, plan --help. Fixed schema embedding: __dirname in compiled binaries points to binary's dir, not source. Fixed by importing tasks-schema.json directly (import tasksSchemaRaw from '../tasks-schema.json') and using JSON.stringify instead of readFileSync. Schema is now bundled at compile time and works correctly. 386 tests pass. Note: ralph.json healthCheck is still 'bun build' (broken) — task #12 must fix this.",
-      "files": [
-        "package.json",
-        "src/commands/plan.ts",
-        "src/tasks-schema.json"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        10
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 12,
       "priority": 6,
       "title": "Fix healthCheck in ralph.json",
       "description": "The ralph.json healthCheck is set to `bun build` which fails because it has no entrypoint. Change it to `bun run build` so it uses the build script from package.json (`bun build --compile src/index.ts --outfile dist/ralph`).",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-12",
+      "notes": "Changed healthCheck from 'bun build' to 'bun run build'. bun run build succeeds (21 modules bundled, dist/ralph compiled in ~400ms).",
       "files": [
         "ralph.json"
       ],
