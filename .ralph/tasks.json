@@ -2,31 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 3,
-      "priority": 3,
-      "title": "Initialize Bun/TS project scaffold",
-      "description": "Set up the TypeScript/Bun project infrastructure at the repo root. This is the foundation for all subsequent tasks.\n\n1. Create `package.json` with:\n   - `name`: `ralph`\n   - `type`: `module`\n   - `scripts.build`: `bun build --compile src/index.ts --outfile dist/ralph`\n   - `scripts.test`: `bun test`\n   - `dependencies`: `commander` (latest)\n   - `devDependencies`: `@types/bun` (latest)\n\n2. Create `tsconfig.json` configured for Bun:\n   - `compilerOptions.target`: `ESNext`\n   - `compilerOptions.module`: `ESNext`\n   - `compilerOptions.moduleResolution`: `bundler`\n   - `compilerOptions.strict`: `true`\n   - `compilerOptions.outDir`: `dist`\n   - `compilerOptions.rootDir`: `src`\n   - `compilerOptions.types`: `[\"bun-types\"]`\n   - `include`: `[\"src\"]`\n\n3. Add to `.gitignore` (append, don't overwrite \u2014 the file may already exist):\n   ```\n   node_modules/\n   dist/\n   ```\n\n4. Run `bun install` to install dependencies and generate bun.lockb.\n\n5. Create directory structure:\n   - `src/`\n   - `src/commands/`\n   - `test/`\n   - `test/fixtures/`\n\n6. Create a minimal `src/index.ts` placeholder:\n   ```ts\n   console.log('ralph ts entrypoint');\n   ```\n\n7. Create a trivial passing test at `test/setup.test.ts`:\n   ```ts\n   import { describe, it, expect } from 'bun:test';\n\n   describe('test infrastructure', () => {\n     it('bun test runner works', () => {\n       expect(1 + 1).toBe(2);\n     });\n   });\n   ```\n\n8. Verify `bun test` passes.\n9. Verify `bun build --compile src/index.ts --outfile dist/ralph` succeeds (then delete dist/ralph \u2014 it's just a smoke test).",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T12:00:00Z",
-      "completedBy": "iteration-3",
-      "notes": "Installed Bun 1.3.11, commander 14.0.3, @types/bun 1.3.11. Created full project scaffold with src/, src/commands/, test/, test/fixtures/. bun test passes, bun build --compile works. Bun was not pre-installed — had to install it via curl.",
-      "files": [],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        1
-      ],
-      "model": "opus"
-    },
-    {
       "id": 4,
       "priority": 4,
       "title": "Create type definitions",
       "description": "Create `src/types.ts` with TypeScript interfaces for Ralph's core data structures. Port these from the shapes used in the shell/Python code.\n\n**RalphConfig** \u2014 matches ralph.json shape:\n```ts\ninterface RalphConfig {\n  projectName: string;\n  projectDescription: string;\n  healthCheck: string;\n  defaultTestCommand: string;\n  implementationFile: string;\n  truncateText: boolean;\n  summarize: { claudeMdPattern: string };\n  narration: {\n    enabled: boolean;\n    voice: string;\n    ntfyTopic: string;\n  };\n}\n```\n\n**Task** \u2014 matches tasks.json task shape (see `lib/tasks.schema.json` for the authoritative schema):\n```ts\ninterface Task {\n  id: number;\n  priority: number;\n  title: string;\n  description?: string;\n  directory?: string;\n  status: 'pending' | 'in-progress' | 'complete' | 'blocked';\n  files?: string[];\n  tests?: string[];\n  completedAt?: string;\n  completedBy?: string;\n  notes?: string;\n  dependencies?: number[];\n  model?: 'opus' | 'sonnet';\n  agent?: string;\n}\n```\n\n**AgentInfo** \u2014 matches the shape from `_ralph_discover_agents()` in `lib/ralph_config.sh`:\n```ts\ninterface AgentInfo {\n  name: string;\n  description: string;\n  model: string;\n  file: string;\n}\n```\n\nExport all interfaces. Also export type guard functions (`isValidConfig`, `isValidTask`) that validate unknown data against the expected shapes. These should check required fields exist and have correct types.\n\nWrite tests in `test/types.test.ts` that verify the type guards accept valid data and reject malformed data (missing fields, wrong types).",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-4",
+      "notes": "Created src/types.ts with RalphConfig, Task, AgentInfo interfaces and isValidConfig/isValidTask type guards. Created test/types.test.ts with 26 tests covering valid/invalid inputs. All tests pass. bun is at ~/.bun/bin/bun — not on PATH by default in subshell.",
       "files": [
         "src/types.ts",
         "lib/tasks.schema.json"
