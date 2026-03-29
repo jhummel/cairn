@@ -32,11 +32,20 @@ describe('createProgram', () => {
     expect(commandNames).toContain('logs');
   });
 
-  test('registers shell fallback commands (run, narrate)', () => {
+  test('registers native run command (not a shell fallback)', () => {
     const program = createProgram();
     const commandNames = program.commands.map((c) => c.name());
     expect(commandNames).toContain('run');
+    const runCmd = program.commands.find((c) => c.name() === 'run');
+    expect(runCmd!.description()).not.toContain('[shell fallback]');
+  });
+
+  test('registers native narrate command (not a shell fallback)', () => {
+    const program = createProgram();
+    const commandNames = program.commands.map((c) => c.name());
     expect(commandNames).toContain('narrate');
+    const narrCmd = program.commands.find((c) => c.name() === 'narrate');
+    expect(narrCmd!.description()).not.toContain('[shell fallback]');
   });
 
   test('registers native plan command (not a shell fallback)', () => {
@@ -244,9 +253,27 @@ describe('command registration', () => {
     // Native plan command
     expect(commandNames).toContain('plan');
 
-    // Shell fallback
+    // Native run and narrate
     expect(commandNames).toContain('run');
     expect(commandNames).toContain('narrate');
+  });
+
+  test('run command accepts optional [max] argument', () => {
+    const program = createProgram();
+    const runCmd = program.commands.find((c) => c.name() === 'run');
+    expect(runCmd).toBeDefined();
+    const args = runCmd!.registeredArguments;
+    expect(args.length).toBe(1);
+    expect(args[0].required).toBe(false); // optional argument
+  });
+
+  test('narrate command accepts required <action> argument', () => {
+    const program = createProgram();
+    const narrCmd = program.commands.find((c) => c.name() === 'narrate');
+    expect(narrCmd).toBeDefined();
+    const args = narrCmd!.registeredArguments;
+    expect(args.length).toBe(1);
+    expect(args[0].required).toBe(true); // required argument
   });
 
   test('edit command accepts optional target argument', () => {

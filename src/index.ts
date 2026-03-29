@@ -10,12 +10,14 @@ import { runLogs } from './commands/logs';
 import { runInit } from './commands/init';
 import { runSummarize } from './commands/summarize';
 import { runPlan } from './commands/plan';
+import { runRun } from './commands/run';
+import { runNarrate } from './commands/narrate';
 import type { AgentInfo } from './types';
 
 const RALPH_VERSION = '0.1.0';
 
 /** Shell-fallback commands that haven't been ported to TS yet */
-const SHELL_FALLBACK_COMMANDS = ['run', 'narrate'] as const;
+const SHELL_FALLBACK_COMMANDS = [] as const;
 
 /** Ported commands with stub handlers (filled in by tasks 8-11) */
 const PORTED_COMMANDS = ['status', 'edit', 'logs'] as const;
@@ -162,6 +164,36 @@ export function createProgram(): Command {
       } finally {
         rl.close();
       }
+    });
+
+  // --- Native run command ---
+
+  program
+    .command('run [max]')
+    .description('Execute tasks autonomously with fresh Claude agents')
+    .action(async (max?: string) => {
+      const projectRoot = process.env.RALPH_PROJECT_ROOT!;
+      const dataDir = process.env.RALPH_DATA_DIR!;
+      let agents: AgentInfo[] = [];
+      try {
+        agents = JSON.parse(process.env.RALPH_AGENTS_JSON ?? '[]') as AgentInfo[];
+      } catch {
+        // ignore parse errors
+      }
+      const cfg = loadConfig(projectRoot);
+      if (!cfg.healthCheck) cfg.healthCheck = autoDetectHealthCheck(projectRoot);
+      const config = cfg;
+      const maxIterations = max !== undefined ? parseInt(max, 10) : 30;
+      await runRun({ projectRoot, dataDir, config, agents, maxIterations });
+    });
+
+  // --- Native narrate command ---
+
+  program
+    .command('narrate <action>')
+    .description('Control narration server (on/off/status) or speak text')
+    .action(async (action: string) => {
+      await runNarrate(action);
     });
 
   // --- Shell fallback commands ---

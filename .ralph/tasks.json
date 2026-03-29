@@ -2,38 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 11,
-      "priority": 11,
-      "title": "TDD: Run command \u2014 narration + summary",
-      "description": "Add narration server lifecycle management and final summary to the run command in src/commands/run.ts and test/commands/run.test.ts.\n\nNarration lifecycle within the loop:\n- If config.narration.enabled: start narration server before first iteration using startNarrationServer()\n- Health check the narration server each iteration via checkNarrationHealth() \u2014 auto-restart if dead\n- Pass narrate callback to processStream options so tool results get narrated\n- Stop narration server on loop exit (normal or signal) via stopNarrationServer()\n- Register narration server PID with ProcessManager for signal cleanup\n\nIteration logging:\n- Log iteration number, task being worked on, start/end times to .ralph_iterations.log\n- Format: timestamp + iteration number + task id + task title\n\nFinal summary:\n- Print total iterations completed, tasks completed/remaining counts\n- If config.narration.ntfyTopic set, send ntfy notification via sendNtfy() from stream-filter.ts with completion summary\n- Narrate the final summary if narration is enabled",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T12:15:00Z",
-      "completedBy": "iteration-3",
-      "notes": "Added narration lifecycle (start/health-check/restart/stop), iteration logging to .ralph_iterations.log, final summary with counts, ntfy notifications, and narrate callbacks. 20 new tests (84 total in file). New deps added to RunRunDeps: appendFileSync, startNarrationServer, stopNarrationServer, checkNarrationHealth, sendToNarrate, sendNtfy. Narration gracefully degrades if server fails to start.",
-      "files": [
-        "src/commands/run.ts",
-        "test/commands/run.test.ts",
-        "src/narration.ts",
-        "src/stream-filter.ts",
-        "lib/ralph_execute.sh"
-      ],
-      "tests": [
-        "bun test test/commands/run.test.ts"
-      ],
-      "dependencies": [
-        6,
-        10
-      ],
-      "model": "opus"
-    },
-    {
       "id": 12,
       "priority": 12,
       "title": "Wire run + narrate into Commander",
       "description": "Register both commands in Commander and remove from shell fallback.\n\nIn src/index.ts:\n- Register 'run' command with optional [max] argument for max iterations (default 30). Handler calls runRun() from src/commands/run.ts.\n- Register 'narrate' command with required <action> argument (on/off/status or text to speak). Handler calls runNarrate() from src/commands/narrate.ts.\n- Remove 'run' and 'narrate' from SHELL_FALLBACK_COMMANDS \u2014 the array becomes empty: []\n\nIn src/commands/fallback.ts:\n- Remove 'run: \"ralph_loop.sh\"' from COMMAND_SCRIPT_MAP (object becomes empty: {})\n- Remove 'narrate' from BIN_RALPH_COMMANDS (array becomes empty: [])\n\nUpdate tests:\n- test/index.test.ts: add tests for new command registration, update fallback tests\n- test/commands/fallback.test.ts: update to reflect empty maps\n\nRALPH_FORCE_SHELL=1 still delegates everything to shell (existing forceShellFallback logic unchanged).",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-4",
+      "notes": "Registered run and narrate as native Commander commands. SHELL_FALLBACK_COMMANDS is now []. COMMAND_SCRIPT_MAP and BIN_RALPH_COMMANDS are both empty. run takes optional [max] (default 30), narrate takes required <action>. All 39 tests pass.",
       "files": [
         "src/index.ts",
         "src/commands/fallback.ts",

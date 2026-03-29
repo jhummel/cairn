@@ -6,15 +6,13 @@ import { resolveRalphRoot } from '../utils';
  * Maps shell-fallback commands to their lib/ script filenames.
  * Commands NOT in this map delegate to bin/ralph instead.
  */
-export const COMMAND_SCRIPT_MAP: Record<string, string> = {
-  run: 'ralph_loop.sh',
-};
+export const COMMAND_SCRIPT_MAP: Record<string, string> = {};
 
 /**
  * Commands that delegate to bin/ralph directly (not lib/ scripts).
  * init is sourced by bin/ralph; narrate is handled inline in bin/ralph.
  */
-export const BIN_RALPH_COMMANDS = ['narrate'] as const;
+export const BIN_RALPH_COMMANDS = [] as const;
 
 /**
  * Shell fallback: delegates a command to the original shell scripts.
