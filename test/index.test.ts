@@ -3,6 +3,7 @@ import { createProgram, setupProjectContext, main } from '../src/index';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as childProcess from 'child_process';
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 
@@ -181,15 +182,19 @@ describe('main', () => {
     logSpy.mockRestore();
   });
 
-  test('edit command runs stub', async () => {
-    const logSpy = spyOn(console, 'log').mockImplementation(() => {});
+  test('edit command opens file with editor', async () => {
+    const spawnSpy = spyOn(childProcess, 'spawnSync').mockReturnValue({
+      status: 0, signal: null, pid: 1, output: [], stdout: Buffer.alloc(0), stderr: Buffer.alloc(0),
+    } as any);
 
     await main(['node', 'ralph', 'edit']);
 
-    const output = logSpy.mock.calls.map((c) => String(c[0])).join(' ');
-    expect(output).toContain('edit tasks: not yet implemented');
+    // Should have tried to open the ralph project's tasks.json in an editor
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+    const [, args] = spawnSpy.mock.calls[0];
+    expect(args[0]).toContain('tasks.json');
 
-    logSpy.mockRestore();
+    spawnSpy.mockRestore();
   });
 
   test('logs command runs stub', async () => {

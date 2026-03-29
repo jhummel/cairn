@@ -4,6 +4,7 @@ import { findProjectRoot, resolveRalphRoot } from './utils';
 import { loadConfig, autoDetectHealthCheck, setConfigEnvVars } from './config';
 import { shellFallback, forceShellFallback } from './commands/fallback';
 import { runStatus } from './commands/status';
+import { runEdit } from './commands/edit';
 
 const RALPH_VERSION = '0.1.0';
 
@@ -82,7 +83,9 @@ export function createProgram(): Command {
     .command('edit [target]')
     .description('Edit tasks.json (default), planning notes, or config')
     .action((target?: string) => {
-      console.log(`edit ${target ?? 'tasks'}: not yet implemented`);
+      const projectRoot = process.env.RALPH_PROJECT_ROOT!;
+      const dataDir = process.env.RALPH_DATA_DIR!;
+      runEdit(target ?? 'tasks', projectRoot, dataDir);
     });
 
   program
