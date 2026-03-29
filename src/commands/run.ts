@@ -5,7 +5,8 @@ import { spawn as nodeSpawn, type ChildProcess } from 'child_process';
 import type { Readable, Writable } from 'stream';
 import type { RalphConfig, AgentInfo, Task } from '../types';
 import { ProcessManager, type ProcessManagerOptions } from '../process';
-import { processStream, type ProcessStreamOptions } from '../stream-filter';
+import { processStream, sendToNarrate as defaultSendToNarrate, sendNtfy as defaultSendNtfy, type ProcessStreamOptions, type NtfyOpts } from '../stream-filter';
+import { startNarrationServer as defaultStartNarrationServer, stopNarrationServer as defaultStopNarrationServer, checkNarrationHealth as defaultCheckNarrationHealth, type StartNarrationOpts } from '../narration';
 import { loadCompletedIds as defaultLoadCompletedIds, selectNextTask as defaultSelectNextTask, buildIterationPrompt as defaultBuildIterationPrompt } from '../task-selector';
 import { runHealthCheck as defaultRunHealthCheck, type HealthCheckResult } from '../health-check';
 import { validateTaskTests as defaultValidateTaskTests, type ValidateTaskTestsOpts, type ValidationResult } from '../test-validator';
@@ -284,6 +285,12 @@ export interface RunRunDeps {
   readFileSync: (p: string, encoding: string) => string;
   mkdirSync: (p: string, opts?: { recursive: boolean }) => void;
   unlinkSync: (p: string) => void;
+  appendFileSync: (p: string, content: string) => void;
+  startNarrationServer: (opts: StartNarrationOpts) => Promise<number>;
+  stopNarrationServer: (pid: number, socketPath?: string) => Promise<void>;
+  checkNarrationHealth: (socketPath?: string) => Promise<boolean>;
+  sendToNarrate: (text: string, socketPath: string) => Promise<void>;
+  sendNtfy: (message: string, topic: string, opts?: NtfyOpts) => Promise<void>;
   log: (...args: unknown[]) => void;
 }
 
@@ -319,6 +326,12 @@ function defaultDeps(): RunRunDeps {
     readFileSync: fs.readFileSync as (p: string, encoding: string) => string,
     mkdirSync: fs.mkdirSync as (p: string, opts?: { recursive: boolean }) => void,
     unlinkSync: fs.unlinkSync,
+    appendFileSync: fs.appendFileSync as (p: string, content: string) => void,
+    startNarrationServer: defaultStartNarrationServer,
+    stopNarrationServer: defaultStopNarrationServer,
+    checkNarrationHealth: defaultCheckNarrationHealth,
+    sendToNarrate: defaultSendToNarrate,
+    sendNtfy: defaultSendNtfy,
     log: console.log,
   };
 }
@@ -337,6 +350,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   const maxIterations = opts.maxIterations ?? 30;
   const iterationTimeout = (opts.iterationTimeout ?? 900) * 1000; // convert to ms
   const tasksFilePath = path.join(dataDir, 'tasks.json');
+  const iterationLogPath = path.join(dataDir, '.ralph_iterations.log');
 
   // 1. Check for tasks.json — prompt to launch planner if missing
   if (!deps.existsSync(tasksFilePath)) {
@@ -361,19 +375,69 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   // 3. Initialize ProcessManager
   const processManager = deps.createProcessManager();
 
+  // 4. Write iteration log header
+  deps.appendFileSync(iterationLogPath, `Ralph Execution Loop Started: ${new Date().toISOString()}\n\n`);
+
+  // 5. Start narration server if enabled
+  let narrationPid: number | null = null;
+  const narrationEnabled = config.narration.enabled;
+  const narrationSocketPath = '/tmp/ralph-tts.sock';
+
+  if (narrationEnabled) {
+    try {
+      narrationPid = await deps.startNarrationServer({
+        pythonPath: 'python3',
+        scriptPath: path.join(projectRoot, 'lib', 'ralph_narrate_server.py'),
+        voice: config.narration.voice,
+        socketPath: narrationSocketPath,
+      });
+      processManager.register('narration', narrationPid);
+      deps.log(`Narration server started (PID: ${narrationPid})`);
+    } catch {
+      deps.log('Narration server failed to start — continuing without narration');
+      narrationPid = null;
+    }
+  }
+
   let prevNotes: string | null = null;
+  let iterationsCompleted = 0;
+  let totalArchived = 0;
+  let completedByFlag = false;
 
   try {
-    // 4. Main iteration loop
+    // 6. Main iteration loop
     for (let iteration = 1; iteration <= maxIterations; iteration++) {
       // a. Check for .ralph_complete flag
       const completeFlag = path.join(dataDir, '.ralph_complete');
       if (deps.existsSync(completeFlag)) {
         deps.log('Completion flag found. All tasks complete!');
+        completedByFlag = true;
+        deps.appendFileSync(iterationLogPath, `Iteration ${iteration}: COMPLETION FLAG FOUND\n`);
         break;
       }
 
-      // b. Load completed IDs
+      // b. Narration health check (per-iteration)
+      if (narrationEnabled && narrationPid !== null) {
+        const healthy = await deps.checkNarrationHealth(narrationSocketPath);
+        if (!healthy) {
+          deps.log('Narration server unresponsive — restarting...');
+          await deps.stopNarrationServer(narrationPid, narrationSocketPath).catch(() => {});
+          processManager.unregister('narration');
+          try {
+            narrationPid = await deps.startNarrationServer({
+              pythonPath: 'python3',
+              scriptPath: path.join(projectRoot, 'lib', 'ralph_narrate_server.py'),
+              voice: config.narration.voice,
+              socketPath: narrationSocketPath,
+            });
+            processManager.register('narration', narrationPid);
+          } catch {
+            narrationPid = null;
+          }
+        }
+      }
+
+      // c. Load completed IDs
       const completedIds = deps.loadCompletedIds(dataDir);
 
       // Read tasks from file
@@ -386,7 +450,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         break;
       }
 
-      // c. Select next task
+      // d. Select next task
       const task = deps.selectNextTask(tasks, completedIds);
       if (!task) {
         deps.log('No actionable tasks remain.');
@@ -396,7 +460,6 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       // Resolve model — default to opus, with agent override
       let taskModel = task.model ?? 'opus';
       if (task.agent && !task.model) {
-        // Agent can override model when task uses default
         const agentInfo = agents.find(a => a.name === task.agent);
         if (agentInfo?.model) {
           taskModel = agentInfo.model;
@@ -413,18 +476,21 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       deps.log(`Model: ${taskModel}`);
       deps.log(`Directory: ${taskDir || '<project root>'}`);
 
+      // Log iteration start
+      deps.appendFileSync(iterationLogPath, `Iteration ${iteration} started: ${new Date().toISOString()} — Task #${task.id}: ${task.title}\n`);
+
       // Create task directory if needed
       const taskDirAbs = taskDir ? path.join(projectRoot, taskDir) : projectRoot;
       deps.mkdirSync(taskDirAbs, { recursive: true });
 
-      // d. Run health check
+      // e. Run health check
       const healthResult = await deps.runHealthCheck({
         healthCheck: config.healthCheck,
         taskDir,
         projectRoot,
       });
 
-      // e. Build iteration prompt
+      // f. Build iteration prompt
       const totalRemaining = tasks.filter(t => t.status === 'pending' || t.status === 'in-progress').length;
       let iterPrompt = deps.buildIterationPrompt(task, iteration, maxIterations, prevNotes, totalRemaining);
 
@@ -433,7 +499,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         iterPrompt = `${healthResult.output}\n\n---\n\n${iterPrompt}`;
       }
 
-      // f. Build system prompt
+      // g. Build system prompt
       const systemPrompt = deps.buildSystemPrompt({
         taskDir,
         taskAgent: task.agent ?? '',
@@ -444,7 +510,26 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         iteration,
       });
 
-      // g. Spawn Claude
+      // h. Build stream options with narration/ntfy callbacks
+      const streamOpts: ProcessStreamOptions = {
+        truncateText: config.truncateText,
+        taskContext: task.title,
+      };
+
+      if (narrationEnabled && narrationPid !== null) {
+        streamOpts.narrate = (text: string) => {
+          deps.sendToNarrate(text, narrationSocketPath).catch(() => {});
+        };
+      }
+
+      if (config.narration.ntfyTopic) {
+        const topic = config.narration.ntfyTopic;
+        streamOpts.ntfy = (msg: string, ntfyOpts?: NtfyOpts) => {
+          deps.sendNtfy(msg, topic, ntfyOpts).catch(() => {});
+        };
+      }
+
+      // i. Spawn Claude
       const { exitCode } = await deps.spawnClaude({
         prompt: iterPrompt,
         systemPrompt,
@@ -453,38 +538,78 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         taskDir,
         timeout: iterationTimeout,
         processManager,
-        streamOpts: {
-          truncateText: config.truncateText,
-          taskContext: task.title,
-        },
+        streamOpts,
       });
 
       if (exitCode === 0) {
         deps.log(`Iteration ${iteration} completed successfully`);
+        deps.appendFileSync(iterationLogPath, `Iteration ${iteration} completed: ${new Date().toISOString()} — SUCCESS\n`);
       } else if (exitCode === 124) {
         deps.log(`Iteration ${iteration} timed out`);
+        deps.appendFileSync(iterationLogPath, `Iteration ${iteration} completed: ${new Date().toISOString()} — TIMEOUT\n`);
       } else {
         deps.log(`Iteration ${iteration} encountered errors (exit code: ${exitCode})`);
+        deps.appendFileSync(iterationLogPath, `Iteration ${iteration} completed: ${new Date().toISOString()} — FAILED (exit code: ${exitCode})\n`);
       }
 
-      // h. Post-iteration: validate tests
+      iterationsCompleted++;
+
+      // j. Post-iteration: validate tests
       await deps.validateTaskTests({
         task,
         tasksFilePath,
         projectRoot,
       });
 
-      // i. Archive completed tasks
+      // k. Archive completed tasks
       const archiveResult = await deps.archiveCompletedTasks({
         tasksFilePath,
         dataDir,
       });
 
-      // j. Carry forward prevNotes
+      totalArchived += archiveResult.archivedCount;
+
+      // l. Carry forward prevNotes
       prevNotes = archiveResult.prevNotes;
     }
   } finally {
-    // 5. Clean up
+    // 7. Stop narration server if we started it
+    if (narrationPid !== null) {
+      await deps.stopNarrationServer(narrationPid, narrationSocketPath).catch(() => {});
+    }
+
+    // 8. Final summary
+    deps.log('');
+    deps.log('=========================================');
+    deps.log('Ralph Execution Loop Completed');
+    deps.log(`Iterations completed: ${iterationsCompleted}`);
+    deps.log(`Tasks archived: ${totalArchived}`);
+    if (completedByFlag) {
+      deps.log('Status: ALL TASKS COMPLETE');
+    }
+    deps.log('=========================================');
+
+    const summaryMsg = completedByFlag
+      ? `All tasks complete after ${iterationsCompleted} iterations`
+      : `Loop stopped after ${iterationsCompleted} iterations — tasks may remain`;
+
+    // Send ntfy notification
+    if (config.narration.ntfyTopic) {
+      const ntfyTags = completedByFlag ? 'tada' : 'warning';
+      const ntfyTitle = completedByFlag ? 'Ralph - Complete' : 'Ralph - Stopped';
+      await deps.sendNtfy(summaryMsg, config.narration.ntfyTopic, {
+        title: ntfyTitle,
+        tags: ntfyTags,
+        priority: '4',
+      }).catch(() => {});
+    }
+
+    // Narrate final summary
+    if (narrationEnabled) {
+      await deps.sendToNarrate(summaryMsg, narrationSocketPath).catch(() => {});
+    }
+
+    // 9. Clean up ProcessManager
     processManager.dispose();
 
     // Clean up temp files

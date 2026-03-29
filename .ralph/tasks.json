@@ -2,47 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 10,
-      "priority": 10,
-      "title": "TDD: Run command \u2014 core loop",
-      "description": "Add the main run command orchestration to src/commands/run.ts and test/commands/run.test.ts.\n\nImplement:\n- runRun(opts: { maxIterations?: number, projectRoot: string, dataDir: string, config: RalphConfig, agents: AgentInfo[] }): Promise<void>\n\nPort the main loop from ralph_execute.sh (lines 269-737) and the 'no tasks.json' UX from ralph_loop.sh.\n\nBehavior:\n1. Check for tasks.json \u2014 if missing, prompt 'No tasks.json found. Launch planner?' (preserve UX from ralph_loop.sh). If yes, call runPlan() from plan.ts.\n2. PATH augmentation: prepend ~/.bun/bin, ~/.cargo/bin, /opt/homebrew/bin, /usr/local/bin to process.env.PATH\n3. Initialize ProcessManager, register signal handlers\n4. Main iteration loop (up to maxIterations, default 30):\n   a. Check for .ralph_complete flag \u2192 break if found\n   b. Load completed IDs via loadCompletedIds()\n   c. Select next task via selectNextTask() \u2192 break if null\n   d. Run health check via runHealthCheck() \u2192 prepend failure output to prompt if failed\n   e. Build iteration prompt via buildIterationPrompt()\n   f. Build system prompt via buildSystemPrompt()\n   g. Spawn Claude via spawnClaude()\n   h. Post-iteration: validate tests via validateTaskTests()\n   i. Archive completed tasks via archiveCompletedTasks()\n   j. Carry forward prevNotes for next iteration\n5. Clean up temp files (.ralph_complete, .ralph_prev_notes, .ralph_completed_ids)\n\nCompose all previously built modules. Make dependencies injectable for testing.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T12:15:00Z",
-      "completedBy": "iteration-2",
-      "notes": "Implemented runRun() with full dependency injection via RunRunDeps interface (22 new tests, 64 total in file). All modules composed: task selection, health check, prompt building, Claude spawning, test validation, archival, and prevNotes threading. Agent model override logic ported. PATH augmentation, ProcessManager lifecycle, temp file cleanup, and RALPH_TASK_CONTEXT env all covered. Task #11 will add narration lifecycle and final summary.",
-      "files": [
-        "src/commands/run.ts",
-        "test/commands/run.test.ts",
-        "src/task-selector.ts",
-        "src/health-check.ts",
-        "src/test-validator.ts",
-        "src/task-archiver.ts",
-        "src/process.ts",
-        "lib/ralph_execute.sh",
-        "lib/ralph_loop.sh"
-      ],
-      "tests": [
-        "bun test test/commands/run.test.ts"
-      ],
-      "dependencies": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        8,
-        9
-      ],
-      "model": "opus"
-    },
-    {
       "id": 11,
       "priority": 11,
       "title": "TDD: Run command \u2014 narration + summary",
       "description": "Add narration server lifecycle management and final summary to the run command in src/commands/run.ts and test/commands/run.test.ts.\n\nNarration lifecycle within the loop:\n- If config.narration.enabled: start narration server before first iteration using startNarrationServer()\n- Health check the narration server each iteration via checkNarrationHealth() \u2014 auto-restart if dead\n- Pass narrate callback to processStream options so tool results get narrated\n- Stop narration server on loop exit (normal or signal) via stopNarrationServer()\n- Register narration server PID with ProcessManager for signal cleanup\n\nIteration logging:\n- Log iteration number, task being worked on, start/end times to .ralph_iterations.log\n- Format: timestamp + iteration number + task id + task title\n\nFinal summary:\n- Print total iterations completed, tasks completed/remaining counts\n- If config.narration.ntfyTopic set, send ntfy notification via sendNtfy() from stream-filter.ts with completion summary\n- Narrate the final summary if narration is enabled",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T12:15:00Z",
+      "completedBy": "iteration-3",
+      "notes": "Added narration lifecycle (start/health-check/restart/stop), iteration logging to .ralph_iterations.log, final summary with counts, ntfy notifications, and narrate callbacks. 20 new tests (84 total in file). New deps added to RunRunDeps: appendFileSync, startNarrationServer, stopNarrationServer, checkNarrationHealth, sendToNarrate, sendNtfy. Narration gracefully degrades if server fails to start.",
       "files": [
         "src/commands/run.ts",
         "test/commands/run.test.ts",
