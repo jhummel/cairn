@@ -39,6 +39,15 @@ PREV_NOTES_FILE="$RALPH_DATA_DIR/.ralph_prev_notes"
 TASK_META_FILE="$RALPH_DATA_DIR/.ralph_task_meta"
 COMPLETED_IDS_FILE="$RALPH_DATA_DIR/.ralph_completed_ids"
 
+# Augment PATH with common tool directories that may not be set when running as an agent
+# (e.g. ~/.bun/bin for bun, ~/.cargo/bin for cargo, /opt/homebrew/bin for Homebrew on Apple Silicon)
+for _tool_dir in "$HOME/.bun/bin" "$HOME/.cargo/bin" "/opt/homebrew/bin" "/usr/local/bin"; do
+    if [[ -d "$_tool_dir" ]] && [[ ":$PATH:" != *":$_tool_dir:"* ]]; then
+        export PATH="$_tool_dir:$PATH"
+    fi
+done
+unset _tool_dir
+
 # Detect timeout command (macOS doesn't ship GNU timeout)
 if command -v timeout &>/dev/null; then
     TIMEOUT_CMD="timeout"

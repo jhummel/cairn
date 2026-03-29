@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 10,
-      "priority": 8,
-      "title": "Verify bun build --compile produces working binary",
-      "description": "Build the compiled binary and verify all commands work correctly.\n\n1. Run: bun build --compile src/index.ts --outfile dist/ralph\n2. Test the compiled binary:\n   - dist/ralph --version \u2192 should print version\n   - dist/ralph status \u2192 should work (in a project with .ralph/)\n   - dist/ralph edit \u2192 should work\n   - dist/ralph logs \u2192 should work\n   - dist/ralph init \u2192 should run interactive prompts (test in a temp dir)\n   - dist/ralph summarize \u2192 should attempt to spawn claude (will fail without claude CLI, but verify it gets to the spawn step)\n   - dist/ralph plan \u2192 should fall back to shell\n   - dist/ralph run \u2192 should fall back to shell\n3. Test RALPH_FORCE_SHELL=1 dist/ralph status \u2192 should delegate to shell\n4. If any command fails in compiled form, investigate and fix the issue.\n\nRun bun test first to make sure all tests pass, then build and do manual verification.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T18:30:00Z",
-      "completedBy": "iteration-11",
-      "notes": "All 270 tests pass. bun build --compile produces working binary at dist/ralph. All commands verified: --version, status, edit, logs, init (interactive prompts in temp dir), summarize (reaches spawn step with intentional empty ANTHROPIC_API_KEY matching shell version behavior), plan/run (shell fallback), RALPH_FORCE_SHELL=1. Build health check failure (bun not in PATH) is pre-existing and tracked in task #11.",
-      "files": [
-        "src/index.ts",
-        "package.json"
-      ],
-      "tests": [
-        "bun test",
-        "bun run build"
-      ],
-      "dependencies": [
-        9
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 11,
       "priority": 9,
       "title": "Fix bun PATH in health check execution environment",
       "description": "When ralph runs as an agent, bun is not in PATH (it lives at ~/.bun/bin/bun). The healthCheck in ralph.json uses 'bun build' which fails with 'command not found'. Options: (1) update ralph_config.sh or ralph_execute.sh to add ~/.bun/bin and ~/.cargo/bin to PATH before running health checks, (2) document that ralph.json healthCheck should use full path, or (3) auto-detect bun path in ralph_config.sh when building health check commands.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-12",
+      "notes": "Fixed by augmenting PATH at the top of ralph_execute.sh with ~/.bun/bin, ~/.cargo/bin, /opt/homebrew/bin, /usr/local/bin before health checks and agent execution. bun build now runs without 'command not found'. No changes to ralph_config.sh or ralph.json needed.",
       "files": [
         "lib/ralph_execute.sh",
         "lib/ralph_config.sh",
