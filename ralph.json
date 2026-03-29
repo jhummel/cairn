@@ -1,8 +1,9 @@
 {
   "projectName": "ralph-cli-tool",
   "projectDescription": "",
-  "healthCheck": "",
-  "defaultTestCommand": "",
+  "truncateText": false,
+  "healthCheck": "bun build",
+  "defaultTestCommand": "bun test",
   "implementationFile": "IMPLEMENTATION.md",
   "summarize": {
     "claudeMdPattern": ""

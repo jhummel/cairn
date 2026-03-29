@@ -2,126 +2,174 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 1,
-      "priority": 1,
-      "title": "Create feature/typescript-rewrite branch",
-      "description": "Create and switch to a new branch called `feature/typescript-rewrite` from the current main branch.\n\nRun:\n```\ngit checkout -b feature/typescript-rewrite\n```\n\nVerify you're on the new branch with `git branch --show-current`.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-1",
-      "notes": "Created feature/typescript-rewrite branch from main. Verified with git branch --show-current.",
-      "files": [],
-      "tests": [],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 2,
       "priority": 2,
       "title": "Update ralph.json for TS project validation",
-      "description": "Update `ralph.json` at the project root so that execution agents running tasks on ralph itself will validate their work via the TS build + tests.\n\nSet:\n- `healthCheck` to `\"bun build\"`\n- `defaultTestCommand` to `\"bun test\"`\n\nPreserve all other existing fields. The file is JSON — read it, modify those two fields, write it back.",
+      "description": "Update `ralph.json` at the project root so that execution agents running tasks on ralph itself will validate their work via the TS build + tests.\n\nSet:\n- `healthCheck` to `\"bun build\"`\n- `defaultTestCommand` to `\"bun test\"`\n\nPreserve all other existing fields. The file is JSON \u2014 read it, modify those two fields, write it back.",
       "directory": "",
-      "status": "pending",
-      "files": ["ralph.json"],
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Updated healthCheck to 'bun build' and defaultTestCommand to 'bun test' in ralph.json. All other fields preserved.",
+      "files": [
+        "ralph.json"
+      ],
       "tests": [],
-      "dependencies": [1],
+      "dependencies": [
+        1
+      ],
       "model": "sonnet"
     },
     {
       "id": 3,
       "priority": 3,
       "title": "Initialize Bun/TS project scaffold",
-      "description": "Set up the TypeScript/Bun project infrastructure at the repo root. This is the foundation for all subsequent tasks.\n\n1. Create `package.json` with:\n   - `name`: `ralph`\n   - `type`: `module`\n   - `scripts.build`: `bun build --compile src/index.ts --outfile dist/ralph`\n   - `scripts.test`: `bun test`\n   - `dependencies`: `commander` (latest)\n   - `devDependencies`: `@types/bun` (latest)\n\n2. Create `tsconfig.json` configured for Bun:\n   - `compilerOptions.target`: `ESNext`\n   - `compilerOptions.module`: `ESNext`\n   - `compilerOptions.moduleResolution`: `bundler`\n   - `compilerOptions.strict`: `true`\n   - `compilerOptions.outDir`: `dist`\n   - `compilerOptions.rootDir`: `src`\n   - `compilerOptions.types`: `[\"bun-types\"]`\n   - `include`: `[\"src\"]`\n\n3. Add to `.gitignore` (append, don't overwrite — the file may already exist):\n   ```\n   node_modules/\n   dist/\n   ```\n\n4. Run `bun install` to install dependencies and generate bun.lockb.\n\n5. Create directory structure:\n   - `src/`\n   - `src/commands/`\n   - `test/`\n   - `test/fixtures/`\n\n6. Create a minimal `src/index.ts` placeholder:\n   ```ts\n   console.log('ralph ts entrypoint');\n   ```\n\n7. Create a trivial passing test at `test/setup.test.ts`:\n   ```ts\n   import { describe, it, expect } from 'bun:test';\n\n   describe('test infrastructure', () => {\n     it('bun test runner works', () => {\n       expect(1 + 1).toBe(2);\n     });\n   });\n   ```\n\n8. Verify `bun test` passes.\n9. Verify `bun build --compile src/index.ts --outfile dist/ralph` succeeds (then delete dist/ralph — it's just a smoke test).",
+      "description": "Set up the TypeScript/Bun project infrastructure at the repo root. This is the foundation for all subsequent tasks.\n\n1. Create `package.json` with:\n   - `name`: `ralph`\n   - `type`: `module`\n   - `scripts.build`: `bun build --compile src/index.ts --outfile dist/ralph`\n   - `scripts.test`: `bun test`\n   - `dependencies`: `commander` (latest)\n   - `devDependencies`: `@types/bun` (latest)\n\n2. Create `tsconfig.json` configured for Bun:\n   - `compilerOptions.target`: `ESNext`\n   - `compilerOptions.module`: `ESNext`\n   - `compilerOptions.moduleResolution`: `bundler`\n   - `compilerOptions.strict`: `true`\n   - `compilerOptions.outDir`: `dist`\n   - `compilerOptions.rootDir`: `src`\n   - `compilerOptions.types`: `[\"bun-types\"]`\n   - `include`: `[\"src\"]`\n\n3. Add to `.gitignore` (append, don't overwrite \u2014 the file may already exist):\n   ```\n   node_modules/\n   dist/\n   ```\n\n4. Run `bun install` to install dependencies and generate bun.lockb.\n\n5. Create directory structure:\n   - `src/`\n   - `src/commands/`\n   - `test/`\n   - `test/fixtures/`\n\n6. Create a minimal `src/index.ts` placeholder:\n   ```ts\n   console.log('ralph ts entrypoint');\n   ```\n\n7. Create a trivial passing test at `test/setup.test.ts`:\n   ```ts\n   import { describe, it, expect } from 'bun:test';\n\n   describe('test infrastructure', () => {\n     it('bun test runner works', () => {\n       expect(1 + 1).toBe(2);\n     });\n   });\n   ```\n\n8. Verify `bun test` passes.\n9. Verify `bun build --compile src/index.ts --outfile dist/ralph` succeeds (then delete dist/ralph \u2014 it's just a smoke test).",
       "directory": "",
       "status": "pending",
       "files": [],
-      "tests": ["bun test"],
-      "dependencies": [1],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        1
+      ],
       "model": "opus"
     },
     {
       "id": 4,
       "priority": 4,
       "title": "Create type definitions",
-      "description": "Create `src/types.ts` with TypeScript interfaces for Ralph's core data structures. Port these from the shapes used in the shell/Python code.\n\n**RalphConfig** — matches ralph.json shape:\n```ts\ninterface RalphConfig {\n  projectName: string;\n  projectDescription: string;\n  healthCheck: string;\n  defaultTestCommand: string;\n  implementationFile: string;\n  truncateText: boolean;\n  summarize: { claudeMdPattern: string };\n  narration: {\n    enabled: boolean;\n    voice: string;\n    ntfyTopic: string;\n  };\n}\n```\n\n**Task** — matches tasks.json task shape (see `lib/tasks.schema.json` for the authoritative schema):\n```ts\ninterface Task {\n  id: number;\n  priority: number;\n  title: string;\n  description?: string;\n  directory?: string;\n  status: 'pending' | 'in-progress' | 'complete' | 'blocked';\n  files?: string[];\n  tests?: string[];\n  completedAt?: string;\n  completedBy?: string;\n  notes?: string;\n  dependencies?: number[];\n  model?: 'opus' | 'sonnet';\n  agent?: string;\n}\n```\n\n**AgentInfo** — matches the shape from `_ralph_discover_agents()` in `lib/ralph_config.sh`:\n```ts\ninterface AgentInfo {\n  name: string;\n  description: string;\n  model: string;\n  file: string;\n}\n```\n\nExport all interfaces. Also export type guard functions (`isValidConfig`, `isValidTask`) that validate unknown data against the expected shapes. These should check required fields exist and have correct types.\n\nWrite tests in `test/types.test.ts` that verify the type guards accept valid data and reject malformed data (missing fields, wrong types).",
+      "description": "Create `src/types.ts` with TypeScript interfaces for Ralph's core data structures. Port these from the shapes used in the shell/Python code.\n\n**RalphConfig** \u2014 matches ralph.json shape:\n```ts\ninterface RalphConfig {\n  projectName: string;\n  projectDescription: string;\n  healthCheck: string;\n  defaultTestCommand: string;\n  implementationFile: string;\n  truncateText: boolean;\n  summarize: { claudeMdPattern: string };\n  narration: {\n    enabled: boolean;\n    voice: string;\n    ntfyTopic: string;\n  };\n}\n```\n\n**Task** \u2014 matches tasks.json task shape (see `lib/tasks.schema.json` for the authoritative schema):\n```ts\ninterface Task {\n  id: number;\n  priority: number;\n  title: string;\n  description?: string;\n  directory?: string;\n  status: 'pending' | 'in-progress' | 'complete' | 'blocked';\n  files?: string[];\n  tests?: string[];\n  completedAt?: string;\n  completedBy?: string;\n  notes?: string;\n  dependencies?: number[];\n  model?: 'opus' | 'sonnet';\n  agent?: string;\n}\n```\n\n**AgentInfo** \u2014 matches the shape from `_ralph_discover_agents()` in `lib/ralph_config.sh`:\n```ts\ninterface AgentInfo {\n  name: string;\n  description: string;\n  model: string;\n  file: string;\n}\n```\n\nExport all interfaces. Also export type guard functions (`isValidConfig`, `isValidTask`) that validate unknown data against the expected shapes. These should check required fields exist and have correct types.\n\nWrite tests in `test/types.test.ts` that verify the type guards accept valid data and reject malformed data (missing fields, wrong types).",
       "directory": "",
       "status": "pending",
-      "files": ["src/types.ts", "lib/tasks.schema.json"],
-      "tests": ["bun test"],
-      "dependencies": [3],
+      "files": [
+        "src/types.ts",
+        "lib/tasks.schema.json"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        3
+      ],
       "model": "sonnet"
     },
     {
       "id": 5,
       "priority": 5,
       "title": "TDD: Port project root detection and path utilities",
-      "description": "Create `src/utils.ts` with path resolution and project root detection, ported from `bin/ralph` lines 7-51.\n\nWrite tests FIRST in `test/utils.test.ts`, then implement.\n\n**Functions to implement:**\n\n1. `resolvePath(target: string): string` — resolve symlinks to find the real path (port of `resolve_path()` from bin/ralph lines 7-16). Use `fs.readlinkSync` and `fs.lstatSync`.\n\n2. `findProjectRoot(cwd?: string): string` — port of `find_project_root()` from bin/ralph lines 26-52. Detection order:\n   - Check `RALPH_PROJECT_ROOT` env var\n   - Walk upward from CWD looking for `.ralph/` directory\n   - Git root via `git rev-parse --show-toplevel`\n   - Fall back to CWD\n\n3. `resolveRalphRoot(): string` — find the ralph repo root from the running binary/script. This must work in two modes:\n   - Dev mode (`bun run src/index.ts`): use `import.meta.dir` to find src/ → repo root\n   - Compiled binary (`dist/ralph`): follow symlink back to repo (for shell fallback to find `lib/`)\n   This is critical for the shell fallback mechanism.\n\n**Test approach:**\n- Create temp directories in test/fixtures/ with `.ralph/` markers\n- Test `findProjectRoot` with various directory structures\n- Test `resolvePath` with actual symlinks (create temp symlinks in tests)\n- Test `resolveRalphRoot` by checking it returns a directory containing `lib/ralph_common.sh`",
+      "description": "Create `src/utils.ts` with path resolution and project root detection, ported from `bin/ralph` lines 7-51.\n\nWrite tests FIRST in `test/utils.test.ts`, then implement.\n\n**Functions to implement:**\n\n1. `resolvePath(target: string): string` \u2014 resolve symlinks to find the real path (port of `resolve_path()` from bin/ralph lines 7-16). Use `fs.readlinkSync` and `fs.lstatSync`.\n\n2. `findProjectRoot(cwd?: string): string` \u2014 port of `find_project_root()` from bin/ralph lines 26-52. Detection order:\n   - Check `RALPH_PROJECT_ROOT` env var\n   - Walk upward from CWD looking for `.ralph/` directory\n   - Git root via `git rev-parse --show-toplevel`\n   - Fall back to CWD\n\n3. `resolveRalphRoot(): string` \u2014 find the ralph repo root from the running binary/script. This must work in two modes:\n   - Dev mode (`bun run src/index.ts`): use `import.meta.dir` to find src/ \u2192 repo root\n   - Compiled binary (`dist/ralph`): follow symlink back to repo (for shell fallback to find `lib/`)\n   This is critical for the shell fallback mechanism.\n\n**Test approach:**\n- Create temp directories in test/fixtures/ with `.ralph/` markers\n- Test `findProjectRoot` with various directory structures\n- Test `resolvePath` with actual symlinks (create temp symlinks in tests)\n- Test `resolveRalphRoot` by checking it returns a directory containing `lib/ralph_common.sh`",
       "directory": "",
       "status": "pending",
-      "files": ["src/utils.ts", "bin/ralph"],
-      "tests": ["bun test"],
-      "dependencies": [4],
+      "files": [
+        "src/utils.ts",
+        "bin/ralph"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        4
+      ],
       "model": "opus"
     },
     {
       "id": 6,
       "priority": 5,
       "title": "TDD: Port config loading",
-      "description": "Create `src/config.ts` with config loading, health check auto-detection, and agent discovery, ported from `lib/ralph_config.sh`.\n\nWrite tests FIRST in `test/config.test.ts`, then implement.\n\n**Functions to implement:**\n\n1. `loadConfig(projectRoot: string): RalphConfig` — Read and parse `ralph.json` from projectRoot. Apply defaults for missing fields (match the defaults in ralph_config.sh lines 41-51):\n   - projectName defaults to `path.basename(projectRoot)`\n   - truncateText defaults to `true`\n   - implementationFile defaults to `IMPLEMENTATION.md`\n   - narration.voice defaults to `bf_emma`\n   - narration.enabled defaults to `false`\n   - All string fields default to `''`\n   If ralph.json doesn't exist, return all defaults.\n\n2. `autoDetectHealthCheck(projectRoot: string): string` — Port from `_ralph_auto_detect_health_check()` (ralph_config.sh lines 63-84). Check for:\n   - `package.json` with a `type-check` script → `npm run type-check`\n   - `Cargo.toml` → `cargo check`\n   - `Makefile` with a `check:` target → `make check`\n   - Otherwise return `''`\n\n3. `discoverAgents(projectRoot: string): AgentInfo[]` — Port from `_ralph_discover_agents()` (ralph_config.sh lines 86-129). Read `.claude/agents/*.md`, parse YAML frontmatter between `---` delimiters, extract name/description/model fields. Return empty array if directory doesn't exist.\n\n4. `setConfigEnvVars(config: RalphConfig): void` — Set `RALPH_*` environment variables from the config object, matching the env var names from ralph_config.sh. This is needed for shell fallback compatibility.\n\n**Test approach:**\n- Create fixture ralph.json files in `test/fixtures/` (complete, partial, missing)\n- Create fixture package.json, Cargo.toml, Makefile for health check detection\n- Create fixture .claude/agents/*.md files with YAML frontmatter for agent discovery\n- Test default application when fields are missing\n- Test that `setConfigEnvVars` sets the correct env vars",
+      "description": "Create `src/config.ts` with config loading, health check auto-detection, and agent discovery, ported from `lib/ralph_config.sh`.\n\nWrite tests FIRST in `test/config.test.ts`, then implement.\n\n**Functions to implement:**\n\n1. `loadConfig(projectRoot: string): RalphConfig` \u2014 Read and parse `ralph.json` from projectRoot. Apply defaults for missing fields (match the defaults in ralph_config.sh lines 41-51):\n   - projectName defaults to `path.basename(projectRoot)`\n   - truncateText defaults to `true`\n   - implementationFile defaults to `IMPLEMENTATION.md`\n   - narration.voice defaults to `bf_emma`\n   - narration.enabled defaults to `false`\n   - All string fields default to `''`\n   If ralph.json doesn't exist, return all defaults.\n\n2. `autoDetectHealthCheck(projectRoot: string): string` \u2014 Port from `_ralph_auto_detect_health_check()` (ralph_config.sh lines 63-84). Check for:\n   - `package.json` with a `type-check` script \u2192 `npm run type-check`\n   - `Cargo.toml` \u2192 `cargo check`\n   - `Makefile` with a `check:` target \u2192 `make check`\n   - Otherwise return `''`\n\n3. `discoverAgents(projectRoot: string): AgentInfo[]` \u2014 Port from `_ralph_discover_agents()` (ralph_config.sh lines 86-129). Read `.claude/agents/*.md`, parse YAML frontmatter between `---` delimiters, extract name/description/model fields. Return empty array if directory doesn't exist.\n\n4. `setConfigEnvVars(config: RalphConfig): void` \u2014 Set `RALPH_*` environment variables from the config object, matching the env var names from ralph_config.sh. This is needed for shell fallback compatibility.\n\n**Test approach:**\n- Create fixture ralph.json files in `test/fixtures/` (complete, partial, missing)\n- Create fixture package.json, Cargo.toml, Makefile for health check detection\n- Create fixture .claude/agents/*.md files with YAML frontmatter for agent discovery\n- Test default application when fields are missing\n- Test that `setConfigEnvVars` sets the correct env vars",
       "directory": "",
       "status": "pending",
-      "files": ["src/config.ts", "lib/ralph_config.sh"],
-      "tests": ["bun test"],
-      "dependencies": [4],
+      "files": [
+        "src/config.ts",
+        "lib/ralph_config.sh"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        4
+      ],
       "model": "opus"
     },
     {
       "id": 7,
       "priority": 6,
       "title": "Build CLI entry point with Commander",
-      "description": "Replace the placeholder `src/index.ts` with the full Commander-based CLI entry point.\n\nThis is the TS equivalent of `bin/ralph` — it parses global flags, resolves the project root, loads config, and dispatches to subcommands.\n\n**Implementation:**\n\n```ts\nimport { Command } from 'commander';\n```\n\n1. At the top level, check `RALPH_FORCE_SHELL=1`. If set, immediately delegate ALL commands to the shell fallback (import from `commands/fallback.ts` — it may not exist yet, so gate this behind a dynamic import or handle gracefully).\n\n2. Create Commander program with:\n   - `name('ralph')`\n   - `version('0.1.0')` (match RALPH_VERSION from bin/ralph)\n   - `option('--project-root <path>', 'Override project root detection')`\n\n3. Register subcommands. For Phase 1, these are ported:\n   - `status` → import from `commands/status.ts`\n   - `edit` → import from `commands/edit.ts`\n   - `logs` → import from `commands/logs.ts`\n   - `help` → Commander built-in\n\n4. Unported commands delegate to shell fallback:\n   - `plan`, `run`, `summarize`, `init`, `narrate`\n   Register these as Commander commands that call the fallback function.\n\n5. Before dispatching, resolve project root (using `findProjectRoot` from utils.ts) and load config (using `loadConfig` from config.ts). Set env vars (`RALPH_PROJECT_ROOT`, `RALPH_DATA_DIR`, `RALPH_LIB_DIR`) so they're available to subcommands and shell fallback.\n\n6. Export the main function so it can be tested.\n\nFor now, the command handlers can be stubs that print 'not yet implemented' — tasks 8-11 will fill them in. The important thing is the Commander structure, flag parsing, config loading, and env var setup.",
+      "description": "Replace the placeholder `src/index.ts` with the full Commander-based CLI entry point.\n\nThis is the TS equivalent of `bin/ralph` \u2014 it parses global flags, resolves the project root, loads config, and dispatches to subcommands.\n\n**Implementation:**\n\n```ts\nimport { Command } from 'commander';\n```\n\n1. At the top level, check `RALPH_FORCE_SHELL=1`. If set, immediately delegate ALL commands to the shell fallback (import from `commands/fallback.ts` \u2014 it may not exist yet, so gate this behind a dynamic import or handle gracefully).\n\n2. Create Commander program with:\n   - `name('ralph')`\n   - `version('0.1.0')` (match RALPH_VERSION from bin/ralph)\n   - `option('--project-root <path>', 'Override project root detection')`\n\n3. Register subcommands. For Phase 1, these are ported:\n   - `status` \u2192 import from `commands/status.ts`\n   - `edit` \u2192 import from `commands/edit.ts`\n   - `logs` \u2192 import from `commands/logs.ts`\n   - `help` \u2192 Commander built-in\n\n4. Unported commands delegate to shell fallback:\n   - `plan`, `run`, `summarize`, `init`, `narrate`\n   Register these as Commander commands that call the fallback function.\n\n5. Before dispatching, resolve project root (using `findProjectRoot` from utils.ts) and load config (using `loadConfig` from config.ts). Set env vars (`RALPH_PROJECT_ROOT`, `RALPH_DATA_DIR`, `RALPH_LIB_DIR`) so they're available to subcommands and shell fallback.\n\n6. Export the main function so it can be tested.\n\nFor now, the command handlers can be stubs that print 'not yet implemented' \u2014 tasks 8-11 will fill them in. The important thing is the Commander structure, flag parsing, config loading, and env var setup.",
       "directory": "",
       "status": "pending",
-      "files": ["src/index.ts", "bin/ralph"],
-      "tests": ["bun test"],
-      "dependencies": [5, 6],
+      "files": [
+        "src/index.ts",
+        "bin/ralph"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        5,
+        6
+      ],
       "model": "opus"
     },
     {
       "id": 8,
       "priority": 7,
       "title": "TDD: Implement shell fallback",
-      "description": "Create `src/commands/fallback.ts` with the mechanism to delegate commands to the existing shell scripts.\n\nWrite tests FIRST in `test/commands/fallback.test.ts`, then implement.\n\n**Function to implement:**\n\n`shellFallback(command: string, args: string[]): void`\n\nThis function:\n1. Resolves `RALPH_LIB_DIR` — the `lib/` directory containing shell scripts. Use `resolveRalphRoot()` from utils.ts to find the repo root, then append `/lib`.\n\n2. Maps commands to shell scripts:\n   - `plan` → `ralph_plan.sh`\n   - `run` → `ralph_loop.sh`\n   - `summarize` → `ralph_summarize.sh`\n   - `init` → `ralph_init.sh` (sourced by bin/ralph, so delegate to `bin/ralph init`)\n   - `narrate` → handled inline in bin/ralph, so delegate to `bin/ralph narrate`\n\n3. Sets required env vars before spawning:\n   - `RALPH_PROJECT_ROOT`\n   - `RALPH_DATA_DIR`\n   - `RALPH_LIB_DIR`\n   - `RALPH_NARRATE_PYTHON`\n   - All `RALPH_*` config vars (via `setConfigEnvVars` from config.ts)\n\n4. Uses `Bun.spawnSync` (or `child_process.spawnSync`) with `stdio: 'inherit'` so the shell script behaves identically to running it directly.\n\n5. Exits with the shell script's exit code.\n\nAlso export a `forceShellFallback(args: string[]): void` that delegates the entire invocation to `bin/ralph` — used when `RALPH_FORCE_SHELL=1`.\n\n**Test approach:**\n- Test that the correct script path is constructed for each command\n- Test that the correct env vars are set\n- Test `RALPH_FORCE_SHELL=1` routes everything through `bin/ralph`\n- Mock `spawnSync` to avoid actually spawning processes in tests\n- Test that init and narrate correctly delegate to `bin/ralph` rather than sourcing lib scripts directly",
+      "description": "Create `src/commands/fallback.ts` with the mechanism to delegate commands to the existing shell scripts.\n\nWrite tests FIRST in `test/commands/fallback.test.ts`, then implement.\n\n**Function to implement:**\n\n`shellFallback(command: string, args: string[]): void`\n\nThis function:\n1. Resolves `RALPH_LIB_DIR` \u2014 the `lib/` directory containing shell scripts. Use `resolveRalphRoot()` from utils.ts to find the repo root, then append `/lib`.\n\n2. Maps commands to shell scripts:\n   - `plan` \u2192 `ralph_plan.sh`\n   - `run` \u2192 `ralph_loop.sh`\n   - `summarize` \u2192 `ralph_summarize.sh`\n   - `init` \u2192 `ralph_init.sh` (sourced by bin/ralph, so delegate to `bin/ralph init`)\n   - `narrate` \u2192 handled inline in bin/ralph, so delegate to `bin/ralph narrate`\n\n3. Sets required env vars before spawning:\n   - `RALPH_PROJECT_ROOT`\n   - `RALPH_DATA_DIR`\n   - `RALPH_LIB_DIR`\n   - `RALPH_NARRATE_PYTHON`\n   - All `RALPH_*` config vars (via `setConfigEnvVars` from config.ts)\n\n4. Uses `Bun.spawnSync` (or `child_process.spawnSync`) with `stdio: 'inherit'` so the shell script behaves identically to running it directly.\n\n5. Exits with the shell script's exit code.\n\nAlso export a `forceShellFallback(args: string[]): void` that delegates the entire invocation to `bin/ralph` \u2014 used when `RALPH_FORCE_SHELL=1`.\n\n**Test approach:**\n- Test that the correct script path is constructed for each command\n- Test that the correct env vars are set\n- Test `RALPH_FORCE_SHELL=1` routes everything through `bin/ralph`\n- Mock `spawnSync` to avoid actually spawning processes in tests\n- Test that init and narrate correctly delegate to `bin/ralph` rather than sourcing lib scripts directly",
       "directory": "",
       "status": "pending",
-      "files": ["src/commands/fallback.ts", "src/utils.ts", "src/config.ts", "bin/ralph"],
-      "tests": ["bun test"],
-      "dependencies": [7],
+      "files": [
+        "src/commands/fallback.ts",
+        "src/utils.ts",
+        "src/config.ts",
+        "bin/ralph"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        7
+      ],
       "model": "opus"
     },
     {
       "id": 9,
       "priority": 8,
       "title": "TDD: Port status command",
-      "description": "Create `src/commands/status.ts` porting the status subcommand from `bin/ralph` lines 183-235.\n\nWrite tests FIRST in `test/commands/status.test.ts`, then implement.\n\n**Behavior to replicate:**\n- Print project name and root path\n- If `.ralph/` doesn't exist, print 'Not initialized' and return\n- If `tasks.completed.json` exists, print count of previously completed tasks\n- If `tasks.json` exists:\n  - Print status counts (e.g., '3 pending, 1 in-progress')\n  - Print each task with icon, id, priority, directory, title, dependencies\n  - Icons: complete=✓, in-progress=▶, pending=○, blocked=✗\n- If no tasks.json, print 'No tasks.json found'\n\n**Implementation:**\n- Accept `projectRoot` and `dataDir` as parameters (from the CLI entry point env)\n- Read and parse tasks.json and tasks.completed.json using `Bun.file().json()` or `fs.readFileSync`\n- Use the `Task` type from types.ts\n- Output to stdout matching the shell version's format\n\n**Test approach:**\n- Create fixture tasks.json and tasks.completed.json in test/fixtures/\n- Test with: no .ralph dir, empty tasks, mixed statuses, tasks with dependencies/directories\n- Capture stdout and assert output matches expected format\n- Register this command in src/index.ts Commander setup",
+      "description": "Create `src/commands/status.ts` porting the status subcommand from `bin/ralph` lines 183-235.\n\nWrite tests FIRST in `test/commands/status.test.ts`, then implement.\n\n**Behavior to replicate:**\n- Print project name and root path\n- If `.ralph/` doesn't exist, print 'Not initialized' and return\n- If `tasks.completed.json` exists, print count of previously completed tasks\n- If `tasks.json` exists:\n  - Print status counts (e.g., '3 pending, 1 in-progress')\n  - Print each task with icon, id, priority, directory, title, dependencies\n  - Icons: complete=\u2713, in-progress=\u25b6, pending=\u25cb, blocked=\u2717\n- If no tasks.json, print 'No tasks.json found'\n\n**Implementation:**\n- Accept `projectRoot` and `dataDir` as parameters (from the CLI entry point env)\n- Read and parse tasks.json and tasks.completed.json using `Bun.file().json()` or `fs.readFileSync`\n- Use the `Task` type from types.ts\n- Output to stdout matching the shell version's format\n\n**Test approach:**\n- Create fixture tasks.json and tasks.completed.json in test/fixtures/\n- Test with: no .ralph dir, empty tasks, mixed statuses, tasks with dependencies/directories\n- Capture stdout and assert output matches expected format\n- Register this command in src/index.ts Commander setup",
       "directory": "",
       "status": "pending",
-      "files": ["src/commands/status.ts", "bin/ralph"],
-      "tests": ["bun test"],
-      "dependencies": [7],
+      "files": [
+        "src/commands/status.ts",
+        "bin/ralph"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        7
+      ],
       "model": "sonnet"
     },
     {
       "id": 10,
       "priority": 8,
       "title": "TDD: Port edit command",
-      "description": "Create `src/commands/edit.ts` porting the edit subcommand from `bin/ralph` lines 236-259.\n\nWrite tests FIRST in `test/commands/edit.test.ts`, then implement.\n\n**Behavior to replicate:**\n- Accept an optional target argument: `tasks` (default), `plan`/`notes`, or `config`\n- Map targets to file paths:\n  - `tasks` → `$RALPH_DATA_DIR/tasks.json`\n  - `plan` or `notes` → `$RALPH_DATA_DIR/planning-notes.md`\n  - `config` → `$RALPH_PROJECT_ROOT/ralph.json`\n- If unknown target, print error and usage, exit 1\n- If file doesn't exist, print error, exit 1\n- Open with `$EDITOR` (fallback to `vi`): spawn `${process.env.EDITOR || 'vi'}` with the file path, stdio inherited\n\n**Implementation:**\n- Accept `target`, `projectRoot`, and `dataDir` as parameters\n- Use `Bun.spawnSync` or `child_process.spawnSync` with `stdio: 'inherit'`\n\n**Test approach:**\n- Test target-to-path mapping\n- Test unknown target error\n- Test missing file error\n- Mock spawnSync to verify EDITOR is called with correct path\n- Register this command in src/index.ts Commander setup",
+      "description": "Create `src/commands/edit.ts` porting the edit subcommand from `bin/ralph` lines 236-259.\n\nWrite tests FIRST in `test/commands/edit.test.ts`, then implement.\n\n**Behavior to replicate:**\n- Accept an optional target argument: `tasks` (default), `plan`/`notes`, or `config`\n- Map targets to file paths:\n  - `tasks` \u2192 `$RALPH_DATA_DIR/tasks.json`\n  - `plan` or `notes` \u2192 `$RALPH_DATA_DIR/planning-notes.md`\n  - `config` \u2192 `$RALPH_PROJECT_ROOT/ralph.json`\n- If unknown target, print error and usage, exit 1\n- If file doesn't exist, print error, exit 1\n- Open with `$EDITOR` (fallback to `vi`): spawn `${process.env.EDITOR || 'vi'}` with the file path, stdio inherited\n\n**Implementation:**\n- Accept `target`, `projectRoot`, and `dataDir` as parameters\n- Use `Bun.spawnSync` or `child_process.spawnSync` with `stdio: 'inherit'`\n\n**Test approach:**\n- Test target-to-path mapping\n- Test unknown target error\n- Test missing file error\n- Mock spawnSync to verify EDITOR is called with correct path\n- Register this command in src/index.ts Commander setup",
       "directory": "",
       "status": "pending",
-      "files": ["src/commands/edit.ts", "bin/ralph"],
-      "tests": ["bun test"],
-      "dependencies": [7],
+      "files": [
+        "src/commands/edit.ts",
+        "bin/ralph"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        7
+      ],
       "model": "sonnet"
     },
     {
@@ -131,21 +179,38 @@
       "description": "Create `src/commands/logs.ts` porting the logs subcommand from `bin/ralph` lines 260-267.\n\nWrite tests FIRST in `test/commands/logs.test.ts`, then implement.\n\n**Behavior to replicate:**\n- Look for `$RALPH_DATA_DIR/.ralph_iterations.log`\n- If file doesn't exist, print 'No iteration log found.' and return\n- If file exists, print its contents to stdout\n\n**Implementation:**\n- Accept `dataDir` as parameter\n- Use `Bun.file().text()` or `fs.readFileSync` to read the log file\n- Print to stdout\n\n**Test approach:**\n- Test with missing log file\n- Test with existing log file (create fixture)\n- Capture stdout and assert output matches file contents\n- Register this command in src/index.ts Commander setup",
       "directory": "",
       "status": "pending",
-      "files": ["src/commands/logs.ts", "bin/ralph"],
-      "tests": ["bun test"],
-      "dependencies": [7],
+      "files": [
+        "src/commands/logs.ts",
+        "bin/ralph"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        7
+      ],
       "model": "sonnet"
     },
     {
       "id": 12,
       "priority": 9,
       "title": "Verify bun build --compile produces working binary",
-      "description": "Integration verification that the compiled binary works end-to-end. This is the final gate for Phase 1.\n\n**Steps:**\n\n1. Run `bun build --compile src/index.ts --outfile dist/ralph` and verify it succeeds.\n\n2. Test the compiled binary directly:\n   - `./dist/ralph --version` → should print `ralph 0.1.0`\n   - `./dist/ralph --help` → should print help text\n   - `./dist/ralph status` → should work (run from ralph's own project root which has .ralph/)\n   - `./dist/ralph logs` → should work\n\n3. Test shell fallback from the compiled binary:\n   - `./dist/ralph help` → should work (Commander built-in, not fallback)\n   - Verify that `RALPH_FORCE_SHELL=1 ./dist/ralph status` delegates to the shell version\n\n4. Test symlink path resolution:\n   - Create a temp symlink pointing to `dist/ralph`\n   - Run the symlink and verify it can find `lib/` for shell fallback\n   - Clean up the temp symlink\n\n5. Run the full test suite: `bun test` — all tests must pass.\n\n6. Do NOT modify `install.sh`. Do NOT update the `~/.local/bin/ralph` symlink. The user will do this manually after validation.\n\nIf any step fails, diagnose and fix the issue. The binary must be fully functional before this task is marked complete.",
+      "description": "Integration verification that the compiled binary works end-to-end. This is the final gate for Phase 1.\n\n**Steps:**\n\n1. Run `bun build --compile src/index.ts --outfile dist/ralph` and verify it succeeds.\n\n2. Test the compiled binary directly:\n   - `./dist/ralph --version` \u2192 should print `ralph 0.1.0`\n   - `./dist/ralph --help` \u2192 should print help text\n   - `./dist/ralph status` \u2192 should work (run from ralph's own project root which has .ralph/)\n   - `./dist/ralph logs` \u2192 should work\n\n3. Test shell fallback from the compiled binary:\n   - `./dist/ralph help` \u2192 should work (Commander built-in, not fallback)\n   - Verify that `RALPH_FORCE_SHELL=1 ./dist/ralph status` delegates to the shell version\n\n4. Test symlink path resolution:\n   - Create a temp symlink pointing to `dist/ralph`\n   - Run the symlink and verify it can find `lib/` for shell fallback\n   - Clean up the temp symlink\n\n5. Run the full test suite: `bun test` \u2014 all tests must pass.\n\n6. Do NOT modify `install.sh`. Do NOT update the `~/.local/bin/ralph` symlink. The user will do this manually after validation.\n\nIf any step fails, diagnose and fix the issue. The binary must be fully functional before this task is marked complete.",
       "directory": "",
       "status": "pending",
-      "files": ["src/index.ts", "dist/"],
-      "tests": ["bun test"],
-      "dependencies": [8, 9, 10, 11],
+      "files": [
+        "src/index.ts",
+        "dist/"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        8,
+        9,
+        10,
+        11
+      ],
       "model": "opus"
     }
   ]
