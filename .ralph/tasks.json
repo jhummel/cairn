@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 2,
-      "priority": 2,
-      "title": "TDD: Port stream filter \u2014 stream processing",
-      "description": "Implement the processStream() function in src/stream-filter.ts that reads stream-json lines and writes formatted output. Write tests first.\n\nprocessStream should accept a readable stream (or async iterable of lines) and a writable stream, plus options for dependencies (narration, ntfy \u2014 leave as no-ops for now, task 3 will fill those in).\n\nEvent handling (match the Python main loop exactly):\n1. Skip empty lines. Parse each line as JSON; if parse fails, pass through as-is.\n2. type='system' + subtype='init': print '[init] <model> | <permissionMode>' in dim.\n3. type='assistant': iterate content blocks. For tool_use blocks, print '  > <fmtTool(block)>'. For text blocks, if RALPH_TRUNCATE_TEXT is true (default), show first line truncated to 80 chars. If false, show full text indented. Use YELLOW color for text.\n4. type='result': print fmtResult(event).\n\nDesign for testability: use string/buffer streams in tests. Read RALPH_TRUNCATE_TEXT from env (or accept as option).\n\nAll output should be flushed immediately (write with newlines).",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T12:00:00Z",
-      "completedBy": "iteration-5",
-      "notes": "Implemented processStream() in src/stream-filter.ts matching Python main loop exactly. Handles: empty line skipping, non-JSON passthrough, system/init events, assistant tool_use + text blocks (with truncation option), result events. Options include truncateText (defaults to env RALPH_TRUNCATE_TEXT), plus narrate/ntfy/taskContext placeholders for task 3. 17 new tests added (38 total in file), all passing. Full suite: 189 tests pass.",
-      "files": [
-        "src/stream-filter.ts",
-        "test/stream-filter.test.ts",
-        "lib/ralph_stream_filter.py"
-      ],
-      "tests": [
-        "bun test test/stream-filter.test.ts"
-      ],
-      "dependencies": [
-        1
-      ],
-      "model": "opus"
-    },
-    {
       "id": 3,
       "priority": 3,
       "title": "TDD: Port stream filter \u2014 narration and ntfy",
       "description": "Add narration socket forwarding and ntfy push notifications to the stream filter. Write tests first.\n\n1. sendToNarrate(text, socketPath): Forward text to a Unix domain socket. Best-effort, non-blocking. Skip if socketPath is empty, socket doesn't exist, or text is empty. Use 1s timeout. Catch all errors silently.\n2. sendNtfy(message, topic, opts?): POST to https://ntfy.sh/<topic>. Support optional Title, Priority, Tags headers. 5s timeout. Best-effort, catch all errors.\n3. Wire into processStream via injectable options (e.g., { narrate?: (text: string) => void, ntfy?: (msg: string, opts?) => void }) so tests can mock these.\n4. Narration triggers (match Python):\n   - On system/init with RALPH_TASK_CONTEXT: narrate 'Starting work on: <context>' and ntfy same.\n   - On assistant text blocks: forward text (prepend task context if set), truncated to 1000 chars.\n   - On result: narrate and ntfy a summary with status/turns/duration. Use different ntfy tags/priority for success vs error.\n\nTest with mock functions passed as options. Also test sendToNarrate with a real Unix socket server in the test, and sendNtfy with a mock HTTP intercept if feasible.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-6",
+      "notes": "Implemented sendToNarrate (Unix socket, 1s timeout, best-effort) and sendNtfy (fetch POST to ntfy.sh, 5s timeout, best-effort). Both exported from stream-filter.ts. Wired into processStream: system/init with taskContext triggers narrate+ntfy; assistant text blocks forward to narrate (truncated to 1000 chars, prepends taskContext if set); result events trigger narrate+ntfy with success/error tags. 19 new tests added (57 total in file), all pass. Full suite: 208 tests pass.",
       "files": [
         "src/stream-filter.ts",
         "test/stream-filter.test.ts",
