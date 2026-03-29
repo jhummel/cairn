@@ -4,6 +4,7 @@ import { spawnSync as nodeSpawnSync, type SpawnSyncReturns, type SpawnSyncOption
 import { sendToNarrate as defaultSendToNarrate, sendNtfy as defaultSendNtfy, type NtfyOpts } from '../stream-filter';
 import { Task, AgentInfo } from '../types';
 import { runMenu as defaultRunMenu, type MenuOption, type MenuResult, type ReadlineInterface } from '../menu';
+import tasksSchemaRaw from '../tasks-schema.json';
 
 const STATUS_ICONS: Record<string, string> = {
   complete: '✓',
@@ -213,9 +214,8 @@ export function buildTaskGenPrompt(input: TaskGenPromptInput): string {
   const { projectName, projectRoot, dataDir, agents, gitStatus } = input;
   const tasksFile = path.join(dataDir, 'tasks.json');
 
-  // Read the schema from src/tasks-schema.json (bundled with the tool)
-  const schemaPath = path.join(__dirname, '..', 'tasks-schema.json');
-  const schemaContent = fs.readFileSync(schemaPath, 'utf8');
+  // Use the bundled schema (imported at compile time so it works in compiled binaries)
+  const schemaContent = JSON.stringify(tasksSchemaRaw, null, 2);
 
   // Build agents section
   let agentsSection = '';

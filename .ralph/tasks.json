@@ -2,39 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 10,
-      "priority": 5,
-      "title": "Wire plan into Commander and remove from fallback",
-      "description": "Update `src/index.ts` to register `plan` as a native Commander command:\n\n1. Remove `'plan'` from `SHELL_FALLBACK_COMMANDS` array\n2. Add a `program.command('plan').description('...').action(async () => { ... })` that calls the main `runPlan` function from `src/commands/plan.ts`\n3. In `src/commands/fallback.ts`, remove `plan: 'ralph_plan.sh'` from `COMMAND_SCRIPT_MAP`\n4. Verify `RALPH_FORCE_SHELL=1` still delegates everything to shell (this is handled by existing logic in index.ts \u2014 just confirm it still works)\n5. Update `test/index.test.ts` and `test/commands/fallback.test.ts` to reflect the changes\n\nThe `runPlan` function should orchestrate the full flow: preflight \u2192 planning session \u2192 notes review loop \u2192 task generation \u2192 task review loop, with the loops allowing back-navigation between phases.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-10",
-      "notes": "Added runPlan() to src/commands/plan.ts orchestrating: displayPreflight → launchPlanningSession → reviewNotesLoop → launchTaskGeneration → reviewTasksLoop with plan-signal back-navigation. Injectable deps (launchPlanningFn, launchTaskGenFn, shellFallbackFn, getGitStatusFn, editFn, runMenuFn) for testability. Removed 'plan' from SHELL_FALLBACK_COMMANDS in index.ts and added native plan Commander command. Removed plan from COMMAND_SCRIPT_MAP in fallback.ts (now falls back to bin/ralph plan). Updated all affected tests. Added 6 runPlan tests (385 passing). One pre-existing flaky test in launchTaskGeneration (TTS socket ENOENT) fails only in full suite due to Bun module cache bleed; passes when run in isolation.",
-      "files": [
-        "src/index.ts",
-        "src/commands/fallback.ts",
-        "src/commands/plan.ts",
-        "test/index.test.ts",
-        "test/commands/fallback.test.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        4,
-        8,
-        9
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 11,
       "priority": 6,
       "title": "Verify bun build --compile produces working binary",
       "description": "Run `bun build --compile` (check package.json for the exact build script) and verify the compiled binary works:\n\n1. Run the build command\n2. Test `./ralph-bin plan --help` (or whatever the binary name is) doesn't crash\n3. Test `./ralph-bin status` still works (regression check on previously ported commands)\n4. Test `./ralph-bin logs` still works\n5. If the build embeds `src/tasks-schema.json`, verify it's included (the prompt builder reads it via `fs.readFileSync` relative to `import.meta.dir` \u2014 this may need adjustment for compiled binaries)\n\nIf `import.meta.dir` doesn't resolve correctly in the compiled binary for reading `tasks-schema.json`, the schema content may need to be inlined as a string constant at build time or imported directly. Fix any issues found.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T20:00:00Z",
+      "completedBy": "iteration-11",
+      "notes": "Build succeeds (bun run build → dist/ralph). All commands work: --version, status, logs, plan --help. Fixed schema embedding: __dirname in compiled binaries points to binary's dir, not source. Fixed by importing tasks-schema.json directly (import tasksSchemaRaw from '../tasks-schema.json') and using JSON.stringify instead of readFileSync. Schema is now bundled at compile time and works correctly. 386 tests pass. Note: ralph.json healthCheck is still 'bun build' (broken) — task #12 must fix this.",
       "files": [
         "package.json",
         "src/commands/plan.ts",
