@@ -2,29 +2,10 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 1,
-      "priority": 1,
-      "title": "TDD: Port stream filter — pure formatting functions",
-      "description": "Port the pure formatting functions from lib/ralph_stream_filter.py to src/stream-filter.ts. Write tests first in test/stream-filter.test.ts.\n\n1. Define ANSI color constants (CYAN, DIM, GREEN, RED, YELLOW, BOLD, RESET) matching the Python version.\n2. Port shortPath(path) — shortens absolute paths to last 3 components (e.g., '/a/b/c/d/e' → '.../c/d/e').\n3. Port fmtTool(block) — formats a tool_use content block into a one-line colored summary. Handle: Read, Edit, Write (show short_path of file_path), Bash (show description or truncated command at 60 chars), Glob (show pattern), Grep (show pattern + optional path), Task (show description), and default (just tool name).\n4. Port fmtResult(event) — formats the final result summary with duration (ms→s), cost, turns, and error status. Green 'Done' for success, Red 'FAILED' with first error message for errors.\n\nAll functions should be exported. No I/O or stream logic in this task — pure functions only.\n\nReference the Python source at lib/ralph_stream_filter.py for exact formatting behavior. Match the output format precisely.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-1",
-      "notes": "Created src/stream-filter.ts with ANSI constants, shortPath, fmtTool, fmtResult. All pure, no I/O. Key gotcha: Python split('/') on '/a/b/c' yields ['','a','b','c'] (len 4), so even 3-component absolute paths get shortened. Tests in test/stream-filter.test.ts, all 22 pass. Build health check error (bun not in PATH) is unrelated — bun is at ~/.bun/bin/bun.",
-      "files": [
-        "lib/ralph_stream_filter.py",
-        "src/stream-filter.ts",
-        "test/stream-filter.test.ts"
-      ],
-      "tests": ["bun test test/stream-filter.test.ts"],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 2,
       "priority": 2,
-      "title": "TDD: Port stream filter — stream processing",
-      "description": "Implement the processStream() function in src/stream-filter.ts that reads stream-json lines and writes formatted output. Write tests first.\n\nprocessStream should accept a readable stream (or async iterable of lines) and a writable stream, plus options for dependencies (narration, ntfy — leave as no-ops for now, task 3 will fill those in).\n\nEvent handling (match the Python main loop exactly):\n1. Skip empty lines. Parse each line as JSON; if parse fails, pass through as-is.\n2. type='system' + subtype='init': print '[init] <model> | <permissionMode>' in dim.\n3. type='assistant': iterate content blocks. For tool_use blocks, print '  > <fmtTool(block)>'. For text blocks, if RALPH_TRUNCATE_TEXT is true (default), show first line truncated to 80 chars. If false, show full text indented. Use YELLOW color for text.\n4. type='result': print fmtResult(event).\n\nDesign for testability: use string/buffer streams in tests. Read RALPH_TRUNCATE_TEXT from env (or accept as option).\n\nAll output should be flushed immediately (write with newlines).",
+      "title": "TDD: Port stream filter \u2014 stream processing",
+      "description": "Implement the processStream() function in src/stream-filter.ts that reads stream-json lines and writes formatted output. Write tests first.\n\nprocessStream should accept a readable stream (or async iterable of lines) and a writable stream, plus options for dependencies (narration, ntfy \u2014 leave as no-ops for now, task 3 will fill those in).\n\nEvent handling (match the Python main loop exactly):\n1. Skip empty lines. Parse each line as JSON; if parse fails, pass through as-is.\n2. type='system' + subtype='init': print '[init] <model> | <permissionMode>' in dim.\n3. type='assistant': iterate content blocks. For tool_use blocks, print '  > <fmtTool(block)>'. For text blocks, if RALPH_TRUNCATE_TEXT is true (default), show first line truncated to 80 chars. If false, show full text indented. Use YELLOW color for text.\n4. type='result': print fmtResult(event).\n\nDesign for testability: use string/buffer streams in tests. Read RALPH_TRUNCATE_TEXT from env (or accept as option).\n\nAll output should be flushed immediately (write with newlines).",
       "directory": "",
       "status": "pending",
       "files": [
@@ -32,14 +13,18 @@
         "test/stream-filter.test.ts",
         "lib/ralph_stream_filter.py"
       ],
-      "tests": ["bun test test/stream-filter.test.ts"],
-      "dependencies": [1],
+      "tests": [
+        "bun test test/stream-filter.test.ts"
+      ],
+      "dependencies": [
+        1
+      ],
       "model": "opus"
     },
     {
       "id": 3,
       "priority": 3,
-      "title": "TDD: Port stream filter — narration and ntfy",
+      "title": "TDD: Port stream filter \u2014 narration and ntfy",
       "description": "Add narration socket forwarding and ntfy push notifications to the stream filter. Write tests first.\n\n1. sendToNarrate(text, socketPath): Forward text to a Unix domain socket. Best-effort, non-blocking. Skip if socketPath is empty, socket doesn't exist, or text is empty. Use 1s timeout. Catch all errors silently.\n2. sendNtfy(message, topic, opts?): POST to https://ntfy.sh/<topic>. Support optional Title, Priority, Tags headers. 5s timeout. Best-effort, catch all errors.\n3. Wire into processStream via injectable options (e.g., { narrate?: (text: string) => void, ntfy?: (msg: string, opts?) => void }) so tests can mock these.\n4. Narration triggers (match Python):\n   - On system/init with RALPH_TASK_CONTEXT: narrate 'Starting work on: <context>' and ntfy same.\n   - On assistant text blocks: forward text (prepend task context if set), truncated to 1000 chars.\n   - On result: narrate and ntfy a summary with status/turns/duration. Use different ntfy tags/priority for success vs error.\n\nTest with mock functions passed as options. Also test sendToNarrate with a real Unix socket server in the test, and sendNtfy with a mock HTTP intercept if feasible.",
       "directory": "",
       "status": "pending",
@@ -48,30 +33,39 @@
         "test/stream-filter.test.ts",
         "lib/ralph_stream_filter.py"
       ],
-      "tests": ["bun test test/stream-filter.test.ts"],
-      "dependencies": [2],
+      "tests": [
+        "bun test test/stream-filter.test.ts"
+      ],
+      "dependencies": [
+        2
+      ],
       "model": "sonnet"
     },
     {
       "id": 4,
       "priority": 1,
-      "title": "TDD: Port init command — core file creation",
-      "description": "Port the core file-creation logic from lib/ralph_init.sh to src/commands/init.ts. Write tests first in test/commands/init.test.ts.\n\nCore responsibilities:\n1. Create .ralph/ directory if it doesn't exist (print 'Created: .ralph/'). If it exists, print '.ralph/ directory already exists.'\n2. Create .ralph/.gitignore with the temp file patterns (match the shell version: .ralph_complete, .ralph_iterations.log, .ralph_prev_notes, .ralph_task_meta, .ralph_completed_ids, instructions.md). Skip if already exists.\n3. Create .ralph/tasks.json with empty task list template: {\"project\": \"<project-name>\", \"tasks\": []}. Skip if already exists.\n4. All operations should be idempotent — running init twice should not overwrite existing files.\n\nExport a function like initCoreFiles(projectRoot: string, dataDir: string) that handles just the file creation. The interactive prompts will be added in task 5.\n\nTest in temp directories using fs.mkdtemp. Verify file contents, idempotency, and console output.",
+      "title": "TDD: Port init command \u2014 core file creation",
+      "description": "Port the core file-creation logic from lib/ralph_init.sh to src/commands/init.ts. Write tests first in test/commands/init.test.ts.\n\nCore responsibilities:\n1. Create .ralph/ directory if it doesn't exist (print 'Created: .ralph/'). If it exists, print '.ralph/ directory already exists.'\n2. Create .ralph/.gitignore with the temp file patterns (match the shell version: .ralph_complete, .ralph_iterations.log, .ralph_prev_notes, .ralph_task_meta, .ralph_completed_ids, instructions.md). Skip if already exists.\n3. Create .ralph/tasks.json with empty task list template: {\"project\": \"<project-name>\", \"tasks\": []}. Skip if already exists.\n4. All operations should be idempotent \u2014 running init twice should not overwrite existing files.\n\nExport a function like initCoreFiles(projectRoot: string, dataDir: string) that handles just the file creation. The interactive prompts will be added in task 5.\n\nTest in temp directories using fs.mkdtemp. Verify file contents, idempotency, and console output.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Created src/commands/init.ts with initCoreFiles(projectRoot, dataDir). Creates .ralph/ dir, .ralph/.gitignore (6 patterns), .ralph/tasks.json (empty template). All idempotent. 13 tests in test/commands/init.test.ts, all pass. Gotcha: toContain('Created: .ralph/') also matches 'Created: .ralph/.gitignore' — tests use exact line matching (stdoutLines array) for the directory-not-created assertion.",
       "files": [
         "src/commands/init.ts",
         "test/commands/init.test.ts",
         "lib/ralph_init.sh"
       ],
-      "tests": ["bun test test/commands/init.test.ts"],
+      "tests": [
+        "bun test test/commands/init.test.ts"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
     {
       "id": 5,
       "priority": 4,
-      "title": "TDD: Port init command — interactive prompts",
+      "title": "TDD: Port init command \u2014 interactive prompts",
       "description": "Add interactive prompts for ralph.json configuration to src/commands/init.ts. Write tests first.\n\nRead lib/ralph_init.sh to understand all prompts. Use Node's built-in readline/promises for interactive input. Key behaviors:\n\n1. Prompt for each ralph.json field with sensible defaults (auto-detected where possible):\n   - Project name (default: directory basename)\n   - Health check command (auto-detect from package.json/Cargo.toml/Makefile)\n   - Test command\n   - Implementation file name (default: IMPLEMENTATION.md)\n   - Model preference (default: opus)\n   - Max iterations (default: 25)\n   - And other fields from the shell version\n2. Boolean prompts: show [Y/n] when default is true, [y/N] when default is false. Accept y/yes/n/no case-insensitive, empty = default.\n3. Re-init support: if ralph.json already exists, load its values as defaults for all prompts.\n4. Write ralph.json with the collected values.\n\nExtract prompt helpers as testable functions. For testing, create a mock readline interface that returns predetermined answers. Test default values, boolean parsing, re-init default loading, and final JSON output.",
       "directory": "",
       "status": "pending",
@@ -80,14 +74,18 @@
         "test/commands/init.test.ts",
         "lib/ralph_init.sh"
       ],
-      "tests": ["bun test test/commands/init.test.ts"],
-      "dependencies": [4],
+      "tests": [
+        "bun test test/commands/init.test.ts"
+      ],
+      "dependencies": [
+        4
+      ],
       "model": "opus"
     },
     {
       "id": 6,
       "priority": 5,
-      "title": "TDD: Port init command — instructions.md and narration hooks",
+      "title": "TDD: Port init command \u2014 instructions.md and narration hooks",
       "description": "Add optional instructions.md creation and narration hooks installation to the init command. Write tests first.\n\n1. instructions.md: After ralph.json prompts, ask if the user wants to create .ralph/instructions.md. If yes, create the file with a template/placeholder, then open it in $EDITOR (fall back to vi). If $EDITOR launch fails, just print the path.\n2. Narration hooks: Ask if the user wants to install Claude Code narration hooks. If yes, create .claude/hooks/ directory and install the hook scripts (match the shell version's behavior for what hooks are installed).\n3. Display 'Next steps' message at the end showing what was created and suggesting next commands (ralph plan, etc.).\n\nWire everything together into a top-level runInit() function that calls initCoreFiles, runs prompts, then handles instructions.md and hooks.\n\nFor testing: mock $EDITOR and child_process.spawnSync. Test the prompt flow, file creation, and next-steps output. Use temp directories.",
       "directory": "",
       "status": "pending",
@@ -96,14 +94,18 @@
         "test/commands/init.test.ts",
         "lib/ralph_init.sh"
       ],
-      "tests": ["bun test test/commands/init.test.ts"],
-      "dependencies": [5],
+      "tests": [
+        "bun test test/commands/init.test.ts"
+      ],
+      "dependencies": [
+        5
+      ],
       "model": "sonnet"
     },
     {
       "id": 7,
       "priority": 1,
-      "title": "TDD: Port summarize command — system prompt building",
+      "title": "TDD: Port summarize command \u2014 system prompt building",
       "description": "Port the system prompt building logic from lib/ralph_summarize.sh to src/commands/summarize.ts. Write tests first in test/commands/summarize.test.ts.\n\nRead lib/ralph_summarize.sh fully to understand the prompt construction. Key responsibilities:\n\n1. Build context string: 'Updating from the central task list.' + completed tasks file reference if it exists.\n2. Detect existing implementation file: if present, instruct 'update in place'; if not, instruct 'create from scratch'.\n3. Build the full system prompt including:\n   - Role/purpose description for the summarize agent\n   - CLAUDE.md pruning instructions (the agent should focus on implementation details, not repeat CLAUDE.md)\n   - Project context (implementation file path, completed tasks path)\n   - The existing/not-existing note\n4. Read RALPH_IMPL_FILE from config (default: IMPLEMENTATION.md).\n\nExport a buildSummarizePrompt(opts) function that returns the prompt string. Export helpers for detecting files and building context.\n\nTest prompt content for various scenarios: fresh project, existing implementation file, with/without completed tasks.",
       "directory": "",
       "status": "pending",
@@ -112,14 +114,16 @@
         "test/commands/summarize.test.ts",
         "lib/ralph_summarize.sh"
       ],
-      "tests": ["bun test test/commands/summarize.test.ts"],
+      "tests": [
+        "bun test test/commands/summarize.test.ts"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
     {
       "id": 8,
       "priority": 6,
-      "title": "TDD: Port summarize command — claude agent spawning",
+      "title": "TDD: Port summarize command \u2014 claude agent spawning",
       "description": "Add claude agent spawning with stream-json output to the summarize command. Write tests first.\n\nImplement runSummarize() in src/commands/summarize.ts:\n1. Call buildSummarizePrompt() to get the system prompt.\n2. Build the user prompt (the actual instruction to update/create the implementation file).\n3. Spawn `claude -p '<user_prompt>' --append-system-prompt '<system_prompt>' --output-format stream-json --model sonnet --dangerously-skip-permissions` as a child process.\n4. Pipe stdout through the TS stream filter (processStream from src/stream-filter.ts).\n5. Implement timeout handling: 15 minutes default, configurable. Use AbortController + setTimeout or a process kill timer. Print a message if timed out.\n6. After completion, check if the implementation file exists and report line count, or report 'was not created'.\n7. Print banner header/footer matching the shell version's style.\n\nFor testing: mock child_process.spawn to return a fake process with controllable stdout. Verify the correct claude CLI arguments are constructed. Test timeout behavior. Test result reporting for both success and 'not created' cases.",
       "directory": "",
       "status": "pending",
@@ -129,15 +133,20 @@
         "src/stream-filter.ts",
         "lib/ralph_summarize.sh"
       ],
-      "tests": ["bun test test/commands/summarize.test.ts"],
-      "dependencies": [3, 7],
+      "tests": [
+        "bun test test/commands/summarize.test.ts"
+      ],
+      "dependencies": [
+        3,
+        7
+      ],
       "model": "opus"
     },
     {
       "id": 9,
       "priority": 7,
       "title": "Wire init and summarize into Commander, update fallbacks",
-      "description": "Register init and summarize as native Commander commands and remove them from shell fallback maps.\n\nChanges needed:\n\n1. src/index.ts:\n   - Import runInit from ./commands/init and runSummarize from ./commands/summarize\n   - Add 'init' command: program.command('init').description('Initialize Ralph in the current project').action(() => runInit(...))\n   - Add 'summarize' command: program.command('summarize').description('Update implementation documentation').action(() => runSummarize(...))\n   - Remove 'init' and 'summarize' from SHELL_FALLBACK_COMMANDS array\n   - Note: init needs special handling — it should work WITHOUT an existing .ralph/ dir (setupProjectContext may need adjustment since findProjectRoot looks for .ralph/)\n\n2. src/commands/fallback.ts:\n   - Remove 'summarize' from COMMAND_SCRIPT_MAP\n   - Remove 'init' from BIN_RALPH_COMMANDS\n\n3. Update tests:\n   - test/index.test.ts: update SHELL_FALLBACK_COMMANDS expectations, add tests for init and summarize command registration\n   - test/commands/fallback.test.ts: update expectations for removed entries\n   - Verify RALPH_FORCE_SHELL=1 still delegates everything to shell (existing test should still pass)\n\nRun the full test suite: bun test",
+      "description": "Register init and summarize as native Commander commands and remove them from shell fallback maps.\n\nChanges needed:\n\n1. src/index.ts:\n   - Import runInit from ./commands/init and runSummarize from ./commands/summarize\n   - Add 'init' command: program.command('init').description('Initialize Ralph in the current project').action(() => runInit(...))\n   - Add 'summarize' command: program.command('summarize').description('Update implementation documentation').action(() => runSummarize(...))\n   - Remove 'init' and 'summarize' from SHELL_FALLBACK_COMMANDS array\n   - Note: init needs special handling \u2014 it should work WITHOUT an existing .ralph/ dir (setupProjectContext may need adjustment since findProjectRoot looks for .ralph/)\n\n2. src/commands/fallback.ts:\n   - Remove 'summarize' from COMMAND_SCRIPT_MAP\n   - Remove 'init' from BIN_RALPH_COMMANDS\n\n3. Update tests:\n   - test/index.test.ts: update SHELL_FALLBACK_COMMANDS expectations, add tests for init and summarize command registration\n   - test/commands/fallback.test.ts: update expectations for removed entries\n   - Verify RALPH_FORCE_SHELL=1 still delegates everything to shell (existing test should still pass)\n\nRun the full test suite: bun test",
       "directory": "",
       "status": "pending",
       "files": [
@@ -146,23 +155,33 @@
         "test/index.test.ts",
         "test/commands/fallback.test.ts"
       ],
-      "tests": ["bun test"],
-      "dependencies": [6, 8],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        6,
+        8
+      ],
       "model": "sonnet"
     },
     {
       "id": 10,
       "priority": 8,
       "title": "Verify bun build --compile produces working binary",
-      "description": "Build the compiled binary and verify all commands work correctly.\n\n1. Run: bun build --compile src/index.ts --outfile dist/ralph\n2. Test the compiled binary:\n   - dist/ralph --version → should print version\n   - dist/ralph status → should work (in a project with .ralph/)\n   - dist/ralph edit → should work\n   - dist/ralph logs → should work\n   - dist/ralph init → should run interactive prompts (test in a temp dir)\n   - dist/ralph summarize → should attempt to spawn claude (will fail without claude CLI, but verify it gets to the spawn step)\n   - dist/ralph plan → should fall back to shell\n   - dist/ralph run → should fall back to shell\n3. Test RALPH_FORCE_SHELL=1 dist/ralph status → should delegate to shell\n4. If any command fails in compiled form, investigate and fix the issue.\n\nRun bun test first to make sure all tests pass, then build and do manual verification.",
+      "description": "Build the compiled binary and verify all commands work correctly.\n\n1. Run: bun build --compile src/index.ts --outfile dist/ralph\n2. Test the compiled binary:\n   - dist/ralph --version \u2192 should print version\n   - dist/ralph status \u2192 should work (in a project with .ralph/)\n   - dist/ralph edit \u2192 should work\n   - dist/ralph logs \u2192 should work\n   - dist/ralph init \u2192 should run interactive prompts (test in a temp dir)\n   - dist/ralph summarize \u2192 should attempt to spawn claude (will fail without claude CLI, but verify it gets to the spawn step)\n   - dist/ralph plan \u2192 should fall back to shell\n   - dist/ralph run \u2192 should fall back to shell\n3. Test RALPH_FORCE_SHELL=1 dist/ralph status \u2192 should delegate to shell\n4. If any command fails in compiled form, investigate and fix the issue.\n\nRun bun test first to make sure all tests pass, then build and do manual verification.",
       "directory": "",
       "status": "pending",
       "files": [
         "src/index.ts",
         "package.json"
       ],
-      "tests": ["bun test", "bun run build"],
-      "dependencies": [9],
+      "tests": [
+        "bun test",
+        "bun run build"
+      ],
+      "dependencies": [
+        9
+      ],
       "model": "sonnet"
     }
   ]
