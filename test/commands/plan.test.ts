@@ -1778,7 +1778,7 @@ describe('reviewTasksLoop', () => {
         dataDir: ralphDir,
         runMenuFn,
         rl: mockRl([]),
-        shellFallbackFn: () => {},
+        runFn: () => {},
         editFn: () => {},
         launchPlanningFn: () => {},
       });
@@ -1806,7 +1806,7 @@ describe('reviewTasksLoop', () => {
         dataDir: ralphDir,
         runMenuFn,
         rl: mockRl([]),
-        shellFallbackFn: () => {},
+        runFn: () => {},
         editFn: () => {},
         launchPlanningFn: () => {},
       });
@@ -1830,7 +1830,7 @@ describe('reviewTasksLoop', () => {
         dataDir: ralphDir,
         runMenuFn,
         rl: mockRl([]),
-        shellFallbackFn: () => {},
+        runFn: () => {},
         editFn: () => {},
         launchPlanningFn: () => {},
       });
@@ -1847,15 +1847,14 @@ describe('reviewTasksLoop', () => {
     }
   });
 
-  test('run handler calls shellFallbackFn', async () => {
+  test('run handler calls runFn', async () => {
     const { tmpDir, ralphDir } = makeTempDir(true);
     try {
       writeTasksFile(ralphDir, [
         { id: 1, priority: 1, title: 'Task 1', status: 'pending', directory: '', files: [], dependencies: [], tests: [] },
       ]);
       const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
-      let fallbackCalled = false;
-      let fallbackCommand = '';
+      let runFnCalled = false;
 
       const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
         const run = options.find(o => o.key === 'r')!;
@@ -1866,17 +1865,13 @@ describe('reviewTasksLoop', () => {
         dataDir: ralphDir,
         runMenuFn,
         rl: mockRl([]),
-        shellFallbackFn: (cmd: string, args: string[]) => {
-          fallbackCalled = true;
-          fallbackCommand = cmd;
-        },
+        runFn: () => { runFnCalled = true; },
         editFn: () => {},
         launchPlanningFn: () => {},
       });
 
       consoleSpy.mockRestore();
-      expect(fallbackCalled).toBe(true);
-      expect(fallbackCommand).toBe('run');
+      expect(runFnCalled).toBe(true);
       expect(result).toEqual({ exit: true, action: 'run' });
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
@@ -1907,7 +1902,7 @@ describe('reviewTasksLoop', () => {
         dataDir: ralphDir,
         runMenuFn,
         rl: mockRl([]),
-        shellFallbackFn: () => { fallbackCalled = true; },
+        runFn: () => { fallbackCalled = true; },
         editFn: () => {},
         launchPlanningFn: () => {},
       });
@@ -1943,7 +1938,7 @@ describe('reviewTasksLoop', () => {
         dataDir: ralphDir,
         runMenuFn,
         rl: mockRl([]),
-        shellFallbackFn: () => {},
+        runFn: () => {},
         editFn: (p: string) => { editPath = p; },
         launchPlanningFn: () => {},
       });
@@ -1981,7 +1976,7 @@ describe('reviewTasksLoop', () => {
         dataDir: ralphDir,
         runMenuFn,
         rl: mockRl([]),
-        shellFallbackFn: () => {},
+        runFn: () => {},
         editFn: () => {},
         launchPlanningFn: () => {},
       });
@@ -2011,7 +2006,7 @@ describe('reviewTasksLoop', () => {
         dataDir: ralphDir,
         runMenuFn,
         rl: mockRl([]),
-        shellFallbackFn: () => {},
+        runFn: () => {},
         editFn: () => {},
         launchPlanningFn: () => { planCalled = true; },
       });
@@ -2039,7 +2034,7 @@ describe('reviewTasksLoop', () => {
         dataDir: ralphDir,
         runMenuFn,
         rl: mockRl([]),
-        shellFallbackFn: () => {},
+        runFn: () => {},
         editFn: () => {},
         launchPlanningFn: () => {},
       });
@@ -2071,7 +2066,7 @@ describe('reviewTasksLoop', () => {
         dataDir: ralphDir,
         runMenuFn,
         rl: mockRl([]),
-        shellFallbackFn: () => {},
+        runFn: () => {},
         editFn: () => {},
         launchPlanningFn: () => {},
       });
@@ -2109,7 +2104,7 @@ describe('reviewTasksLoop', () => {
         dataDir: ralphDir,
         runMenuFn,
         rl: mockRl([]),
-        shellFallbackFn: () => {},
+        runFn: () => {},
         editFn: () => { editCalled = true; },
         launchPlanningFn: () => {},
       });
@@ -2154,7 +2149,7 @@ describe('runPlan', () => {
         rl: mockRl([]),
         launchPlanningFn: () => { planningCalled++; },
         launchTaskGenFn: () => {},
-        shellFallbackFn: () => {},
+        runFn: () => {},
         runMenuFn: makeMenu([{ exit: true, action: 'quit' }]),
       });
 
@@ -2179,7 +2174,7 @@ describe('runPlan', () => {
         rl: mockRl([]),
         launchPlanningFn: () => {},
         launchTaskGenFn: () => { taskGenCalled++; },
-        shellFallbackFn: () => {},
+        runFn: () => {},
         runMenuFn: makeMenu([{ exit: true, action: 'quit' }]),
       });
 
@@ -2214,7 +2209,7 @@ describe('runPlan', () => {
         rl: mockRl([]),
         launchPlanningFn: () => {},
         launchTaskGenFn: () => {},
-        shellFallbackFn: () => {},
+        runFn: () => {},
         runMenuFn,
       });
 
@@ -2249,7 +2244,7 @@ describe('runPlan', () => {
         rl: mockRl([]),
         launchPlanningFn: () => { planningCalled++; },
         launchTaskGenFn: () => {},
-        shellFallbackFn: () => {},
+        runFn: () => {},
         runMenuFn,
       });
 
@@ -2283,7 +2278,7 @@ describe('runPlan', () => {
         rl: mockRl([]),
         launchPlanningFn: () => {},
         launchTaskGenFn: () => {},
-        shellFallbackFn: () => {},
+        runFn: () => {},
         runMenuFn,
       });
 
@@ -2311,7 +2306,7 @@ describe('runPlan', () => {
         rl: mockRl([]),
         launchPlanningFn: () => {},
         launchTaskGenFn: () => {},
-        shellFallbackFn: () => {},
+        runFn: () => {},
         runMenuFn: makeMenu([{ exit: true, action: 'quit' }]),
       });
 

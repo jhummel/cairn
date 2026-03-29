@@ -458,7 +458,7 @@ export function displayPreflight(projectName: string, dataDir: string): void {
 }
 
 type RunMenuFn = (options: MenuOption[], rl: ReadlineInterface) => Promise<MenuResult>;
-type ShellFallbackFn = (command: string, args: string[]) => void;
+type RunFn = () => void | Promise<void>;
 
 export interface ReviewNotesLoopOpts {
   dataDir: string;
@@ -578,7 +578,7 @@ export interface ReviewTasksLoopOpts {
   dataDir: string;
   runMenuFn?: RunMenuFn;
   rl: ReadlineInterface;
-  shellFallbackFn: ShellFallbackFn;
+  runFn: RunFn;
   editFn: (filePath: string) => void;
   launchPlanningFn: () => void;
 }
@@ -588,7 +588,7 @@ export async function reviewTasksLoop(opts: ReviewTasksLoopOpts): Promise<MenuRe
     dataDir,
     runMenuFn = defaultRunMenu,
     rl,
-    shellFallbackFn,
+    runFn,
     editFn,
     launchPlanningFn,
   } = opts;
@@ -621,7 +621,7 @@ export async function reviewTasksLoop(opts: ReviewTasksLoopOpts): Promise<MenuRe
             console.log('No tasks.json to run. Generate tasks first.');
             return { exit: false };
           }
-          shellFallbackFn('run', []);
+          await runFn();
           return { exit: true, action: 'run' };
         },
       },
@@ -698,7 +698,7 @@ export interface RunPlanOpts {
   launchPlanningFn?: () => void;
   /** Override task generation launcher (zero-arg closure, for testing) */
   launchTaskGenFn?: () => void;
-  shellFallbackFn?: ShellFallbackFn;
+  runFn?: RunFn;
   getGitStatusFn?: (projectRoot: string) => string;
 }
 
@@ -719,7 +719,7 @@ export async function runPlan(opts: RunPlanOpts): Promise<void> {
     editFn = defaultEditFn,
     launchPlanningFn: launchPlanningOverride,
     launchTaskGenFn: launchTaskGenOverride,
-    shellFallbackFn,
+    runFn,
     getGitStatusFn = computeGitStatus,
   } = opts;
 
@@ -762,18 +762,22 @@ export async function runPlan(opts: RunPlanOpts): Promise<void> {
     }
 
     // Task generation already ran inside the notes loop; now review tasks
-    const fallbackFn: ShellFallbackFn = shellFallbackFn ?? ((cmd, args) => {
+    const computedRunFn: RunFn = runFn ?? (async () => {
       // Import lazily to avoid circular deps at module load time
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { shellFallback } = require('./fallback') as typeof import('./fallback');
-      shellFallback(cmd, args);
+      const { runRun } = require('./run') as typeof import('./run');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { loadConfig, autoDetectHealthCheck } = require('../config') as typeof import('../config');
+      const cfg = loadConfig(projectRoot);
+      if (!cfg.healthCheck) cfg.healthCheck = autoDetectHealthCheck(projectRoot);
+      await runRun({ projectRoot, dataDir, config: cfg, agents });
     });
 
     const tasksResult = await reviewTasksLoop({
       dataDir,
       runMenuFn,
       rl,
-      shellFallbackFn: fallbackFn,
+      runFn: computedRunFn,
       editFn,
       launchPlanningFn: doLaunchPlanning,
     });

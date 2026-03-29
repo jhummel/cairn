@@ -2,39 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 12,
-      "priority": 12,
-      "title": "Wire run + narrate into Commander",
-      "description": "Register both commands in Commander and remove from shell fallback.\n\nIn src/index.ts:\n- Register 'run' command with optional [max] argument for max iterations (default 30). Handler calls runRun() from src/commands/run.ts.\n- Register 'narrate' command with required <action> argument (on/off/status or text to speak). Handler calls runNarrate() from src/commands/narrate.ts.\n- Remove 'run' and 'narrate' from SHELL_FALLBACK_COMMANDS \u2014 the array becomes empty: []\n\nIn src/commands/fallback.ts:\n- Remove 'run: \"ralph_loop.sh\"' from COMMAND_SCRIPT_MAP (object becomes empty: {})\n- Remove 'narrate' from BIN_RALPH_COMMANDS (array becomes empty: [])\n\nUpdate tests:\n- test/index.test.ts: add tests for new command registration, update fallback tests\n- test/commands/fallback.test.ts: update to reflect empty maps\n\nRALPH_FORCE_SHELL=1 still delegates everything to shell (existing forceShellFallback logic unchanged).",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-4",
-      "notes": "Registered run and narrate as native Commander commands. SHELL_FALLBACK_COMMANDS is now []. COMMAND_SCRIPT_MAP and BIN_RALPH_COMMANDS are both empty. run takes optional [max] (default 30), narrate takes required <action>. All 39 tests pass.",
-      "files": [
-        "src/index.ts",
-        "src/commands/fallback.ts",
-        "test/index.test.ts",
-        "test/commands/fallback.test.ts"
-      ],
-      "tests": [
-        "bun test test/index.test.ts",
-        "bun test test/commands/fallback.test.ts"
-      ],
-      "dependencies": [
-        7,
-        10,
-        11
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 13,
       "priority": 13,
       "title": "Update plan [r]un to call native run",
       "description": "In src/commands/plan.ts, the reviewTasksLoop function's [r]un handler currently calls shellFallbackFn('run', []) (line ~624). Change this to call the native runRun() function directly.\n\nChanges:\n- Update the ShellFallbackFn type or add a new RunFn type for the injectable dependency\n- In reviewTasksLoop, replace shellFallbackFn('run', []) with a call to the native run function\n- In runPlan() (line ~765-770), update the lazy-loaded dependency injection to provide the native run function instead of shellFallback\n- The injectable dependency pattern already supports this \u2014 just swap what gets injected\n\nUpdate test/commands/plan.test.ts:\n- Update mocks to reflect the new dependency type\n- Verify that [r]un menu option calls the native run function",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-5",
+      "notes": "Replaced shellFallbackFn with runFn (type: () => void | Promise<void>) in ReviewTasksLoopOpts and RunPlanOpts. In runPlan(), the lazy-loaded closure now calls runRun() with loadConfig(projectRoot) to get config. All 106 plan tests pass.",
       "files": [
         "src/commands/plan.ts",
         "test/commands/plan.test.ts",
