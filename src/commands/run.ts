@@ -11,6 +11,7 @@ import { loadCompletedIds as defaultLoadCompletedIds, selectNextTask as defaultS
 import { runHealthCheck as defaultRunHealthCheck, type HealthCheckResult } from '../health-check';
 import { validateTaskTests as defaultValidateTaskTests, type ValidateTaskTestsOpts, type ValidationResult } from '../test-validator';
 import { archiveCompletedTasks as defaultArchiveCompletedTasks, type ArchiveResult } from '../task-archiver';
+import { captureGitSha as defaultCaptureGitSha, runPostTaskReview as defaultRunPostTaskReview, type RunPostTaskReviewOpts } from '../post-task-reviewer';
 
 export interface SystemPromptInput {
   taskDir: string;
@@ -278,6 +279,8 @@ export interface RunRunDeps {
   spawnClaude: (opts: SpawnClaudeOpts) => Promise<{ exitCode: number }>;
   validateTaskTests: (opts: ValidateTaskTestsOpts) => Promise<ValidationResult>;
   archiveCompletedTasks: (opts: { tasksFilePath: string; dataDir: string }) => Promise<ArchiveResult>;
+  captureGitSha: (projectRoot: string) => string | null;
+  runPostTaskReview: (opts: RunPostTaskReviewOpts) => Promise<void>;
   runPlan: (opts: any) => Promise<void>;
   createProcessManager: (opts?: ProcessManagerOptions) => ProcessManager;
   prompt: (question: string) => Promise<string>;
@@ -304,6 +307,8 @@ function defaultDeps(): RunRunDeps {
     spawnClaude,
     validateTaskTests: defaultValidateTaskTests,
     archiveCompletedTasks: defaultArchiveCompletedTasks,
+    captureGitSha: defaultCaptureGitSha,
+    runPostTaskReview: defaultRunPostTaskReview,
     runPlan: async () => {
       // Lazy-load to avoid circular dependency
       const { runPlan } = await import('./plan');
@@ -386,7 +391,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   if (narrationEnabled) {
     try {
       narrationPid = await deps.startNarrationServer({
-        pythonPath: 'python3',
+        pythonPath: process.env.RALPH_NARRATE_PYTHON!,
         scriptPath: path.join(process.env.RALPH_LIB_DIR!, 'ralph_narrate_server.py'),
         voice: config.narration.voice,
         socketPath: narrationSocketPath,
@@ -425,7 +430,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
           processManager.unregister('narration');
           try {
             narrationPid = await deps.startNarrationServer({
-              pythonPath: 'python3',
+              pythonPath: process.env.RALPH_NARRATE_PYTHON!,
               scriptPath: path.join(process.env.RALPH_LIB_DIR!, 'ralph_narrate_server.py'),
               voice: config.narration.voice,
               socketPath: narrationSocketPath,
@@ -529,7 +534,10 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         };
       }
 
-      // i. Spawn Claude
+      // i. Capture git SHA before spawn
+      const beforeSha = deps.captureGitSha(projectRoot);
+
+      // j. Spawn Claude
       const { exitCode } = await deps.spawnClaude({
         prompt: iterPrompt,
         systemPrompt,
@@ -554,14 +562,41 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
 
       iterationsCompleted++;
 
-      // j. Post-iteration: validate tests
+      // k. Post-iteration: validate tests
       await deps.validateTaskTests({
         task,
         tasksFilePath,
         projectRoot,
       });
 
-      // k. Archive completed tasks
+      // l. Post-task review (if enabled and task completed)
+      if (config.review?.postTask) {
+        // Re-read task status from tasks.json (agent may have updated it)
+        let updatedTaskStatus = 'unknown';
+        try {
+          const updatedData = JSON.parse(deps.readFileSync(tasksFilePath, 'utf-8'));
+          const updatedTask = (updatedData.tasks ?? []).find((t: Task) => t.id === task.id);
+          if (updatedTask) {
+            updatedTaskStatus = updatedTask.status;
+          }
+        } catch {
+          // If we can't read, skip review
+        }
+
+        if (updatedTaskStatus === 'complete') {
+          await deps.runPostTaskReview({
+            projectRoot,
+            dataDir,
+            task,
+            taskStatus: updatedTaskStatus,
+            beforeSha,
+            config,
+            streamOpts,
+          });
+        }
+      }
+
+      // m. Archive completed tasks
       const archiveResult = await deps.archiveCompletedTasks({
         tasksFilePath,
         dataDir,

@@ -622,6 +622,8 @@ function makeRunDeps(overrides: Partial<RunRunDeps> = {}): RunRunDeps {
     spawnClaude: overrides.spawnClaude ?? mock(async () => ({ exitCode: 0 })),
     validateTaskTests: overrides.validateTaskTests ?? mock(async () => ({ status: 'passed' as const })),
     archiveCompletedTasks: overrides.archiveCompletedTasks ?? mock(async () => ({ archivedCount: 0, prevNotes: null })),
+    captureGitSha: overrides.captureGitSha ?? mock(() => null),
+    runPostTaskReview: overrides.runPostTaskReview ?? mock(async () => {}),
     runPlan: overrides.runPlan ?? mock(async () => {}),
     createProcessManager: overrides.createProcessManager ?? mock(() => new ProcessManager({ kill: () => true })),
     prompt: overrides.prompt ?? mock(async () => 'y'),
@@ -1539,5 +1541,106 @@ describe('runRun', () => {
     const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
     expect(spawnCall[0].streamOpts.ntfy).toBeDefined();
     expect(typeof spawnCall[0].streamOpts.ntfy).toBe('function');
+  });
+
+  // --- Post-task review integration ---
+
+  test('captureGitSha is called before spawnClaude', async () => {
+    const callOrder: string[] = [];
+    let callCount = 0;
+    const task = makeTask({ id: 1, title: 'Test task' });
+
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+      captureGitSha: mock((p: string) => {
+        callOrder.push('captureGitSha');
+        return 'abc123';
+      }),
+      spawnClaude: mock(async () => {
+        callOrder.push('spawnClaude');
+        return { exitCode: 0 };
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(deps.captureGitSha).toHaveBeenCalledTimes(1);
+    const shaIdx = callOrder.indexOf('captureGitSha');
+    const spawnIdx = callOrder.indexOf('spawnClaude');
+    expect(shaIdx).toBeLessThan(spawnIdx);
+  });
+
+  test('runPostTaskReview is called after validation when task is complete', async () => {
+    let callCount = 0;
+    const task = makeTask({ id: 1, title: 'Test task' });
+
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+      captureGitSha: mock(() => 'sha-before'),
+      readFileSync: mock(() => JSON.stringify({
+        tasks: [{ ...task, status: 'complete' }],
+      })),
+      runPostTaskReview: mock(async () => {}),
+    });
+
+    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    await runRun(makeRunOpts({ config }), deps);
+
+    expect(deps.runPostTaskReview).toHaveBeenCalledTimes(1);
+    const reviewCall = (deps.runPostTaskReview as ReturnType<typeof mock>).mock.calls[0][0];
+    expect(reviewCall.projectRoot).toBe('/projects/myapp');
+    expect(reviewCall.task).toEqual(task);
+    expect(reviewCall.beforeSha).toBe('sha-before');
+    expect(reviewCall.taskStatus).toBe('complete');
+  });
+
+  test('runPostTaskReview is NOT called when review.postTask is false', async () => {
+    let callCount = 0;
+    const task = makeTask({ id: 1, title: 'Test task' });
+
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+      captureGitSha: mock(() => 'sha-before'),
+      readFileSync: mock(() => JSON.stringify({
+        tasks: [{ ...task, status: 'complete' }],
+      })),
+      runPostTaskReview: mock(async () => {}),
+    });
+
+    // No review config (undefined)
+    await runRun(makeRunOpts(), deps);
+
+    expect(deps.runPostTaskReview).not.toHaveBeenCalled();
+  });
+
+  test('runPostTaskReview is NOT called when task status is not complete', async () => {
+    let callCount = 0;
+    const task = makeTask({ id: 1, title: 'Test task' });
+
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? task : null;
+      }),
+      captureGitSha: mock(() => 'sha-before'),
+      readFileSync: mock(() => JSON.stringify({
+        tasks: [{ ...task, status: 'in-progress' }],
+      })),
+      runPostTaskReview: mock(async () => {}),
+    });
+
+    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    await runRun(makeRunOpts({ config }), deps);
+
+    expect(deps.runPostTaskReview).not.toHaveBeenCalled();
   });
 });
