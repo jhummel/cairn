@@ -2123,6 +2123,173 @@ describe('reviewTasksLoop', () => {
       fs.rmSync(tmpDir, { recursive: true });
     }
   });
+
+  test('menu includes auto-review option with key "a"', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      writeTasksFile(ralphDir);
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+      const { captured, runMenuFn } = captureMenuOptions();
+
+      await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        runFn: () => {},
+        editFn: () => {},
+        launchPlanningFn: () => {},
+        projectRoot: ralphDir,
+        projectName: 'test',
+        agents: [],
+        gitStatus: '',
+      });
+
+      consoleSpy.mockRestore();
+      const keys = captured.map(o => o.key);
+      expect(keys).toContain('a');
+      const autoOpt = captured.find(o => o.key === 'a')!;
+      expect(autoOpt.label).toContain('auto-review');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('auto-review handler warns when no tasks.json exists', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const lines: string[] = [];
+      const consoleSpy = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+
+      let callCount = 0;
+      const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        callCount++;
+        if (callCount === 1) {
+          const auto = options.find(o => o.key === 'a')!;
+          return auto.handler();
+        }
+        const quit = options.find(o => o.key === 'q')!;
+        return quit.handler();
+      };
+
+      await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        runFn: () => {},
+        editFn: () => {},
+        launchPlanningFn: () => {},
+        projectRoot: ralphDir,
+        projectName: 'test',
+        agents: [],
+        gitStatus: '',
+      });
+
+      consoleSpy.mockRestore();
+      const output = lines.join('\n');
+      expect(output).toContain('No tasks.json');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('auto-review handler calls runAutoReview and returns to menu', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      writeTasksFile(ralphDir, [
+        { id: 1, priority: 1, title: 'Task 1', status: 'pending', directory: '', files: [], dependencies: [], tests: [] },
+      ]);
+      const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+      let autoReviewCalled = false;
+
+      let callCount = 0;
+      const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        callCount++;
+        if (callCount === 1) {
+          const auto = options.find(o => o.key === 'a')!;
+          return auto.handler();
+        }
+        const quit = options.find(o => o.key === 'q')!;
+        return quit.handler();
+      };
+
+      const result = await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        runFn: () => {},
+        editFn: () => {},
+        launchPlanningFn: () => {},
+        projectRoot: ralphDir,
+        projectName: 'test',
+        agents: [],
+        gitStatus: '',
+        runAutoReviewFn: async (opts) => {
+          autoReviewCalled = true;
+          return { dimensions: [], verdict: 'PASS' as const, summary: '' };
+        },
+      });
+
+      consoleSpy.mockRestore();
+      expect(autoReviewCalled).toBe(true);
+      // Should have returned to menu (callCount 2 = quit), not exited directly
+      expect(callCount).toBe(2);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('auto-review handler displays feedback when verdict is NEEDS_WORK', async () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      writeTasksFile(ralphDir, [
+        { id: 1, priority: 1, title: 'Task 1', status: 'pending', directory: '', files: [], dependencies: [], tests: [] },
+      ]);
+      // Write a feedback file for the handler to display
+      fs.writeFileSync(path.join(ralphDir, 'review-feedback.md'), '## Review Feedback\nNeeds improvement on X');
+
+      const lines: string[] = [];
+      const consoleSpy = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+
+      let callCount = 0;
+      const runMenuFn = async (options: MenuOption[], _rl: ReadlineInterface): Promise<MenuResult> => {
+        callCount++;
+        if (callCount === 1) {
+          const auto = options.find(o => o.key === 'a')!;
+          return auto.handler();
+        }
+        const quit = options.find(o => o.key === 'q')!;
+        return quit.handler();
+      };
+
+      await reviewTasksLoop({
+        dataDir: ralphDir,
+        runMenuFn,
+        rl: mockRl([]),
+        runFn: () => {},
+        editFn: () => {},
+        launchPlanningFn: () => {},
+        projectRoot: ralphDir,
+        projectName: 'test',
+        agents: [],
+        gitStatus: '',
+        runAutoReviewFn: async () => ({
+          dimensions: [{ name: 'Quality', score: 'FAIL' as const, issues: ['Bad stuff'] }],
+          verdict: 'NEEDS_WORK' as const,
+          summary: 'Needs work',
+        }),
+      });
+
+      consoleSpy.mockRestore();
+      const output = lines.join('\n');
+      expect(output).toContain('Needs improvement on X');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
 });
 
 describe('runPlan', () => {

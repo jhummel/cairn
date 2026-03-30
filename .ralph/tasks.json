@@ -2,35 +2,14 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 7,
-      "priority": 7,
-      "title": "Build review loop orchestrator",
-      "description": "TDD. Create and export an async function `runAutoReview()` in src/commands/plan.ts that orchestrates the review/regeneration loop.\n\nSignature: `runAutoReview(opts: { projectRoot: string, dataDir: string, projectName: string, agents: AgentInfo[], gitStatus: string, maxIterations: number, streamOpts?: ProcessStreamOptions, deps?: { spawnReviewerFn?, spawnRegeneratorFn?, readFileFn?, consoleLogFn? } }): Promise<ReviewResult>`\n\nLoop logic:\n1. For pass = 1 to maxIterations:\n   a. Print `Auto-review pass {pass} of {maxIterations}...`\n   b. Call spawnReviewer with passNumber=pass\n   c. Read .ralph/review-feedback.md\n   d. Parse with parseReviewFeedback()\n   e. Display each dimension's score and issues (colored: green=PASS, yellow=WARN, red=FAIL)\n   f. If verdict is PASS, print 'All dimensions passed. Tasks are ready for review.' and return result\n   g. If not last iteration: print 'Regenerating tasks with reviewer feedback...', call spawnRegenerator with the feedback content\n2. If loop exhausted without PASS: print remaining concerns from last feedback, return last result\n\nWrite tests covering: single-pass PASS (early exit), convergence on pass 2, max iterations reached with NEEDS_WORK, dimension display output.",
-      "status": "complete",
-      "completedAt": "2026-03-29T21:15:00Z",
-      "completedBy": "iteration-7",
-      "notes": "Implemented runAutoReview() with full dependency injection (spawnReviewerFn, spawnRegeneratorFn, readFileFn, consoleLogFn). Loop reads review-feedback.md after each reviewer pass, displays colored dimension scores (green/yellow/red), exits early on PASS verdict, calls regenerator between passes. 6 tests cover: single-pass PASS, convergence on pass 2, max iterations exhaustion, dimension display with colors/issues, and correct opts forwarding to both spawner functions. 675 total tests pass.",
-      "files": [
-        "src/commands/plan.ts",
-        "test/commands/plan.test.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        1,
-        2,
-        5,
-        6
-      ],
-      "model": "opus"
-    },
-    {
       "id": 8,
       "priority": 8,
       "title": "Add auto-review menu option to reviewTasksLoop",
       "description": "TDD. Add an `[a]uto-review` menu option to the `reviewTasksLoop()` function in src/commands/plan.ts. Insert it between the existing `[v]iew` and `[p]lan` options (around line 660).\n\nThe handler should:\n1. Check that tasks.json exists (print error and return {exit: false} if not)\n2. Load config to get review.maxIterations (default 3)\n3. Call runAutoReview() with appropriate opts\n4. After the loop completes, display the final review-feedback.md content if verdict is NEEDS_WORK\n5. Return {exit: false} to stay in the menu loop\n\nUpdate the ReviewTasksLoopOpts interface to include any new dependencies needed (projectRoot, projectName, agents, gitStatus, config). Thread these through from the caller in the plan command handler (around line 776).\n\nWrite tests verifying: menu option appears with key 'a', handler checks for tasks.json existence, handler calls runAutoReview, returns to menu after completion.",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T20:30:00Z",
+      "completedBy": "iteration-8",
+      "notes": "Added [a]uto-review menu option between [v]iew and [p]lan in reviewTasksLoop. Updated ReviewTasksLoopOpts with optional projectRoot, projectName, agents, gitStatus, and runAutoReviewFn fields. Handler checks tasks.json existence, calls runAutoReview with maxIterations=3, displays review-feedback.md content after completion. Threaded new fields from runPlan call site. All 679 tests pass including 4 new tests for the auto-review option.",
       "files": [
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"

@@ -1032,6 +1032,8 @@ function computeGitStatus(projectRoot: string): string {
   return '';
 }
 
+type RunAutoReviewFn = (opts: RunAutoReviewOpts) => Promise<ReviewResult>;
+
 export interface ReviewTasksLoopOpts {
   dataDir: string;
   runMenuFn?: RunMenuFn;
@@ -1039,6 +1041,11 @@ export interface ReviewTasksLoopOpts {
   runFn: RunFn;
   editFn: (filePath: string) => void;
   launchPlanningFn: () => void;
+  projectRoot?: string;
+  projectName?: string;
+  agents?: AgentInfo[];
+  gitStatus?: string;
+  runAutoReviewFn?: RunAutoReviewFn;
 }
 
 export async function reviewTasksLoop(opts: ReviewTasksLoopOpts): Promise<MenuResult> {
@@ -1049,6 +1056,11 @@ export async function reviewTasksLoop(opts: ReviewTasksLoopOpts): Promise<MenuRe
     runFn,
     editFn,
     launchPlanningFn,
+    projectRoot,
+    projectName,
+    agents,
+    gitStatus,
+    runAutoReviewFn = runAutoReview,
   } = opts;
 
   const tasksPath = path.join(dataDir, 'tasks.json');
@@ -1111,6 +1123,36 @@ export async function reviewTasksLoop(opts: ReviewTasksLoopOpts): Promise<MenuRe
             }
           } else {
             console.log('No tasks.json to view.');
+          }
+          return { exit: false };
+        },
+      },
+      {
+        key: 'a',
+        label: 'auto-review',
+        handler: async (): Promise<MenuResult> => {
+          if (!fs.existsSync(tasksPath)) {
+            console.log('No tasks.json to review. Generate tasks first.');
+            return { exit: false };
+          }
+          const maxIterations = 3;
+          await runAutoReviewFn({
+            projectRoot: projectRoot ?? path.dirname(dataDir),
+            dataDir,
+            projectName: projectName ?? '',
+            agents: agents ?? [],
+            gitStatus: gitStatus ?? '',
+            maxIterations,
+          });
+          // Display final feedback if verdict was NEEDS_WORK
+          const feedbackPath = path.join(dataDir, 'review-feedback.md');
+          if (fs.existsSync(feedbackPath)) {
+            try {
+              const content = fs.readFileSync(feedbackPath, 'utf8');
+              console.log(content);
+            } catch {
+              // ignore read errors
+            }
           }
           return { exit: false };
         },
@@ -1238,6 +1280,10 @@ export async function runPlan(opts: RunPlanOpts): Promise<void> {
       runFn: computedRunFn,
       editFn,
       launchPlanningFn: doLaunchPlanning,
+      projectRoot,
+      projectName,
+      agents,
+      gitStatus: getGitStatusFn(projectRoot),
     });
 
     if (tasksResult.action === 'plan') {
