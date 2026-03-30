@@ -43,6 +43,7 @@ export function loadConfig(projectRoot: string): RalphConfig {
     },
     review: {
       maxIterations: typeof reviewRaw.maxIterations === 'number' ? reviewRaw.maxIterations : 3,
+      postTask: typeof reviewRaw.postTask === 'boolean' ? reviewRaw.postTask : false,
     },
   };
 }

@@ -2,33 +2,113 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 10,
-      "priority": 10,
-      "title": "Verify build and full test suite",
-      "description": "Run the full test suite with `bun test` and verify all tests pass. Run `bun run build` and verify the compiled binary builds successfully. Run `ralph --version` to smoke test the binary. If any tests fail or the build breaks, fix the issues. Check that the new [a]uto-review option appears in the help/menu output if applicable.",
+      "id": 1,
+      "priority": 1,
+      "title": "Add review.postTask to config",
+      "description": "TDD. Extend `RalphConfig.review` from `{ maxIterations: number }` to `{ maxIterations: number; postTask: boolean }`. Update `isValidConfig()` in types.ts to validate the new boolean field (when review is present, postTask must be a boolean). Update `loadConfig()` in config.ts to default `postTask: false` alongside the existing maxIterations default. Add `reviewPostTask: boolean` to `ConfigDefaults` in init.ts with default `false`, and prompt for it in `promptForConfig()` after the existing review maxIterations prompt. Update `getConfigDefaults()` to map from loaded config. Write tests first for each change: isValidConfig accepts/rejects the new field, loadConfig defaults it, promptForConfig includes it in output.",
+      "directory": "",
       "status": "complete",
-      "completedAt": "2026-03-29T20:30:00Z",
-      "completedBy": "iteration-10",
-      "notes": "All 680 tests pass, bun run build succeeds (29 modules, 134ms compile), ralph --version returns 0.1.0. No issues found.",
+      "completedAt": "2026-03-29T22:00:00Z",
+      "completedBy": "iteration-1",
+      "notes": "Added review.postTask boolean to RalphConfig type and isValidConfig validation. loadConfig defaults postTask to false. ConfigDefaults has reviewPostTask field. promptForConfig prompts for it after reviewMaxIterations. getConfigDefaults maps from config.review?.postTask. Fixed two existing tests in types.test.ts and init.test.ts that needed postTask added to review objects. All 698 tests pass, build succeeds.",
       "files": [
-        "package.json",
-        "src/index.ts"
+        "src/types.ts",
+        "src/config.ts",
+        "src/commands/init.ts",
+        "test/config.test.ts",
+        "test/commands/init.test.ts"
       ],
-      "tests": [
-        "bun test",
-        "bun run build"
+      "tests": ["bun test"],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 2,
+      "priority": 1,
+      "title": "Git SHA helpers",
+      "description": "TDD. Create `src/post-task-reviewer.ts` with two functions:\n\n1. `captureGitSha(projectRoot: string): string | null` — runs `git rev-parse HEAD` via `child_process.execSync` with `{ cwd: projectRoot }`, returns the trimmed SHA string, or null if the command fails (not a git repo, etc.).\n\n2. `getGitDiff(projectRoot: string, beforeSha: string): { diff: string; log: string; files: string[] }` — runs three git commands with `{ cwd: projectRoot }`:\n   - `git diff <beforeSha>..HEAD` → diff string\n   - `git log --oneline <beforeSha>..HEAD` → log string\n   - `git diff --name-only <beforeSha>..HEAD` → split into files array (filter empty lines)\n\nCreate `test/post-task-reviewer.test.ts`. Tests should create a real temp git repo (mkdtemp), run `git init`, make commits, and verify:\n- captureGitSha returns a valid 40-char hex SHA\n- captureGitSha returns null for a non-git directory\n- getGitDiff returns correct diff/log/files after adding a file and committing",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/post-task-reviewer.ts",
+        "test/post-task-reviewer.test.ts"
       ],
-      "dependencies": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9
+      "tests": ["bun test"],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 3,
+      "priority": 2,
+      "title": "Post-task review prompt builders",
+      "description": "TDD. Add two pure functions to `src/post-task-reviewer.ts`:\n\n1. `buildPostTaskReviewPrompt(): string` — returns the system prompt that instructs the reviewer agent to:\n   - Build an ASCII coverage diagram comparing task spec items vs actual changes using `[DONE]`, `[GAP]`, `[PARTIAL]` markers with tree-drawing characters\n   - Detect gaps (anything in task description not addressed)\n   - Check for regressions (broken patterns, removed exports, deleted tests)\n   - Append output to `.ralph/review-post.md` using Edit tool (or Write if file doesn't exist yet)\n   - Use the exact output format from planning-notes.md: `## Task #<id>: <title>`, `Reviewed: <ISO timestamp>`, Coverage tree, Files Changed, Gaps, Regression Risks, Verdict (CLEAN | HAS_GAPS | HAS_RISKS)\n\n2. `buildPostTaskReviewUserPrompt(opts: { task: { id: number; title: string; description: string; files?: string[]; tests?: string[]; directory?: string }; diff: string; log: string; files: string[] }): string` — returns the user prompt embedding the full task definition and git diff/log/files.\n\nTests verify: system prompt contains format spec keywords (DONE, GAP, PARTIAL, review-post.md, Edit), user prompt contains task fields and diff content.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/post-task-reviewer.ts",
+        "test/post-task-reviewer.test.ts"
       ],
+      "tests": ["bun test"],
+      "dependencies": [2],
+      "model": "sonnet"
+    },
+    {
+      "id": 4,
+      "priority": 3,
+      "title": "Post-task reviewer spawner",
+      "description": "TDD. Add `spawnPostTaskReviewer()` to `src/post-task-reviewer.ts`, following the `spawnReviewer()` pattern in `src/commands/plan.ts` (lines 622-663).\n\nInterface:\n```ts\ninterface SpawnPostTaskReviewerOpts {\n  projectRoot: string;\n  dataDir: string;\n  task: { id: number; title: string; description: string; files?: string[]; tests?: string[]; directory?: string };\n  diff: string;\n  log: string;\n  files: string[];\n  streamOpts?: ProcessStreamOptions;\n  deps?: { spawn?: typeof spawn; processStreamFn?: typeof processStream };\n}\n```\n\nImplementation:\n- Build system prompt via `buildPostTaskReviewPrompt()`\n- Build user prompt via `buildPostTaskReviewUserPrompt()`\n- Spawn `claude` with args: `-p`, `--append-system-prompt <systemPrompt>`, `--allowedTools Read,Glob,Grep,Edit,Write`, `--output-format stream-json`, `--model sonnet`, `--verbose`\n- Unset ANTHROPIC_API_KEY in env (same pattern as spawnReviewer)\n- Pipe user prompt to stdin, close stdin\n- Pipe stdout through processStream (use deps.processStreamFn or default)\n- Wait for close event, return `{ exitCode }`\n\nTests mock spawn to verify: correct claude args, stdin receives user prompt, processStream called on stdout, exit code returned.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/post-task-reviewer.ts",
+        "test/post-task-reviewer.test.ts",
+        "src/commands/plan.ts"
+      ],
+      "tests": ["bun test"],
+      "dependencies": [3],
+      "model": "opus"
+    },
+    {
+      "id": 5,
+      "priority": 4,
+      "title": "Review orchestrator",
+      "description": "TDD. Add `runPostTaskReview()` to `src/post-task-reviewer.ts`.\n\nInterface:\n```ts\ninterface RunPostTaskReviewOpts {\n  projectRoot: string;\n  dataDir: string;\n  task: Task;\n  taskStatus: string;\n  beforeSha: string | null;\n  config: RalphConfig;\n  streamOpts?: ProcessStreamOptions;\n  deps?: {\n    captureGitSha?: typeof captureGitSha;\n    getGitDiff?: typeof getGitDiff;\n    spawnPostTaskReviewer?: typeof spawnPostTaskReviewer;\n    log?: (...args: any[]) => void;\n  };\n}\n```\n\nSkip conditions (return early, log reason):\n1. `config.review?.postTask` is not true\n2. `taskStatus` is not 'complete'\n3. `beforeSha` is null\n4. Current SHA equals beforeSha (no commits made) — call `deps.captureGitSha(projectRoot)`\n\nHappy path: call `deps.getGitDiff(projectRoot, beforeSha)`, then `deps.spawnPostTaskReviewer()` with task + diff data. Log start/completion. Return void (informational, never throws).\n\nWrap the entire function body in try/catch — log errors but never throw (review must not break the run loop).\n\nTests cover: each skip condition returns early without spawning, happy path calls getGitDiff and spawnPostTaskReviewer with correct args, errors are caught and logged.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/post-task-reviewer.ts",
+        "test/post-task-reviewer.test.ts"
+      ],
+      "tests": ["bun test"],
+      "dependencies": [4],
+      "model": "opus"
+    },
+    {
+      "id": 6,
+      "priority": 5,
+      "title": "Wire into run loop",
+      "description": "TDD. Integrate post-task review into `src/commands/run.ts`.\n\n1. **Add deps to RunRunDeps** (around line 272): Add `captureGitSha: (projectRoot: string) => string | null` and `runPostTaskReview: (opts: RunPostTaskReviewOpts) => Promise<void>`. Import the types and default implementations from `src/post-task-reviewer.ts`.\n\n2. **Capture SHA before agent spawn** (~line 533, before `deps.spawnClaude()`): `const beforeSha = deps.captureGitSha(projectRoot);`\n\n3. **Call review after test validation** (~line 563, after validateTaskTests, before archiveCompletedTasks ~line 565): Re-read the task from tasks.json to get its current status. If status is 'complete', call:\n```ts\nawait deps.runPostTaskReview({\n  projectRoot,\n  dataDir,\n  task: currentTask,\n  taskStatus: updatedTask.status,\n  beforeSha,\n  config,\n  streamOpts,\n});\n```\n\n4. **Set defaults in createDefaultDeps()**: Import `captureGitSha` and `runPostTaskReview` from post-task-reviewer and wire them as defaults.\n\nTests in `test/commands/run.test.ts`:\n- SHA is captured before spawnClaude is called\n- runPostTaskReview is called after validation when task is complete\n- runPostTaskReview is NOT called when review.postTask is false/undefined\n- runPostTaskReview is NOT called when task status is not complete",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/run.ts",
+        "test/commands/run.test.ts",
+        "src/post-task-reviewer.ts"
+      ],
+      "tests": ["bun test"],
+      "dependencies": [1, 5],
+      "model": "opus"
+    },
+    {
+      "id": 7,
+      "priority": 6,
+      "title": "Verify build and full test suite",
+      "description": "Run `bun test` and verify all tests pass. Run `bun run build` and verify it compiles without errors. Run `dist/ralph --version` as a smoke test. If any test fails or the build breaks, diagnose and fix the issue.",
+      "directory": "",
+      "status": "pending",
+      "files": ["package.json"],
+      "tests": ["bun test", "bun run build"],
+      "dependencies": [6],
       "model": "sonnet"
     }
   ]

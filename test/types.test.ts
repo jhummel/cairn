@@ -68,7 +68,7 @@ describe('isValidConfig', () => {
   });
 
   it('accepts config with valid review.maxIterations', () => {
-    expect(isValidConfig({ ...validConfig, review: { maxIterations: 3 } })).toBe(true);
+    expect(isValidConfig({ ...validConfig, review: { maxIterations: 3, postTask: false } })).toBe(true);
   });
 
   it('rejects review field that is not an object', () => {

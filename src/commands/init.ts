@@ -30,6 +30,7 @@ export interface ConfigDefaults {
   narrationVoice: string;
   ntfyTopic: string;
   reviewMaxIterations: number;
+  reviewPostTask: boolean;
 }
 
 export function initCoreFiles(projectRoot: string, dataDir: string): void {
@@ -91,6 +92,7 @@ export function getConfigDefaults(projectRoot: string): ConfigDefaults {
     narrationVoice: config.narration.voice,
     ntfyTopic: config.narration.ntfyTopic,
     reviewMaxIterations: config.review?.maxIterations ?? 3,
+    reviewPostTask: config.review?.postTask ?? false,
   };
 }
 
@@ -146,6 +148,7 @@ export async function promptForConfig(
 
   const reviewMaxIterationsStr = await promptValue(rl, 'Auto-review max iterations', String(defaults.reviewMaxIterations));
   const reviewMaxIterations = parseInt(reviewMaxIterationsStr, 10);
+  const reviewPostTask = await promptBoolean(rl, 'Enable post-task review?', defaults.reviewPostTask);
 
   return {
     projectName,
@@ -156,7 +159,10 @@ export async function promptForConfig(
     truncateText,
     summarize: { claudeMdPattern },
     narration: { enabled: narrationEnabled, voice: narrationVoice, ntfyTopic },
-    review: { maxIterations: Number.isNaN(reviewMaxIterations) ? defaults.reviewMaxIterations : reviewMaxIterations },
+    review: {
+      maxIterations: Number.isNaN(reviewMaxIterations) ? defaults.reviewMaxIterations : reviewMaxIterations,
+      postTask: reviewPostTask,
+    },
   };
 }
 

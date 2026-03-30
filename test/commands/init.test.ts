@@ -329,6 +329,29 @@ describe('getConfigDefaults', () => {
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.reviewMaxIterations).toBe(5);
   });
+
+  test('returns reviewPostTask default of false when no ralph.json', () => {
+    const defaults = getConfigDefaults(tmpDir);
+    expect(defaults.reviewPostTask).toBe(false);
+  });
+
+  test('loads reviewPostTask: true from ralph.json', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'ralph.json'),
+      JSON.stringify({ review: { maxIterations: 3, postTask: true } })
+    );
+    const defaults = getConfigDefaults(tmpDir);
+    expect(defaults.reviewPostTask).toBe(true);
+  });
+
+  test('loads reviewPostTask: false from ralph.json', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'ralph.json'),
+      JSON.stringify({ review: { maxIterations: 3, postTask: false } })
+    );
+    const defaults = getConfigDefaults(tmpDir);
+    expect(defaults.reviewPostTask).toBe(false);
+  });
 });
 
 // --- Mock PromptInterface helper ---
@@ -359,6 +382,7 @@ describe('promptForConfig', () => {
     narrationVoice: 'bf_emma',
     ntfyTopic: '',
     reviewMaxIterations: 3,
+    reviewPostTask: false,
   };
 
   test('all empty answers use defaults', async () => {
@@ -516,6 +540,47 @@ describe('promptForConfig', () => {
     const reviewQ = questions.find(q => q.toLowerCase().includes('review') || q.toLowerCase().includes('max iterations'));
     expect(reviewQ).toBeDefined();
     expect(reviewQ).toContain('3');
+  });
+
+  test('promptForConfig prompts for reviewPostTask after reviewMaxIterations', async () => {
+    const questions: string[] = [];
+    const rl: PromptInterface = {
+      question: async (query: string) => {
+        questions.push(query);
+        return '';
+      },
+      close: () => {},
+    };
+    await promptForConfig(rl, { ...baseDefaults, reviewPostTask: false });
+    const postTaskQ = questions.find(q => q.toLowerCase().includes('post') || q.toLowerCase().includes('posttask'));
+    expect(postTaskQ).toBeDefined();
+  });
+
+  test('reviewPostTask defaults to false on empty input', async () => {
+    // prompts: name, desc, health, test, impl, truncate, claudeMd, narration, reviewMaxIter, reviewPostTask
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '']);
+    const config = await promptForConfig(rl, { ...baseDefaults, reviewPostTask: false });
+    expect(config.review?.postTask).toBe(false);
+  });
+
+  test('reviewPostTask is set to true when user answers y', async () => {
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'y']);
+    const config = await promptForConfig(rl, { ...baseDefaults, reviewPostTask: false });
+    expect(config.review?.postTask).toBe(true);
+  });
+
+  test('reviewPostTask shows [y/N] when default is false', async () => {
+    const questions: string[] = [];
+    const rl: PromptInterface = {
+      question: async (query: string) => {
+        questions.push(query);
+        return '';
+      },
+      close: () => {},
+    };
+    await promptForConfig(rl, { ...baseDefaults, reviewPostTask: false });
+    const postTaskQ = questions.find(q => q.toLowerCase().includes('post') || q.toLowerCase().includes('posttask'));
+    expect(postTaskQ).toContain('[y/N]');
   });
 });
 
@@ -886,8 +951,8 @@ describe('runInit', () => {
 
   test('installs hooks when narration enabled and user accepts', async () => {
     const dataDir = path.join(tmpDir, '.ralph');
-    // 9 config prompts (narration='y', voice='', ntfy='', review='') + instructions='n' + install hooks='y'
-    const rl = createMockPrompt(['', '', '', '', '', '', '', 'y', '', '', '', 'n', 'y']);
+    // 10 config prompts (narration='y', voice='', ntfy='', reviewMaxIter='', reviewPostTask='') + instructions='n' + install hooks='y'
+    const rl = createMockPrompt(['', '', '', '', '', '', '', 'y', '', '', '', '', 'n', 'y']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     const hooksDir = path.join(tmpDir, '.claude', 'hooks');
     expect(fs.existsSync(path.join(hooksDir, 'narrate.sh'))).toBe(true);

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { loadConfig, autoDetectHealthCheck, discoverAgents, setConfigEnvVars } from '../src/config';
+import { isValidConfig } from '../src/types';
 import type { RalphConfig } from '../src/types';
 
 function makeTempDir(): string {
@@ -404,5 +405,84 @@ describe('setConfigEnvVars', () => {
 
     expect(process.env.RALPH_TRUNCATE_TEXT).toBe('true');
     expect(process.env.RALPH_NARRATION_ENABLED).toBe('false');
+  });
+});
+
+describe('isValidConfig review.postTask', () => {
+  const baseConfig = {
+    projectName: 'proj',
+    projectDescription: '',
+    healthCheck: '',
+    defaultTestCommand: '',
+    implementationFile: 'IMPLEMENTATION.md',
+    truncateText: true,
+    summarize: { claudeMdPattern: '' },
+    narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
+  };
+
+  it('accepts config with review.postTask: false', () => {
+    expect(isValidConfig({ ...baseConfig, review: { maxIterations: 3, postTask: false } })).toBe(true);
+  });
+
+  it('accepts config with review.postTask: true', () => {
+    expect(isValidConfig({ ...baseConfig, review: { maxIterations: 3, postTask: true } })).toBe(true);
+  });
+
+  it('accepts config with review omitted entirely', () => {
+    expect(isValidConfig(baseConfig)).toBe(true);
+  });
+
+  it('rejects config with review.postTask as a string', () => {
+    expect(isValidConfig({ ...baseConfig, review: { maxIterations: 3, postTask: 'yes' } })).toBe(false);
+  });
+
+  it('rejects config with review.postTask as a number', () => {
+    expect(isValidConfig({ ...baseConfig, review: { maxIterations: 3, postTask: 1 } })).toBe(false);
+  });
+
+  it('rejects config with review present but postTask missing', () => {
+    expect(isValidConfig({ ...baseConfig, review: { maxIterations: 3 } })).toBe(false);
+  });
+});
+
+describe('loadConfig review.postTask', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = path.join(os.tmpdir(), `ralph-config-posttask-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('defaults review.postTask to false when no ralph.json exists', () => {
+    const config = loadConfig(tmpDir);
+    expect(config.review?.postTask).toBe(false);
+  });
+
+  it('defaults review.postTask to false when review object is missing', () => {
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ projectName: 'x' }));
+    const config = loadConfig(tmpDir);
+    expect(config.review?.postTask).toBe(false);
+  });
+
+  it('defaults review.postTask to false when review.postTask is missing', () => {
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ review: { maxIterations: 5 } }));
+    const config = loadConfig(tmpDir);
+    expect(config.review?.postTask).toBe(false);
+  });
+
+  it('loads review.postTask: true from ralph.json', () => {
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ review: { maxIterations: 3, postTask: true } }));
+    const config = loadConfig(tmpDir);
+    expect(config.review?.postTask).toBe(true);
+  });
+
+  it('loads review.postTask: false from ralph.json', () => {
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ review: { maxIterations: 3, postTask: false } }));
+    const config = loadConfig(tmpDir);
+    expect(config.review?.postTask).toBe(false);
   });
 });
