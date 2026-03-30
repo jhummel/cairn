@@ -2,24 +2,116 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
+      "id": 1,
+      "priority": 1,
+      "title": "Create commands/generate-tasks.md slash command",
+      "description": "Create a `commands/` directory at the ralph repo root and add `generate-tasks.md`. This slash command will replace the current `buildTaskGenPrompt()` in `src/commands/plan.ts`.\n\nThe file should instruct the planning agent to:\n1. Use the Agent tool to spawn a fresh general-purpose subagent\n2. The subagent should read `.ralph/planning-notes.md` and the codebase as needed\n3. The subagent should write `.ralph/tasks.json`\n\nInline the full tasks.json schema from `src/tasks-schema.json`. Include:\n- Task structure guidelines (id, priority, title, description, directory, status, files, dependencies, tests, model, agent)\n- Directory guidelines table (module work → src/services/auth-service, DB migration → src/database, cross-module → empty)\n- Test command guidelines (prefer project's own test scripts like `npm run test` over direct tool invocations like `npx vitest run Foo`)\n- Rules: never modify completed tasks, keep IDs unique/sequential, ~5 min task scope, link via dependencies, include specific file paths\n- Model selection guidance: sonnet for straightforward tasks, opus for complex tasks\n- Agent selection: assign specialist agents from `.claude/agents/` when available and matching\n\nReference `buildTaskGenPrompt()` in `src/commands/plan.ts` (around line 200+) for the current prompt content. Adapt the language for slash command format — the agent reading this IS the planning agent, and it should spawn a subagent to do the actual work.\n\nThe subagent prompt passed to the Agent tool should include all the schema, guidelines, and rules so the subagent is self-contained.\n\nIMPORTANT: The slash command file should instruct preservation of any tasks with status 'complete' and their metadata (completedAt, completedBy, notes). It should also instruct the subagent to present proposed tasks to the user BEFORE writing tasks.json.",
+      "status": "complete",
+      "completedAt": "2026-03-29T22:30:00Z",
+      "completedBy": "iteration-1",
+      "notes": "Created commands/generate-tasks.md slash command with full inlined tasks.json schema, all guidelines from buildTaskGenPrompt(), and instructions for subagent spawning. Includes preservation of completed tasks and user approval flow before writing tasks.json.",
+      "files": [
+        "src/commands/plan.ts",
+        "src/tasks-schema.json"
+      ],
+      "tests": [
+        "test -f commands/generate-tasks.md && echo 'File exists'"
+      ],
+      "dependencies": [],
+      "model": "opus"
+    },
+    {
+      "id": 2,
+      "priority": 1,
+      "title": "Create commands/review-tasks.md slash command",
+      "description": "Create `commands/review-tasks.md` in the ralph repo root `commands/` directory. This slash command will replace the current `buildReviewPrompt()` in `src/commands/plan.ts`.\n\nThe file should instruct the planning agent to:\n1. Use the Agent tool to spawn a fresh general-purpose subagent\n2. The subagent reads `.ralph/tasks.json` and `.ralph/planning-notes.md`\n3. The subagent evaluates the task list on 5 dimensions and reports findings conversationally (NOT by writing a file)\n\nThe 5 review dimensions (from current `buildReviewPrompt()` around line 300+):\n1. **Coverage** — Do tasks fully cover the planning notes? Missing work?\n2. **Atomicity** — Is each task scoped to ~5 min of focused agent work? Too large/small?\n3. **Dependencies** — Are dependency links correct? Missing or circular dependencies?\n4. **Acceptance Criteria** — Does each task have clear test commands and file paths?\n5. **Context Sufficiency** — Does each task description give the worker agent enough context to work independently?\n\nEach dimension should be scored as PASS, WARN, or FAIL with specific issue bullets.\nOverall verdict: PASS or NEEDS_WORK.\n\nThe subagent should report findings back conversationally to the user (the Agent tool returns results to the parent). Do NOT write review-feedback.md or any files — just report findings.\n\nReference `buildReviewPrompt()` in `src/commands/plan.ts` for the current prompt content.",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts"
+      ],
+      "tests": [
+        "test -f commands/review-tasks.md && echo 'File exists'"
+      ],
+      "dependencies": [],
+      "model": "opus"
+    },
+    {
       "id": 3,
       "priority": 2,
-      "title": "Verify build and full test suite",
-      "description": "Run the full test suite and build to confirm both bug fixes integrate cleanly.\n\n1. Run `bun test` — all tests must pass.\n2. Run `bun run build` — must produce `dist/ralph` without errors.\n3. If anything fails, diagnose and fix the issue.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T21:30:00Z",
-      "completedBy": "iteration-3",
-      "notes": "736 tests pass, build produces dist/ralph in 126ms. Both bug fixes from tasks #1 and #2 integrate cleanly.",
-      "files": [],
-      "dependencies": [
-        1,
-        2
+      "title": "Add slash command installation to ralph init",
+      "description": "In `src/commands/init.ts`, add a function `installSlashCommands(projectRoot: string)` that copies all `.md` files from the ralph repo's `commands/` directory into the target project's `.claude/commands/` directory.\n\nFollow the `installNarrationHooks()` pattern:\n1. Use `resolveRalphRoot()` from `src/utils.ts` to find the ralph repo root\n2. Read all `.md` files from `<ralphRoot>/commands/`\n3. Create `.claude/commands/` in the target project (mkdirSync recursive)\n4. Copy each file, overwriting if it exists (these are ralph-managed, not user-edited)\n5. Log what was created/updated\n\nThis should be unconditional (no prompt) — called from `runInit()` after core file creation.\n\nTDD approach:\n- Write tests first in `test/commands/init.test.ts`\n- Test cases: directory created, files copied, idempotent (re-run overwrites), handles missing commands dir gracefully\n- Use temp directories for test isolation\n- Then implement the function\n\nIMPORTANT: Import `resolveRalphRoot` from `../utils` (or `../utils.js` depending on module resolution).",
+      "status": "pending",
+      "files": [
+        "src/commands/init.ts",
+        "test/commands/init.test.ts",
+        "src/utils.ts"
       ],
+      "tests": [
+        "bun test test/commands/init.test.ts"
+      ],
+      "dependencies": [1, 2],
+      "model": "opus"
+    },
+    {
+      "id": 4,
+      "priority": 1,
+      "title": "Simplify buildPlanningPrompt()",
+      "description": "Simplify `buildPlanningPrompt()` in `src/commands/plan.ts` to remove all file embedding. Currently it uses `tryReadFile()` and `fileSection()` to load and embed CLAUDE.md, README.md, package.json, Cargo.toml, Makefile, planning-notes.md, tasks.completed.json, and IMPLEMENTATION.md into the system prompt.\n\nThe simplified version should:\n1. Keep the role description (you are a planning agent...)\n2. Keep the planning-notes.md format specification (Briefing Materials, Goals, Approach, Rejected Alternatives, Rough Task Outline, Open Questions)\n3. Keep the rules/guidelines for the planning conversation\n4. Keep the project context fields (projectName, projectRoot, dataDir)\n5. Keep the specialist agents list\n6. REMOVE all `tryReadFile()` calls and `fileSection()` calls — the agent reads files itself via its tools\n7. Mention that the agent should read CLAUDE.md, README.md, and other project files to understand the codebase (but don't embed them)\n\nTDD approach:\n- Update tests in `test/commands/plan.test.ts` first\n- Remove tests that assert embedded file content\n- Add/update tests that verify the simplified prompt contains role description, format spec, and project context\n- Then simplify the implementation\n\nThe `PlanningPromptInput` interface may need simplification too (remove fields that were only used for file embedding like `implementationFile`).\n\nDo NOT delete `tryReadFile()` or `fileSection()` yet — they may still be used by other prompt builders. Task 5 handles the full cleanup.",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts"
+      ],
+      "tests": [
+        "bun test test/commands/plan.test.ts"
+      ],
+      "dependencies": [],
+      "model": "opus"
+    },
+    {
+      "id": 5,
+      "priority": 3,
+      "title": "Simplify runPlan() and delete obsolete code",
+      "description": "This is the main refactor task. Replace the multi-session orchestration in `runPlan()` with a single interactive claude spawn, and delete all obsolete functions.\n\nNew `runPlan()` should:\n1. Call `displayPreflight()` (keep as-is)\n2. Build system prompt via simplified `buildPlanningPrompt()`\n3. Spawn ONE interactive `claude --append-system-prompt <prompt> --allowedTools Read,Glob,Grep,Write,Edit` session\n4. When the user exits claude, ralph is done — return immediately\n\nDelete the following functions and their tests:\n- `buildTaskGenPrompt()` — moved to `commands/generate-tasks.md`\n- `buildReviewPrompt()` — moved to `commands/review-tasks.md`\n- `buildRegeneratorPrompt()` — no longer needed\n- `spawnReviewer()` — replaced by slash command\n- `spawnRegenerator()` — replaced by slash command\n- `runAutoReview()` — replaced by slash command\n- `parseReviewFeedback()` — reviewer reports conversationally now\n- `reviewNotesLoop()` — replaced by natural conversation\n- `reviewTasksLoop()` — replaced by natural conversation\n- `launchPlanningSession()` — collapsed into runPlan()\n- `launchTaskGeneration()` — collapsed into runPlan()\n\nDelete all associated types/interfaces:\n- `LaunchPlanningSessionOpts`, `LaunchTaskGenerationOpts`\n- `SpawnReviewerOpts`, `SpawnReviewerDeps`\n- `SpawnRegeneratorOpts`, `SpawnRegeneratorDeps`\n- `RunAutoReviewOpts`, `ReviewTasksLoopOpts`, `ReviewNotesLoopOpts`\n- `ReviewDimension`, `ReviewResult`\n- Simplify `RunPlanOpts` to only what's needed (projectName, projectRoot, dataDir, agents)\n\nDelete internal helpers that are no longer used:\n- `tryReadFile()`, `fileSection()` — verify no remaining callers first\n- `computeGitStatus()` — only used by deleted task gen prompt\n- `defaultEditFn()` — only used by deleted menu loops\n\nRemove the `tasksSchemaRaw` import (schema is now in the slash command file).\n\nRemove the menu.ts import (but don't delete menu.ts yet — task 6 handles that).\n\nTDD approach:\n- Delete obsolete tests first\n- Write new tests for simplified `runPlan()` (spawns claude with correct args, system prompt contains project context)\n- Then implement\n\nVerify `bun test test/commands/plan.test.ts` passes after all changes.",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts"
+      ],
+      "tests": [
+        "bun test test/commands/plan.test.ts"
+      ],
+      "dependencies": [3, 4],
+      "model": "opus"
+    },
+    {
+      "id": 6,
+      "priority": 4,
+      "title": "Delete menu.ts",
+      "description": "Remove `src/menu.ts` and `test/menu.test.ts`. Verify no remaining imports of menu.ts anywhere in the codebase (grep for 'menu' in src/ and test/ directories). Remove any lingering import statements.\n\nThis should be straightforward — the only consumer was plan.ts menu loops, which were removed in task 5.",
+      "status": "pending",
+      "files": [
+        "src/menu.ts",
+        "test/menu.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [5],
+      "model": "sonnet"
+    },
+    {
+      "id": 7,
+      "priority": 5,
+      "title": "Verify build and full test suite",
+      "description": "Final verification task. Run the full test suite and build to ensure everything works after all refactoring.\n\n1. Run `bun test` — all tests must pass\n2. Run `bun run build` — must compile without errors\n3. Run `./dist/ralph plan --help` — smoke test that the command still registers\n4. Verify `commands/generate-tasks.md` and `commands/review-tasks.md` exist and are well-formed\n5. If any issues found, fix them\n\nThe `commands/` directory is static markdown — it doesn't need to be compiled, just needs to be findable at runtime via `resolveRalphRoot()`.",
+      "status": "pending",
+      "files": [],
       "tests": [
         "bun test",
         "bun run build"
       ],
+      "dependencies": [6],
       "model": "sonnet"
     }
   ]

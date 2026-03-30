@@ -1,0 +1,153 @@
+# Generate Tasks
+
+You are the planning agent. Your job is to translate the approved planning notes into a concrete, executable task list by spawning a subagent.
+
+## Instructions
+
+Use the **Agent tool** to spawn a fresh general-purpose subagent with the prompt below. The subagent will:
+
+1. Read `.ralph/planning-notes.md` — this is the approved plan
+2. Read the project codebase as needed to fill in implementation details (file paths, function names, test commands)
+3. If `.ralph/tasks.json` already exists, read it and preserve any tasks with status `complete` and all their metadata (`completedAt`, `completedBy`, `notes`)
+4. Present the proposed task breakdown to you (the parent agent) — show each task's title, directory, rough description, dependencies, and suggested model (opus/sonnet)
+5. **Wait for your approval** before writing `.ralph/tasks.json`
+
+Once the subagent returns its proposed tasks, present them to the user. If the user approves, instruct the subagent (or spawn a new one) to write `tasks.json`. If the user requests changes, relay the feedback and iterate.
+
+## Subagent Prompt
+
+Copy the following prompt verbatim when spawning the subagent:
+
+---
+
+You are a task generation agent for the Ralph agentic loop system.
+
+YOUR WORKFLOW:
+1. Read `.ralph/planning-notes.md` — this is the approved plan. Follow it closely.
+2. Read the project codebase as needed to fill in implementation details (file paths, function names, test commands).
+3. If `.ralph/tasks.json` already exists, read it. Preserve any tasks with status 'complete' and ALL their metadata (completedAt, completedBy, notes). Do not modify completed tasks in any way.
+4. Check if `.claude/agents/` exists and list any specialist agents available.
+5. Present your proposed task breakdown. For each task show: title, directory, description summary, dependencies, suggested model, and agent (if applicable). Do NOT write tasks.json yet — return the proposal so the user can review it.
+
+TASKS.JSON SCHEMA:
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["project", "tasks"],
+  "properties": {
+    "project": { "type": "string" },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "priority", "title", "status"],
+        "properties": {
+          "id": { "type": "integer" },
+          "priority": { "type": "integer" },
+          "title": { "type": "string" },
+          "description": {
+            "type": "string",
+            "description": "Detailed implementation instructions for the worker agent"
+          },
+          "directory": {
+            "type": "string",
+            "description": "Relative path from project root to the agent's working directory (e.g., 'src/services/auth-service'). Empty or omitted means project root."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "in-progress", "complete", "blocked"]
+          },
+          "files": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Relevant file paths relative to the task's directory"
+          },
+          "tests": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp when task was completed"
+          },
+          "completedBy": {
+            "type": "string",
+            "pattern": "^iteration-[0-9]+$",
+            "description": "Which iteration completed this task"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Agent observations, warnings, suggestions for next iteration"
+          },
+          "dependencies": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "description": "Task IDs that must be complete before this task"
+          },
+          "model": {
+            "type": "string",
+            "enum": ["opus", "sonnet"],
+            "default": "opus",
+            "description": "Which Claude model to use"
+          },
+          "agent": {
+            "type": "string",
+            "description": "Name of a .claude/agents/*.md specialist agent for this task (omit for default generalist)"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+TASK STRUCTURE GUIDELINES:
+Each task needs:
+- **id**: unique integer, sequential
+- **priority**: integer (lower = higher priority)
+- **title**: short descriptive title
+- **description**: detailed implementation instructions — give the worker agent enough context to complete the task independently without reading planning-notes.md
+- **directory**: relative path from project root to the agent's working directory
+- **status**: `pending` for new tasks
+- **files**: array of relevant file paths RELATIVE TO THE TASK'S DIRECTORY
+- **dependencies**: array of task IDs that must complete first (empty array if none)
+- **tests**: array of test commands to verify the task (run from the task's directory)
+- **model**: `opus` or `sonnet` (optional, defaults to `opus`)
+- **agent**: (optional) name of a specialist agent from `.claude/agents/`
+
+DIRECTORY GUIDELINES:
+| Task type | directory | Agent behavior |
+|-----------|----------|----------------|
+| Module work | src/services/auth-service | cd into module, work within it |
+| DB migration | src/database | cd into database dir, work within it |
+| Cross-module | (empty) | cd to project root, may touch anything |
+
+TEST COMMAND GUIDELINES:
+- ALWAYS prefer the project's own test scripts (e.g., `npm run test`, `npm test`, `bun test`, `cargo test`) over direct tool invocations (e.g., `npx vitest run Foo`, `npx jest Foo`)
+- Direct tool invocations like `npx vitest run ComponentName` often fail because they bypass project-level config, setup files, and path resolution that the npm script handles
+- If you want to scope tests to specific files, use the test framework's built-in filtering via the npm script (e.g., `npm test -- --filter ComponentName`) but only if the project's test script supports passthrough args. When in doubt, just use `npm run test` or equivalent.
+- Read the project's `package.json` (or equivalent) to find the correct test script name
+
+MODEL SELECTION GUIDANCE:
+- **sonnet**: straightforward tasks — add validation, write tests, simple CRUD, config changes, file deletions, simple refactors
+- **opus**: complex tasks — architectural decisions, subtle debugging, multi-file refactors, tasks requiring deep codebase understanding
+
+AGENT SELECTION:
+- If `.claude/agents/` contains specialist agents, assign them to tasks matching their expertise
+- Not every task needs a specialist — use the default generalist for tasks without a clear match
+
+RULES:
+- NEVER modify tasks with status `complete` or their metadata (`completedAt`, `completedBy`, `notes`)
+- Keep task IDs unique and sequential (continue from the highest existing ID if preserving completed tasks)
+- The description field should give the worker agent enough context to complete the task independently
+- Include specific file paths in the `files` array so the worker knows where to look
+- Each task should be scoped to ~5 minutes of focused agent work
+- Link tasks via `dependencies` when ordering matters
+- ONLY write to `.ralph/tasks.json` — do not modify any other files
+- Present the proposed tasks FIRST. Do NOT write tasks.json until explicitly told to proceed.
+
+---
+
+After receiving the subagent's proposed tasks, present them to the user for review. Once approved, have the subagent (or a new one) write `.ralph/tasks.json`.
