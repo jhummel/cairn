@@ -662,6 +662,94 @@ export async function spawnReviewer(opts: SpawnReviewerOpts): Promise<{ exitCode
   return { exitCode };
 }
 
+// --- Auto-review loop orchestrator ---
+
+const SCORE_COLORS: Record<string, string> = {
+  PASS: '\x1b[32m', // green
+  WARN: '\x1b[33m', // yellow
+  FAIL: '\x1b[31m', // red
+};
+const RESET = '\x1b[0m';
+
+type SpawnReviewerFn = (opts: SpawnReviewerOpts) => Promise<{ exitCode: number }>;
+type SpawnRegeneratorFn = (opts: SpawnRegeneratorOpts) => Promise<{ exitCode: number }>;
+type ReadFileFn = (path: string, encoding: string) => string;
+type ConsoleLogFn = (...args: any[]) => void;
+
+export interface RunAutoReviewOpts {
+  projectRoot: string;
+  dataDir: string;
+  projectName: string;
+  agents: AgentInfo[];
+  gitStatus: string;
+  maxIterations: number;
+  streamOpts?: ProcessStreamOptions;
+  deps?: {
+    spawnReviewerFn?: SpawnReviewerFn;
+    spawnRegeneratorFn?: SpawnRegeneratorFn;
+    readFileFn?: ReadFileFn;
+    consoleLogFn?: ConsoleLogFn;
+  };
+}
+
+export async function runAutoReview(opts: RunAutoReviewOpts): Promise<ReviewResult> {
+  const {
+    projectRoot, dataDir, projectName, agents, gitStatus,
+    maxIterations, streamOpts, deps,
+  } = opts;
+
+  const doSpawnReviewer = deps?.spawnReviewerFn ?? spawnReviewer;
+  const doSpawnRegenerator = deps?.spawnRegeneratorFn ?? spawnRegenerator;
+  const doReadFile: ReadFileFn = deps?.readFileFn ?? fs.readFileSync as any;
+  const log: ConsoleLogFn = deps?.consoleLogFn ?? console.log;
+
+  let lastResult: ReviewResult = { dimensions: [], verdict: 'NEEDS_WORK', summary: '' };
+
+  for (let pass = 1; pass <= maxIterations; pass++) {
+    log(`Auto-review pass ${pass} of ${maxIterations}...`);
+
+    await doSpawnReviewer({ projectRoot, dataDir, passNumber: pass, streamOpts });
+
+    const feedbackPath = path.join(dataDir, 'review-feedback.md');
+    const feedbackContent = doReadFile(feedbackPath, 'utf8');
+    const result = parseReviewFeedback(feedbackContent);
+    lastResult = result;
+
+    // Display dimension scores
+    for (const dim of result.dimensions) {
+      const color = SCORE_COLORS[dim.score] ?? '';
+      log(`  ${dim.name}: ${color}${dim.score}${RESET}`);
+      for (const issue of dim.issues) {
+        log(`    - ${issue}`);
+      }
+    }
+
+    if (result.verdict === 'PASS') {
+      log('All dimensions passed. Tasks are ready for review.');
+      return result;
+    }
+
+    if (pass < maxIterations) {
+      log('Regenerating tasks with reviewer feedback...');
+      await doSpawnRegenerator({
+        projectRoot, dataDir, projectName, agents, gitStatus,
+        reviewFeedback: feedbackContent, streamOpts,
+      });
+    }
+  }
+
+  // Loop exhausted — print remaining concerns
+  for (const dim of lastResult.dimensions) {
+    if (dim.issues.length > 0) {
+      for (const issue of dim.issues) {
+        log(`  - ${issue}`);
+      }
+    }
+  }
+
+  return lastResult;
+}
+
 export type SpawnSyncFn = (
   command: string,
   args: readonly string[],

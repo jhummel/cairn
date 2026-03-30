@@ -20,6 +20,7 @@ import {
   buildRegeneratorPrompt,
   spawnReviewer,
   spawnRegenerator,
+  runAutoReview,
 } from '../../src/commands/plan';
 import type { AgentInfo } from '../../src/types';
 import type { SpawnSyncReturns } from 'child_process';
@@ -3032,5 +3033,230 @@ describe('spawnRegenerator', () => {
     const args = spawnCalls[0].args;
     const idx = args.indexOf('--append-system-prompt');
     expect(args[idx + 1]).toContain('FAIL: dependency ordering is wrong');
+  });
+});
+
+// --- runAutoReview tests ---
+
+describe('runAutoReview', () => {
+  function makeFeedbackContent(verdict: 'PASS' | 'NEEDS_WORK', dimensions: { name: string; score: string; issues?: string[] }[]): string {
+    const lines: string[] = [];
+    for (const d of dimensions) {
+      lines.push(`${d.name}: ${d.score}`);
+      if (d.issues) {
+        for (const issue of d.issues) {
+          lines.push(`- ${issue}`);
+        }
+      }
+    }
+    lines.push(`## Verdict: ${verdict}`);
+    lines.push('Summary text here.');
+    return lines.join('\n');
+  }
+
+  function makeOpts(overrides: {
+    maxIterations?: number;
+    feedbackPerPass?: string[];
+  } = {}) {
+    const maxIterations = overrides.maxIterations ?? 3;
+    const feedbackPerPass = overrides.feedbackPerPass ?? [];
+    let passIndex = 0;
+
+    const spawnReviewerCalls: any[] = [];
+    const spawnRegeneratorCalls: any[] = [];
+    const logMessages: string[] = [];
+
+    const spawnReviewerFn = async (opts: any) => {
+      spawnReviewerCalls.push(opts);
+      return { exitCode: 0 };
+    };
+
+    const spawnRegeneratorFn = async (opts: any) => {
+      spawnRegeneratorCalls.push(opts);
+      return { exitCode: 0 };
+    };
+
+    const readFileFn = (_path: string, _enc: string) => {
+      const content = feedbackPerPass[passIndex] ?? '';
+      passIndex++;
+      return content;
+    };
+
+    const consoleLogFn = (...args: any[]) => {
+      logMessages.push(args.map(String).join(' '));
+    };
+
+    return {
+      opts: {
+        projectRoot: '/fake/project',
+        dataDir: '/fake/project/.ralph',
+        projectName: 'test-project',
+        agents: [{ name: 'agent1', directories: ['.'] }] as AgentInfo[],
+        gitStatus: 'clean',
+        maxIterations,
+        deps: {
+          spawnReviewerFn,
+          spawnRegeneratorFn,
+          readFileFn,
+          consoleLogFn,
+        },
+      },
+      spawnReviewerCalls,
+      spawnRegeneratorCalls,
+      logMessages,
+    };
+  }
+
+  test('returns PASS result on first pass (early exit)', async () => {
+    const passFeedback = makeFeedbackContent('PASS', [
+      { name: 'Completeness', score: 'PASS' },
+      { name: 'Dependency Order', score: 'PASS' },
+      { name: 'Clarity', score: 'PASS' },
+      { name: 'Scope', score: 'PASS' },
+      { name: 'Testability', score: 'PASS' },
+    ]);
+
+    const { opts, spawnReviewerCalls, spawnRegeneratorCalls, logMessages } = makeOpts({
+      feedbackPerPass: [passFeedback],
+    });
+
+    const result = await runAutoReview(opts);
+
+    expect(result.verdict).toBe('PASS');
+    expect(spawnReviewerCalls).toHaveLength(1);
+    expect(spawnRegeneratorCalls).toHaveLength(0);
+    expect(logMessages.some(m => m.includes('Auto-review pass 1 of 3'))).toBe(true);
+    expect(logMessages.some(m => m.includes('All dimensions passed'))).toBe(true);
+  });
+
+  test('converges on pass 2 after regeneration', async () => {
+    const failFeedback = makeFeedbackContent('NEEDS_WORK', [
+      { name: 'Completeness', score: 'FAIL', issues: ['Missing error handling task'] },
+      { name: 'Dependency Order', score: 'PASS' },
+      { name: 'Clarity', score: 'WARN', issues: ['Task 3 description is vague'] },
+      { name: 'Scope', score: 'PASS' },
+      { name: 'Testability', score: 'PASS' },
+    ]);
+    const passFeedback = makeFeedbackContent('PASS', [
+      { name: 'Completeness', score: 'PASS' },
+      { name: 'Dependency Order', score: 'PASS' },
+      { name: 'Clarity', score: 'PASS' },
+      { name: 'Scope', score: 'PASS' },
+      { name: 'Testability', score: 'PASS' },
+    ]);
+
+    const { opts, spawnReviewerCalls, spawnRegeneratorCalls, logMessages } = makeOpts({
+      feedbackPerPass: [failFeedback, passFeedback],
+    });
+
+    const result = await runAutoReview(opts);
+
+    expect(result.verdict).toBe('PASS');
+    expect(spawnReviewerCalls).toHaveLength(2);
+    expect(spawnRegeneratorCalls).toHaveLength(1);
+    // Verify regenerator got the feedback content
+    expect(spawnRegeneratorCalls[0].reviewFeedback).toBe(failFeedback);
+    expect(logMessages.some(m => m.includes('Auto-review pass 1 of 3'))).toBe(true);
+    expect(logMessages.some(m => m.includes('Regenerating tasks'))).toBe(true);
+    expect(logMessages.some(m => m.includes('Auto-review pass 2 of 3'))).toBe(true);
+    expect(logMessages.some(m => m.includes('All dimensions passed'))).toBe(true);
+  });
+
+  test('returns NEEDS_WORK when max iterations exhausted', async () => {
+    const failFeedback1 = makeFeedbackContent('NEEDS_WORK', [
+      { name: 'Completeness', score: 'FAIL', issues: ['Missing tasks'] },
+      { name: 'Dependency Order', score: 'PASS' },
+      { name: 'Clarity', score: 'PASS' },
+      { name: 'Scope', score: 'PASS' },
+      { name: 'Testability', score: 'PASS' },
+    ]);
+    const failFeedback2 = makeFeedbackContent('NEEDS_WORK', [
+      { name: 'Completeness', score: 'WARN', issues: ['Still missing some tasks'] },
+      { name: 'Dependency Order', score: 'PASS' },
+      { name: 'Clarity', score: 'PASS' },
+      { name: 'Scope', score: 'PASS' },
+      { name: 'Testability', score: 'PASS' },
+    ]);
+
+    const { opts, spawnReviewerCalls, spawnRegeneratorCalls, logMessages } = makeOpts({
+      maxIterations: 2,
+      feedbackPerPass: [failFeedback1, failFeedback2],
+    });
+
+    const result = await runAutoReview(opts);
+
+    expect(result.verdict).toBe('NEEDS_WORK');
+    expect(spawnReviewerCalls).toHaveLength(2);
+    // Only 1 regeneration (between pass 1 and 2, not after last pass)
+    expect(spawnRegeneratorCalls).toHaveLength(1);
+    // Should print remaining concerns
+    expect(logMessages.some(m => m.includes('Still missing some tasks'))).toBe(true);
+  });
+
+  test('displays dimension scores with correct color labels', async () => {
+    const mixedFeedback = makeFeedbackContent('NEEDS_WORK', [
+      { name: 'Completeness', score: 'PASS' },
+      { name: 'Dependency Order', score: 'WARN', issues: ['Circular risk'] },
+      { name: 'Clarity', score: 'FAIL', issues: ['Task 2 unclear', 'Task 5 ambiguous'] },
+      { name: 'Scope', score: 'PASS' },
+      { name: 'Testability', score: 'PASS' },
+    ]);
+
+    const { opts, logMessages } = makeOpts({
+      maxIterations: 1,
+      feedbackPerPass: [mixedFeedback],
+    });
+
+    await runAutoReview(opts);
+
+    // Check that each dimension is displayed
+    expect(logMessages.some(m => m.includes('Completeness') && m.includes('PASS'))).toBe(true);
+    expect(logMessages.some(m => m.includes('Dependency Order') && m.includes('WARN'))).toBe(true);
+    expect(logMessages.some(m => m.includes('Clarity') && m.includes('FAIL'))).toBe(true);
+    // Check issues are displayed
+    expect(logMessages.some(m => m.includes('Task 2 unclear'))).toBe(true);
+    expect(logMessages.some(m => m.includes('Task 5 ambiguous'))).toBe(true);
+    expect(logMessages.some(m => m.includes('Circular risk'))).toBe(true);
+  });
+
+  test('passes correct opts to spawnReviewer', async () => {
+    const passFeedback = makeFeedbackContent('PASS', [
+      { name: 'Completeness', score: 'PASS' },
+    ]);
+    const streamOpts = { truncateText: false };
+    const { opts, spawnReviewerCalls } = makeOpts({
+      feedbackPerPass: [passFeedback],
+    });
+    opts.streamOpts = streamOpts as any;
+
+    await runAutoReview(opts);
+
+    expect(spawnReviewerCalls[0].projectRoot).toBe('/fake/project');
+    expect(spawnReviewerCalls[0].dataDir).toBe('/fake/project/.ralph');
+    expect(spawnReviewerCalls[0].passNumber).toBe(1);
+    expect(spawnReviewerCalls[0].streamOpts).toEqual(streamOpts);
+  });
+
+  test('passes correct opts to spawnRegenerator', async () => {
+    const failFeedback = makeFeedbackContent('NEEDS_WORK', [
+      { name: 'Completeness', score: 'FAIL', issues: ['Missing tasks'] },
+    ]);
+    const passFeedback = makeFeedbackContent('PASS', [
+      { name: 'Completeness', score: 'PASS' },
+    ]);
+    const streamOpts = { truncateText: false };
+    const { opts, spawnRegeneratorCalls } = makeOpts({
+      feedbackPerPass: [failFeedback, passFeedback],
+    });
+    opts.streamOpts = streamOpts as any;
+
+    await runAutoReview(opts);
+
+    expect(spawnRegeneratorCalls[0].projectRoot).toBe('/fake/project');
+    expect(spawnRegeneratorCalls[0].dataDir).toBe('/fake/project/.ralph');
+    expect(spawnRegeneratorCalls[0].projectName).toBe('test-project');
+    expect(spawnRegeneratorCalls[0].gitStatus).toBe('clean');
+    expect(spawnRegeneratorCalls[0].reviewFeedback).toBe(failFeedback);
+    expect(spawnRegeneratorCalls[0].streamOpts).toEqual(streamOpts);
   });
 });
