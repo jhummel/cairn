@@ -3,11 +3,14 @@ import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { execSync } from "child_process";
+import { EventEmitter } from "events";
+import { PassThrough } from "stream";
 import {
   captureGitSha,
   getGitDiff,
   buildPostTaskReviewPrompt,
   buildPostTaskReviewUserPrompt,
+  spawnPostTaskReviewer,
 } from "../src/post-task-reviewer";
 
 let tmpDir: string;
@@ -190,5 +193,202 @@ describe("buildPostTaskReviewUserPrompt", () => {
     });
     expect(prompt).toContain("Min task");
     expect(prompt).toContain("Minimal");
+  });
+});
+
+describe("spawnPostTaskReviewer", () => {
+  const sampleTask = {
+    id: 7,
+    title: "Add widget",
+    description: "Implement the widget feature",
+    files: ["src/widget.ts"],
+    tests: ["bun test"],
+    directory: "src",
+  };
+
+  function createMockChild() {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const child = new EventEmitter() as EventEmitter & {
+      stdin: PassThrough;
+      stdout: PassThrough;
+    };
+    child.stdin = stdin;
+    child.stdout = stdout;
+    return child;
+  }
+
+  test("spawns claude with correct args", async () => {
+    const child = createMockChild();
+    let spawnArgs: any[] = [];
+    const mockSpawn = (cmd: string, args: string[], opts: any) => {
+      spawnArgs = [cmd, args, opts];
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+    const mockProcessStream = async () => {};
+
+    await spawnPostTaskReviewer({
+      projectRoot: "/fake/root",
+      dataDir: "/fake/root/.ralph",
+      task: sampleTask,
+      diff: "some diff",
+      log: "some log",
+      files: ["src/widget.ts"],
+      deps: { spawn: mockSpawn, processStreamFn: mockProcessStream },
+    });
+
+    expect(spawnArgs[0]).toBe("claude");
+    const args: string[] = spawnArgs[1];
+    expect(args).toContain("-p");
+    expect(args).toContain("--output-format");
+    expect(args[args.indexOf("--output-format") + 1]).toBe("stream-json");
+    expect(args).toContain("--model");
+    expect(args[args.indexOf("--model") + 1]).toBe("sonnet");
+    expect(args).toContain("--verbose");
+    expect(args).toContain("--allowedTools");
+    expect(args[args.indexOf("--allowedTools") + 1]).toBe(
+      "Read,Glob,Grep,Edit,Write"
+    );
+    expect(args).toContain("--append-system-prompt");
+  });
+
+  test("unsets ANTHROPIC_API_KEY in env", async () => {
+    const child = createMockChild();
+    let spawnOpts: any;
+    const mockSpawn = (_cmd: string, _args: string[], opts: any) => {
+      spawnOpts = opts;
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+
+    await spawnPostTaskReviewer({
+      projectRoot: "/fake/root",
+      dataDir: "/fake/root/.ralph",
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    expect(spawnOpts.env.ANTHROPIC_API_KEY).toBe("");
+  });
+
+  test("writes user prompt to stdin", async () => {
+    const child = createMockChild();
+    let stdinData = "";
+    child.stdin.on("data", (chunk: Buffer) => {
+      stdinData += chunk.toString();
+    });
+
+    const mockSpawn = () => {
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+
+    await spawnPostTaskReviewer({
+      projectRoot: "/fake/root",
+      dataDir: "/fake/root/.ralph",
+      task: sampleTask,
+      diff: "the diff",
+      log: "the log",
+      files: ["src/widget.ts"],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    expect(stdinData).toContain("Task #7: Add widget");
+    expect(stdinData).toContain("the diff");
+    expect(stdinData).toContain("the log");
+  });
+
+  test("calls processStream on stdout", async () => {
+    const child = createMockChild();
+    let processStreamCalled = false;
+    let processStreamInput: any;
+
+    const mockSpawn = () => {
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+    const mockProcessStream = async (input: any) => {
+      processStreamCalled = true;
+      processStreamInput = input;
+    };
+
+    await spawnPostTaskReviewer({
+      projectRoot: "/fake/root",
+      dataDir: "/fake/root/.ralph",
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: mockProcessStream },
+    });
+
+    expect(processStreamCalled).toBe(true);
+    expect(processStreamInput).toBe(child.stdout);
+  });
+
+  test("returns exit code from child process", async () => {
+    const child = createMockChild();
+    const mockSpawn = () => {
+      setTimeout(() => child.emit("close", 42), 10);
+      return child as any;
+    };
+
+    const result = await spawnPostTaskReviewer({
+      projectRoot: "/fake/root",
+      dataDir: "/fake/root/.ralph",
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    expect(result.exitCode).toBe(42);
+  });
+
+  test("returns exit code 1 when close code is null", async () => {
+    const child = createMockChild();
+    const mockSpawn = () => {
+      setTimeout(() => child.emit("close", null), 10);
+      return child as any;
+    };
+
+    const result = await spawnPostTaskReviewer({
+      projectRoot: "/fake/root",
+      dataDir: "/fake/root/.ralph",
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("sets cwd to projectRoot", async () => {
+    const child = createMockChild();
+    let spawnOpts: any;
+    const mockSpawn = (_cmd: string, _args: string[], opts: any) => {
+      spawnOpts = opts;
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+
+    await spawnPostTaskReviewer({
+      projectRoot: "/my/project",
+      dataDir: "/my/project/.ralph",
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    expect(spawnOpts.cwd).toBe("/my/project");
   });
 });

@@ -1,4 +1,9 @@
-import { execSync } from "child_process";
+import { execSync, spawn as nodeSpawn, type ChildProcess } from "child_process";
+import type { Readable, Writable } from "stream";
+import {
+  processStream,
+  type ProcessStreamOptions,
+} from "./stream-filter";
 
 export function buildPostTaskReviewPrompt(): string {
   return `You are a post-task code reviewer for an autonomous programming agent.
@@ -122,6 +127,92 @@ export function captureGitSha(projectRoot: string): string | null {
   } catch {
     return null;
   }
+}
+
+type SpawnerSpawnFn = (
+  cmd: string,
+  args: string[],
+  opts: { cwd: string; env: Record<string, string | undefined>; stdio: any[] },
+) => ChildProcess;
+
+type SpawnerProcessStreamFn = (
+  input: Readable,
+  output: Writable,
+  options?: ProcessStreamOptions,
+) => Promise<void>;
+
+export interface SpawnPostTaskReviewerOpts {
+  projectRoot: string;
+  dataDir: string;
+  task: {
+    id: number;
+    title: string;
+    description: string;
+    files?: string[];
+    tests?: string[];
+    directory?: string;
+  };
+  diff: string;
+  log: string;
+  files: string[];
+  streamOpts?: ProcessStreamOptions;
+  deps?: {
+    spawn?: SpawnerSpawnFn;
+    processStreamFn?: SpawnerProcessStreamFn;
+  };
+}
+
+export async function spawnPostTaskReviewer(
+  opts: SpawnPostTaskReviewerOpts
+): Promise<{ exitCode: number }> {
+  const { projectRoot, task, diff, log, files, streamOpts, deps } = opts;
+
+  const doSpawn: SpawnerSpawnFn = deps?.spawn ?? (nodeSpawn as any);
+  const doProcessStream: SpawnerProcessStreamFn =
+    deps?.processStreamFn ?? processStream;
+
+  const env = { ...process.env, ANTHROPIC_API_KEY: "" };
+
+  const systemPrompt = buildPostTaskReviewPrompt();
+  const userPrompt = buildPostTaskReviewUserPrompt({ task, diff, log, files });
+
+  const args = [
+    "-p",
+    "--append-system-prompt",
+    systemPrompt,
+    "--allowedTools",
+    "Read,Glob,Grep,Edit,Write",
+    "--output-format",
+    "stream-json",
+    "--model",
+    "sonnet",
+    "--verbose",
+  ];
+
+  const child = doSpawn("claude", args, {
+    cwd: projectRoot,
+    env,
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+
+  child.stdin!.write(userPrompt);
+  child.stdin!.end();
+
+  const streamPromise = doProcessStream(
+    child.stdout!,
+    process.stdout,
+    streamOpts
+  );
+
+  const exitCode = await new Promise<number>((resolve) => {
+    child.on("close", (code: number | null) => {
+      resolve(code ?? 1);
+    });
+  });
+
+  await streamPromise.catch(() => {});
+
+  return { exitCode };
 }
 
 export function getGitDiff(
