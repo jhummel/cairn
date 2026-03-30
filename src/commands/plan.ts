@@ -292,6 +292,97 @@ RULES:
   return prompt;
 }
 
+export interface ReviewDimension {
+  name: string;
+  score: 'PASS' | 'WARN' | 'FAIL';
+  issues: string[];
+}
+
+export interface ReviewResult {
+  dimensions: ReviewDimension[];
+  verdict: 'PASS' | 'NEEDS_WORK';
+  summary: string;
+}
+
+/**
+ * Parse a review-feedback.md file into structured ReviewResult data.
+ * Returns NEEDS_WORK as a safe default for malformed or missing input.
+ */
+export function parseReviewFeedback(content: string): ReviewResult {
+  const safeDefault: ReviewResult = { dimensions: [], verdict: 'NEEDS_WORK', summary: '' };
+
+  if (!content || !content.trim()) return safeDefault;
+
+  const lines = content.split('\n');
+  const dimensions: ReviewDimension[] = [];
+  let verdict: 'PASS' | 'NEEDS_WORK' | null = null;
+  let summary = '';
+
+  // Known dimension names (may be multi-word)
+  const SCORE_PATTERN = /^([A-Za-z][A-Za-z\s]+?):\s*(PASS|WARN|FAIL)\s*$/;
+  const VERDICT_PATTERN = /^##\s*Verdict:\s*(PASS|NEEDS_WORK)\s*$/;
+
+  let currentDimension: ReviewDimension | null = null;
+  let afterVerdict = false;
+  const summaryLines: string[] = [];
+
+  for (const line of lines) {
+    // Check for verdict line
+    const verdictMatch = VERDICT_PATTERN.exec(line);
+    if (verdictMatch) {
+      if (currentDimension) {
+        dimensions.push(currentDimension);
+        currentDimension = null;
+      }
+      verdict = verdictMatch[1] as 'PASS' | 'NEEDS_WORK';
+      afterVerdict = true;
+      continue;
+    }
+
+    if (afterVerdict) {
+      if (line.trim()) summaryLines.push(line.trim());
+      continue;
+    }
+
+    // Check for dimension score line (not inside a ## header line)
+    if (!line.startsWith('#')) {
+      const dimMatch = SCORE_PATTERN.exec(line);
+      if (dimMatch) {
+        if (currentDimension) {
+          dimensions.push(currentDimension);
+        }
+        currentDimension = {
+          name: dimMatch[1].trim(),
+          score: dimMatch[2] as 'PASS' | 'WARN' | 'FAIL',
+          issues: [],
+        };
+        continue;
+      }
+    }
+
+    // Check for issue bullet under current dimension
+    if (currentDimension && line.match(/^\s*-\s+(.+)$/)) {
+      const issueMatch = /^\s*-\s+(.+)$/.exec(line);
+      if (issueMatch) {
+        currentDimension.issues.push(issueMatch[1].trim());
+      }
+      continue;
+    }
+  }
+
+  if (currentDimension) {
+    dimensions.push(currentDimension);
+  }
+
+  summary = summaryLines.join(' ');
+
+  if (verdict === null) {
+    return { ...safeDefault, dimensions };
+  }
+
+  return { dimensions, verdict, summary };
+}
+
 export type SpawnSyncFn = (
   command: string,
   args: readonly string[],

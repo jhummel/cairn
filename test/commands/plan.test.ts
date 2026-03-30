@@ -15,6 +15,7 @@ import {
   reviewNotesLoop,
   reviewTasksLoop,
   runPlan,
+  parseReviewFeedback,
 } from '../../src/commands/plan';
 import type { AgentInfo } from '../../src/types';
 import type { SpawnSyncReturns } from 'child_process';
@@ -2316,5 +2317,147 @@ describe('runPlan', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
+  });
+});
+
+describe('parseReviewFeedback', () => {
+  const allPassInput = `## Review Pass 1
+
+Coverage: PASS
+
+Atomicity: PASS
+
+Dependencies: PASS
+
+Acceptance Criteria: PASS
+
+Context Sufficiency: PASS
+
+## Verdict: PASS
+All tasks look good. The breakdown is comprehensive and well-structured.`;
+
+  const mixedInput = `## Review Pass 2
+
+Coverage: WARN
+- Missing edge case for empty input
+- No test for timeout scenario
+
+Atomicity: PASS
+
+Dependencies: FAIL
+- Task 3 depends on task 5 which doesn't exist
+- Circular dependency between tasks 2 and 4
+
+Acceptance Criteria: WARN
+- Task 7 has vague success criteria
+
+Context Sufficiency: PASS
+
+## Verdict: NEEDS_WORK
+Several issues need addressing before tasks are ready.`;
+
+  const needsWorkInput = `## Review Pass 3
+
+Coverage: FAIL
+- Many scenarios uncovered
+
+## Verdict: NEEDS_WORK
+Too many gaps in coverage.`;
+
+  test('all-pass case returns PASS verdict', () => {
+    const result = parseReviewFeedback(allPassInput);
+    expect(result.verdict).toBe('PASS');
+  });
+
+  test('all-pass case has no issues in dimensions', () => {
+    const result = parseReviewFeedback(allPassInput);
+    for (const dim of result.dimensions) {
+      expect(dim.issues).toHaveLength(0);
+    }
+  });
+
+  test('all-pass case parses all 5 dimensions', () => {
+    const result = parseReviewFeedback(allPassInput);
+    expect(result.dimensions).toHaveLength(5);
+    const names = result.dimensions.map(d => d.name);
+    expect(names).toContain('Coverage');
+    expect(names).toContain('Atomicity');
+    expect(names).toContain('Dependencies');
+    expect(names).toContain('Acceptance Criteria');
+    expect(names).toContain('Context Sufficiency');
+  });
+
+  test('all-pass case all scores are PASS', () => {
+    const result = parseReviewFeedback(allPassInput);
+    for (const dim of result.dimensions) {
+      expect(dim.score).toBe('PASS');
+    }
+  });
+
+  test('mixed scores parses WARN and FAIL correctly', () => {
+    const result = parseReviewFeedback(mixedInput);
+    const coverage = result.dimensions.find(d => d.name === 'Coverage');
+    expect(coverage?.score).toBe('WARN');
+    const deps = result.dimensions.find(d => d.name === 'Dependencies');
+    expect(deps?.score).toBe('FAIL');
+    const atomicity = result.dimensions.find(d => d.name === 'Atomicity');
+    expect(atomicity?.score).toBe('PASS');
+  });
+
+  test('mixed scores parses issues for WARN/FAIL dimensions', () => {
+    const result = parseReviewFeedback(mixedInput);
+    const coverage = result.dimensions.find(d => d.name === 'Coverage');
+    expect(coverage?.issues).toHaveLength(2);
+    expect(coverage?.issues[0]).toContain('Missing edge case for empty input');
+    const deps = result.dimensions.find(d => d.name === 'Dependencies');
+    expect(deps?.issues).toHaveLength(2);
+  });
+
+  test('mixed scores returns NEEDS_WORK verdict', () => {
+    const result = parseReviewFeedback(mixedInput);
+    expect(result.verdict).toBe('NEEDS_WORK');
+  });
+
+  test('mixed scores captures summary', () => {
+    const result = parseReviewFeedback(mixedInput);
+    expect(result.summary).toContain('Several issues need addressing');
+  });
+
+  test('NEEDS_WORK verdict is returned correctly', () => {
+    const result = parseReviewFeedback(needsWorkInput);
+    expect(result.verdict).toBe('NEEDS_WORK');
+  });
+
+  test('malformed input returns NEEDS_WORK as safe default', () => {
+    const result = parseReviewFeedback('this is not valid review feedback at all');
+    expect(result.verdict).toBe('NEEDS_WORK');
+  });
+
+  test('malformed input returns empty dimensions', () => {
+    const result = parseReviewFeedback('garbage input');
+    expect(result.dimensions).toHaveLength(0);
+  });
+
+  test('empty string returns NEEDS_WORK', () => {
+    const result = parseReviewFeedback('');
+    expect(result.verdict).toBe('NEEDS_WORK');
+  });
+
+  test('missing verdict section returns NEEDS_WORK', () => {
+    const noVerdict = `Coverage: PASS\nAtomicity: PASS\n`;
+    const result = parseReviewFeedback(noVerdict);
+    expect(result.verdict).toBe('NEEDS_WORK');
+  });
+
+  test('missing dimensions section still parses verdict', () => {
+    const verdictOnly = `## Verdict: PASS\nEverything looks great.`;
+    const result = parseReviewFeedback(verdictOnly);
+    expect(result.verdict).toBe('PASS');
+    expect(result.dimensions).toHaveLength(0);
+  });
+
+  test('summary text is captured after verdict line', () => {
+    const result = parseReviewFeedback(allPassInput);
+    expect(result.summary).toContain('All tasks look good');
   });
 });

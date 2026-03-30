@@ -2,37 +2,21 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 1,
-      "priority": 1,
-      "title": "Add review.maxIterations to RalphConfig",
-      "description": "TDD. Update the RalphConfig interface in src/types.ts to add an optional `review` field: `review?: { maxIterations: number }`. Update `isValidConfig()` to validate it (optional object, if present must have numeric maxIterations). Update `loadConfig()` in src/config.ts to default `review.maxIterations` to 3 when not specified in ralph.json. Update src/commands/init.ts to add a prompt for review.maxIterations (with default 3) during `ralph init`. Write tests first in the appropriate test files, then implement.",
-      "status": "complete",
-      "completedAt": "2026-03-29T20:00:00Z",
-      "completedBy": "iteration-1",
-      "notes": "Added review?.maxIterations to RalphConfig (optional field). isValidConfig validates it when present. loadConfig defaults to 3. init.ts adds reviewMaxIterations to ConfigDefaults and prompts for it (after narration prompts, before instructions). One existing runInit test required +1 answer in its hardcoded array due to new prompt. All 599 tests pass.",
-      "files": [
-        "src/types.ts",
-        "src/config.ts",
-        "src/commands/init.ts",
-        "test/types.test.ts",
-        "test/config.test.ts",
-        "test/commands/init.test.ts"
-      ],
-      "tests": ["bun test"],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 2,
       "priority": 2,
       "title": "Build review feedback parser",
       "description": "TDD. Create and export a function `parseReviewFeedback(content: string)` in src/commands/plan.ts. It parses the review-feedback.md format and returns structured data:\n\n```ts\ninterface ReviewDimension {\n  name: string;\n  score: 'PASS' | 'WARN' | 'FAIL';\n  issues: string[];\n}\ninterface ReviewResult {\n  dimensions: ReviewDimension[];\n  verdict: 'PASS' | 'NEEDS_WORK';\n  summary: string;\n}\n```\n\nThe input format has sections like:\n```\nCoverage: PASS | WARN | FAIL\n- [issue text]\n\n## Verdict: PASS | NEEDS_WORK\n[summary text]\n```\n\nHandle edge cases: missing dimensions, malformed input (return NEEDS_WORK verdict as safe default). Write tests first in test/commands/plan.test.ts covering: all-pass case, mixed scores, NEEDS_WORK verdict, malformed input, missing sections.",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T21:00:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Implemented parseReviewFeedback with ReviewDimension and ReviewResult interfaces. Parser handles dimension lines (Name: PASS|WARN|FAIL), bullet issues under each dimension, verdict line (## Verdict: PASS|NEEDS_WORK), and summary text. Returns NEEDS_WORK as safe default for malformed/empty input. 13 new tests added to test/commands/plan.test.ts covering all-pass, mixed scores, NEEDS_WORK, malformed input, empty string, missing verdict, missing dimensions, summary capture. All 614 tests pass.",
       "files": [
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"
       ],
-      "tests": ["bun test"],
+      "tests": [
+        "bun test"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
@@ -46,7 +30,9 @@
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"
       ],
-      "tests": ["bun test"],
+      "tests": [
+        "bun test"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
@@ -60,8 +46,12 @@
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"
       ],
-      "tests": ["bun test"],
-      "dependencies": [3],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        3
+      ],
       "model": "sonnet"
     },
     {
@@ -76,8 +66,12 @@
         "src/stream-filter.ts",
         "test/commands/plan.test.ts"
       ],
-      "tests": ["bun test"],
-      "dependencies": [3],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        3
+      ],
       "model": "opus"
     },
     {
@@ -90,8 +84,12 @@
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"
       ],
-      "tests": ["bun test"],
-      "dependencies": [4],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        4
+      ],
       "model": "opus"
     },
     {
@@ -104,8 +102,15 @@
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"
       ],
-      "tests": ["bun test"],
-      "dependencies": [1, 2, 5, 6],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        1,
+        2,
+        5,
+        6
+      ],
       "model": "opus"
     },
     {
@@ -118,8 +123,12 @@
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"
       ],
-      "tests": ["bun test"],
-      "dependencies": [7],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        7
+      ],
       "model": "opus"
     },
     {
@@ -132,7 +141,9 @@
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"
       ],
-      "tests": ["bun test"],
+      "tests": [
+        "bun test"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
@@ -146,8 +157,21 @@
         "package.json",
         "src/index.ts"
       ],
-      "tests": ["bun test", "bun run build"],
-      "dependencies": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      "tests": [
+        "bun test",
+        "bun run build"
+      ],
+      "dependencies": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
       "model": "sonnet"
     }
   ]
