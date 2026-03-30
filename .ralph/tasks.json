@@ -2,36 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 6,
-      "priority": 5,
-      "title": "Wire into run loop",
-      "description": "TDD. Integrate post-task review into `src/commands/run.ts`.\n\n1. **Add deps to RunRunDeps** (around line 272): Add `captureGitSha: (projectRoot: string) => string | null` and `runPostTaskReview: (opts: RunPostTaskReviewOpts) => Promise<void>`. Import the types and default implementations from `src/post-task-reviewer.ts`.\n\n2. **Capture SHA before agent spawn** (~line 533, before `deps.spawnClaude()`): `const beforeSha = deps.captureGitSha(projectRoot);`\n\n3. **Call review after test validation** (~line 563, after validateTaskTests, before archiveCompletedTasks ~line 565): Re-read the task from tasks.json to get its current status. If status is 'complete', call:\n```ts\nawait deps.runPostTaskReview({\n  projectRoot,\n  dataDir,\n  task: currentTask,\n  taskStatus: updatedTask.status,\n  beforeSha,\n  config,\n  streamOpts,\n});\n```\n\n4. **Set defaults in createDefaultDeps()**: Import `captureGitSha` and `runPostTaskReview` from post-task-reviewer and wire them as defaults.\n\nTests in `test/commands/run.test.ts`:\n- SHA is captured before spawnClaude is called\n- runPostTaskReview is called after validation when task is complete\n- runPostTaskReview is NOT called when review.postTask is false/undefined\n- runPostTaskReview is NOT called when task status is not complete",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T21:30:00Z",
-      "completedBy": "iteration-6",
-      "notes": "Wired post-task review into run loop: added captureGitSha and runPostTaskReview to RunRunDeps with defaults from post-task-reviewer.ts. SHA captured before spawnClaude, review called after validateTaskTests only when config.review.postTask is true AND re-read task status is 'complete'. 4 new integration tests cover: SHA ordering, review called on complete, review skipped when config disabled, review skipped when task not complete. All 732 tests pass.",
-      "files": [
-        "src/commands/run.ts",
-        "test/commands/run.test.ts",
-        "src/post-task-reviewer.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        1,
-        5
-      ],
-      "model": "opus"
-    },
-    {
       "id": 7,
       "priority": 6,
       "title": "Verify build and full test suite",
       "description": "Run `bun test` and verify all tests pass. Run `bun run build` and verify it compiles without errors. Run `dist/ralph --version` as a smoke test. If any test fails or the build breaks, diagnose and fix the issue.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T21:30:00Z",
+      "completedBy": "iteration-7",
+      "notes": "All 732 tests pass, build compiles in 134ms, dist/ralph --version outputs 'ralph 0.1.0'. No issues found.",
       "files": [
         "package.json"
       ],
