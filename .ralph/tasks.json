@@ -2,32 +2,14 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 8,
-      "priority": 8,
-      "title": "Add auto-review menu option to reviewTasksLoop",
-      "description": "TDD. Add an `[a]uto-review` menu option to the `reviewTasksLoop()` function in src/commands/plan.ts. Insert it between the existing `[v]iew` and `[p]lan` options (around line 660).\n\nThe handler should:\n1. Check that tasks.json exists (print error and return {exit: false} if not)\n2. Load config to get review.maxIterations (default 3)\n3. Call runAutoReview() with appropriate opts\n4. After the loop completes, display the final review-feedback.md content if verdict is NEEDS_WORK\n5. Return {exit: false} to stay in the menu loop\n\nUpdate the ReviewTasksLoopOpts interface to include any new dependencies needed (projectRoot, projectName, agents, gitStatus, config). Thread these through from the caller in the plan command handler (around line 776).\n\nWrite tests verifying: menu option appears with key 'a', handler checks for tasks.json existence, handler calls runAutoReview, returns to menu after completion.",
-      "status": "complete",
-      "completedAt": "2026-03-29T20:30:00Z",
-      "completedBy": "iteration-8",
-      "notes": "Added [a]uto-review menu option between [v]iew and [p]lan in reviewTasksLoop. Updated ReviewTasksLoopOpts with optional projectRoot, projectName, agents, gitStatus, and runAutoReviewFn fields. Handler checks tasks.json existence, calls runAutoReview with maxIterations=3, displays review-feedback.md content after completion. Threaded new fields from runPlan call site. All 679 tests pass including 4 new tests for the auto-review option.",
-      "files": [
-        "src/commands/plan.ts",
-        "test/commands/plan.test.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        7
-      ],
-      "model": "opus"
-    },
-    {
       "id": 9,
       "priority": 9,
       "title": "Make task generation auto-start",
       "description": "Update the user prompt string on line 411 of src/commands/plan.ts in the `launchTaskGeneration()` function. Change from:\n\n`'Read planning-notes.md and generate the task breakdown. Show me the proposed tasks for approval before writing tasks.json.'`\n\nTo something more directive like:\n\n`'Read planning-notes.md now and generate the complete task breakdown. Present the tasks in a table, then ask if you should write tasks.json.'`\n\nThe key change is making it unambiguous that the agent should start immediately without waiting for additional human input. Write a test verifying the prompt string contains directive language (e.g., 'now', 'generate the complete').",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T21:00:00Z",
+      "completedBy": "iteration-9",
+      "notes": "Updated user prompt in launchTaskGeneration to include 'now' and 'generate the complete' for directive auto-start language. Added 1 test verifying prompt contains 'now' and 'generate the complete'. All 680 tests pass.",
       "files": [
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"

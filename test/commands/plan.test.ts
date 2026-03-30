@@ -1188,6 +1188,27 @@ describe('launchTaskGeneration', () => {
     }
   });
 
+  test('user prompt contains directive language to auto-start', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      launchTaskGeneration({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        gitStatus: '',
+        spawnSyncFn: spawnFn,
+      });
+      const args = calls[0].args;
+      const lastArg = args[args.length - 1];
+      expect(lastArg).toContain('now');
+      expect(lastArg).toContain('generate the complete');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
   test('sets cwd to projectRoot', () => {
     const { tmpDir, ralphDir } = makeTempDir(true);
     const { spawnFn, calls } = makeSpawnSyncSpy();

@@ -866,7 +866,7 @@ export function launchTaskGeneration(opts: LaunchTaskGenerationOpts): void {
   spawnSyncFn('claude', [
     '--append-system-prompt', prompt,
     '--allowedTools', 'Read,Glob,Grep,Write,Edit',
-    'Read planning-notes.md and generate the task breakdown. Show me the proposed tasks for approval before writing tasks.json.',
+    'Read planning-notes.md now and generate the complete task breakdown. Present the tasks in a table, then ask if you should write tasks.json.',
   ], {
     stdio: 'inherit',
     cwd: projectRoot,
