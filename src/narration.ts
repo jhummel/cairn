@@ -4,11 +4,17 @@ import net from 'net';
 
 const DEFAULT_SOCKET_PATH = '/tmp/ralph-tts.sock';
 
+export interface StartNarrationDeps {
+  checkHealth?: (socketPath: string) => Promise<boolean>;
+  sleep?: (ms: number) => Promise<void>;
+}
+
 export interface StartNarrationOpts {
   pythonPath: string;
   scriptPath: string;
   voice: string;
   socketPath?: string;
+  deps?: StartNarrationDeps;
 }
 
 /**
@@ -33,15 +39,17 @@ export async function startNarrationServer(opts: StartNarrationOpts): Promise<nu
     throw new Error('Failed to spawn narration server: no PID');
   }
 
-  // Wait ~1s for server to start, then verify health
-  await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+  const checkHealth = opts.deps?.checkHealth ?? checkNarrationHealth;
+  const sleep = opts.deps?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
-  const healthy = await checkNarrationHealth(socketPath);
-  if (!healthy) {
-    throw new Error('Narration server failed health check after startup');
+  const MAX_RETRIES = 10;
+  for (let i = 0; i < MAX_RETRIES; i++) {
+    await sleep(1000);
+    const healthy = await checkHealth(socketPath);
+    if (healthy) return pid;
   }
 
-  return pid;
+  throw new Error('Narration server failed health check after startup');
 }
 
 /**

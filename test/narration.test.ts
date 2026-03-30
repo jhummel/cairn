@@ -185,21 +185,17 @@ describe('startNarrationServer', () => {
 
     await new Promise<void>((resolve) => mockServer.listen(sockPath, resolve));
 
-    // Mock spawn to return a fake child process with a known PID
-    const { spawn: realSpawn } = await import('child_process');
-    const spawnMod = await import('child_process');
-
-    // Override spawn via module mock — use spyOn approach
-    // Since we can't easily mock child_process.spawn in bun without module mocking,
-    // we test the health check path with a real socket and a real (but harmless) spawn.
     // Use 'true' as the python binary (it exits 0 immediately with no output).
-    // The socket is already listening so health check will pass.
+    // The socket is already listening so health check will pass on first retry.
+    // Mock sleep to avoid real 1s delay.
+    const noopSleep = async (_ms: number) => {};
     try {
       const pid = await startNarrationServer({
         pythonPath: '/usr/bin/true',
         scriptPath: '/dev/null',
         voice: 'en-US',
         socketPath: sockPath,
+        deps: { sleep: noopSleep },
       });
       expect(typeof pid).toBe('number');
       expect(pid).toBeGreaterThan(0);
@@ -211,14 +207,80 @@ describe('startNarrationServer', () => {
 
   it('throws when health check fails after startup', async () => {
     const sockPath = makeSockPath();
-    // No server listening — health check will fail
+    const noopSleep = async (_ms: number) => {};
+    // No server listening — health check will always fail
     await expect(
       startNarrationServer({
         pythonPath: '/usr/bin/true',
         scriptPath: '/dev/null',
         voice: 'en-US',
         socketPath: sockPath,
+        deps: { sleep: noopSleep },
       }),
     ).rejects.toThrow('Narration server failed health check after startup');
   }, 5000);
+
+  it('retries until Nth attempt succeeds', async () => {
+    const sockPath = makeSockPath();
+    const noopSleep = async (_ms: number) => {};
+    let callCount = 0;
+    const checkHealth = async (_path: string) => {
+      callCount++;
+      return callCount >= 3; // fail first 2, succeed on 3rd
+    };
+
+    const pid = await startNarrationServer({
+      pythonPath: '/usr/bin/true',
+      scriptPath: '/dev/null',
+      voice: 'en-US',
+      socketPath: sockPath,
+      deps: { checkHealth, sleep: noopSleep },
+    });
+
+    expect(typeof pid).toBe('number');
+    expect(pid).toBeGreaterThan(0);
+    expect(callCount).toBe(3);
+  });
+
+  it('does not call health check more times than needed (early exit)', async () => {
+    const sockPath = makeSockPath();
+    const noopSleep = async (_ms: number) => {};
+    let callCount = 0;
+    const checkHealth = async (_path: string) => {
+      callCount++;
+      return true; // succeed immediately on first call
+    };
+
+    await startNarrationServer({
+      pythonPath: '/usr/bin/true',
+      scriptPath: '/dev/null',
+      voice: 'en-US',
+      socketPath: sockPath,
+      deps: { checkHealth, sleep: noopSleep },
+    });
+
+    expect(callCount).toBe(1);
+  });
+
+  it('throws after all 10 retries exhausted when health check always fails', async () => {
+    const sockPath = makeSockPath();
+    const noopSleep = async (_ms: number) => {};
+    let callCount = 0;
+    const checkHealth = async (_path: string) => {
+      callCount++;
+      return false;
+    };
+
+    await expect(
+      startNarrationServer({
+        pythonPath: '/usr/bin/true',
+        scriptPath: '/dev/null',
+        voice: 'en-US',
+        socketPath: sockPath,
+        deps: { checkHealth, sleep: noopSleep },
+      }),
+    ).rejects.toThrow('Narration server failed health check after startup');
+
+    expect(callCount).toBe(10);
+  });
 });
