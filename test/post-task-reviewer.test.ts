@@ -3,7 +3,12 @@ import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { execSync } from "child_process";
-import { captureGitSha, getGitDiff } from "../src/post-task-reviewer";
+import {
+  captureGitSha,
+  getGitDiff,
+  buildPostTaskReviewPrompt,
+  buildPostTaskReviewUserPrompt,
+} from "../src/post-task-reviewer";
 
 let tmpDir: string;
 
@@ -75,5 +80,115 @@ describe("getGitDiff", () => {
     expect(result.diff).toBe("");
     expect(result.log).toBe("");
     expect(result.files).toEqual([]);
+  });
+});
+
+describe("buildPostTaskReviewPrompt", () => {
+  test("contains coverage marker keywords", () => {
+    const prompt = buildPostTaskReviewPrompt();
+    expect(prompt).toContain("[DONE]");
+    expect(prompt).toContain("[GAP]");
+    expect(prompt).toContain("[PARTIAL]");
+  });
+
+  test("references review-post.md output file", () => {
+    const prompt = buildPostTaskReviewPrompt();
+    expect(prompt).toContain("review-post.md");
+  });
+
+  test("instructs use of Edit tool", () => {
+    const prompt = buildPostTaskReviewPrompt();
+    expect(prompt).toContain("Edit");
+  });
+
+  test("includes verdict keywords", () => {
+    const prompt = buildPostTaskReviewPrompt();
+    expect(prompt).toContain("CLEAN");
+    expect(prompt).toContain("HAS_GAPS");
+    expect(prompt).toContain("HAS_RISKS");
+  });
+
+  test("includes output format fields", () => {
+    const prompt = buildPostTaskReviewPrompt();
+    expect(prompt).toContain("Reviewed:");
+    expect(prompt).toContain("Files Changed");
+    expect(prompt).toContain("Gaps");
+    expect(prompt).toContain("Regression Risks");
+    expect(prompt).toContain("Verdict");
+  });
+});
+
+describe("buildPostTaskReviewUserPrompt", () => {
+  const sampleTask = {
+    id: 42,
+    title: "My awesome task",
+    description: "Do something important",
+    files: ["src/foo.ts"],
+    tests: ["bun test"],
+    directory: "src",
+  };
+
+  test("embeds task id and title", () => {
+    const prompt = buildPostTaskReviewUserPrompt({
+      task: sampleTask,
+      diff: "diff content",
+      log: "abc123 commit msg",
+      files: ["src/foo.ts"],
+    });
+    expect(prompt).toContain("42");
+    expect(prompt).toContain("My awesome task");
+  });
+
+  test("embeds task description", () => {
+    const prompt = buildPostTaskReviewUserPrompt({
+      task: sampleTask,
+      diff: "diff content",
+      log: "abc123 commit msg",
+      files: ["src/foo.ts"],
+    });
+    expect(prompt).toContain("Do something important");
+  });
+
+  test("embeds git diff content", () => {
+    const prompt = buildPostTaskReviewUserPrompt({
+      task: sampleTask,
+      diff: "--- a/src/foo.ts\n+++ b/src/foo.ts\n+export const x = 1;",
+      log: "abc123 commit msg",
+      files: ["src/foo.ts"],
+    });
+    expect(prompt).toContain("export const x = 1;");
+  });
+
+  test("embeds git log", () => {
+    const prompt = buildPostTaskReviewUserPrompt({
+      task: sampleTask,
+      diff: "",
+      log: "abc123 my commit message",
+      files: [],
+    });
+    expect(prompt).toContain("abc123 my commit message");
+  });
+
+  test("embeds changed files list", () => {
+    const prompt = buildPostTaskReviewUserPrompt({
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: ["src/foo.ts", "src/bar.ts"],
+    });
+    expect(prompt).toContain("src/foo.ts");
+    expect(prompt).toContain("src/bar.ts");
+  });
+
+  test("handles optional task fields being absent", () => {
+    const minimalTask = { id: 1, title: "Min task", description: "Minimal" };
+    const prompt = buildPostTaskReviewUserPrompt({
+      task: minimalTask,
+      diff: "",
+      log: "",
+      files: [],
+    });
+    expect(prompt).toContain("Min task");
+    expect(prompt).toContain("Minimal");
   });
 });

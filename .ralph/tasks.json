@@ -2,32 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 2,
-      "priority": 1,
-      "title": "Git SHA helpers",
-      "description": "TDD. Create `src/post-task-reviewer.ts` with two functions:\n\n1. `captureGitSha(projectRoot: string): string | null` — runs `git rev-parse HEAD` via `child_process.execSync` with `{ cwd: projectRoot }`, returns the trimmed SHA string, or null if the command fails (not a git repo, etc.).\n\n2. `getGitDiff(projectRoot: string, beforeSha: string): { diff: string; log: string; files: string[] }` — runs three git commands with `{ cwd: projectRoot }`:\n   - `git diff <beforeSha>..HEAD` → diff string\n   - `git log --oneline <beforeSha>..HEAD` → log string\n   - `git diff --name-only <beforeSha>..HEAD` → split into files array (filter empty lines)\n\nCreate `test/post-task-reviewer.test.ts`. Tests should create a real temp git repo (mkdtemp), run `git init`, make commits, and verify:\n- captureGitSha returns a valid 40-char hex SHA\n- captureGitSha returns null for a non-git directory\n- getGitDiff returns correct diff/log/files after adding a file and committing",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T21:30:00Z",
-      "completedBy": "iteration-2",
-      "notes": "Created src/post-task-reviewer.ts with captureGitSha and getGitDiff. Both functions use child_process.execSync. Tests use real temp git repos (mkdtempSync + git init). 4 new tests added, all 702 tests pass.",
-      "files": [
-        "src/post-task-reviewer.ts",
-        "test/post-task-reviewer.test.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 3,
       "priority": 2,
       "title": "Post-task review prompt builders",
       "description": "TDD. Add two pure functions to `src/post-task-reviewer.ts`:\n\n1. `buildPostTaskReviewPrompt(): string` — returns the system prompt that instructs the reviewer agent to:\n   - Build an ASCII coverage diagram comparing task spec items vs actual changes using `[DONE]`, `[GAP]`, `[PARTIAL]` markers with tree-drawing characters\n   - Detect gaps (anything in task description not addressed)\n   - Check for regressions (broken patterns, removed exports, deleted tests)\n   - Append output to `.ralph/review-post.md` using Edit tool (or Write if file doesn't exist yet)\n   - Use the exact output format from planning-notes.md: `## Task #<id>: <title>`, `Reviewed: <ISO timestamp>`, Coverage tree, Files Changed, Gaps, Regression Risks, Verdict (CLEAN | HAS_GAPS | HAS_RISKS)\n\n2. `buildPostTaskReviewUserPrompt(opts: { task: { id: number; title: string; description: string; files?: string[]; tests?: string[]; directory?: string }; diff: string; log: string; files: string[] }): string` — returns the user prompt embedding the full task definition and git diff/log/files.\n\nTests verify: system prompt contains format spec keywords (DONE, GAP, PARTIAL, review-post.md, Edit), user prompt contains task fields and diff content.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T21:30:00Z",
+      "completedBy": "iteration-3",
+      "notes": "Added buildPostTaskReviewPrompt() and buildPostTaskReviewUserPrompt() as pure functions to src/post-task-reviewer.ts. System prompt instructs reviewer to build ASCII [DONE]/[GAP]/[PARTIAL] coverage tree, detect gaps and regressions, and append to .ralph/review-post.md using Edit/Write tool. User prompt embeds task definition plus git diff/log/files. 11 new tests added (5 for system prompt, 6 for user prompt). All 713 tests pass.",
       "files": [
         "src/post-task-reviewer.ts",
         "test/post-task-reviewer.test.ts"
