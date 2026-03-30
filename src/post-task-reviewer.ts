@@ -4,6 +4,8 @@ import {
   processStream,
   type ProcessStreamOptions,
 } from "./stream-filter";
+import type { Task } from "./types";
+import type { RalphConfig } from "./types";
 
 export function buildPostTaskReviewPrompt(): string {
   return `You are a post-task code reviewer for an autonomous programming agent.
@@ -228,4 +230,79 @@ export function getGitDiff(
   const files = filesRaw.split("\n").filter((f) => f.trim().length > 0);
 
   return { diff, log, files };
+}
+
+export interface RunPostTaskReviewOpts {
+  projectRoot: string;
+  dataDir: string;
+  task: Task;
+  taskStatus: string;
+  beforeSha: string | null;
+  config: RalphConfig;
+  streamOpts?: ProcessStreamOptions;
+  deps?: {
+    captureGitSha?: typeof captureGitSha;
+    getGitDiff?: typeof getGitDiff;
+    spawnPostTaskReviewer?: typeof spawnPostTaskReviewer;
+    log?: (...args: any[]) => void;
+  };
+}
+
+export async function runPostTaskReview(opts: RunPostTaskReviewOpts): Promise<void> {
+  const {
+    projectRoot,
+    dataDir,
+    task,
+    taskStatus,
+    beforeSha,
+    config,
+    streamOpts,
+    deps,
+  } = opts;
+
+  const log = deps?.log ?? console.log;
+  const getSha = deps?.captureGitSha ?? captureGitSha;
+  const getDiff = deps?.getGitDiff ?? getGitDiff;
+  const spawnReviewer = deps?.spawnPostTaskReviewer ?? spawnPostTaskReviewer;
+
+  try {
+    if (!config.review?.postTask) {
+      log("[review] Post-task review disabled in config");
+      return;
+    }
+
+    if (taskStatus !== "complete") {
+      log(`[review] Task #${task.id} not complete (status: ${taskStatus}), skipping review`);
+      return;
+    }
+
+    if (beforeSha === null) {
+      log(`[review] No beforeSha available, skipping review`);
+      return;
+    }
+
+    const currentSha = getSha(projectRoot);
+    if (currentSha === beforeSha) {
+      log(`[review] Task #${task.id}: no commits made, skipping review`);
+      return;
+    }
+
+    log(`[review] Starting post-task review for Task #${task.id}: ${task.title}`);
+
+    const { diff, log: gitLog, files } = getDiff(projectRoot, beforeSha);
+
+    await spawnReviewer({
+      projectRoot,
+      dataDir,
+      task,
+      diff,
+      log: gitLog,
+      files,
+      streamOpts,
+    });
+
+    log(`[review] Post-task review complete for Task #${task.id}`);
+  } catch (err: any) {
+    log(`[review] Error during post-task review: ${err.message}`);
+  }
 }

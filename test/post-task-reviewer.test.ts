@@ -11,7 +11,10 @@ import {
   buildPostTaskReviewPrompt,
   buildPostTaskReviewUserPrompt,
   spawnPostTaskReviewer,
+  runPostTaskReview,
 } from "../src/post-task-reviewer";
+import type { Task } from "../src/types";
+import type { RalphConfig } from "../src/types";
 
 let tmpDir: string;
 
@@ -390,5 +393,224 @@ describe("spawnPostTaskReviewer", () => {
     });
 
     expect(spawnOpts.cwd).toBe("/my/project");
+  });
+});
+
+describe("runPostTaskReview", () => {
+  const makeTask = (overrides?: Partial<Task>): Task => ({
+    id: 10,
+    priority: 1,
+    title: "Test task",
+    description: "Do the thing",
+    status: "complete",
+    files: ["src/foo.ts"],
+    tests: ["bun test"],
+    ...overrides,
+  });
+
+  const makeConfig = (overrides?: Partial<RalphConfig>): RalphConfig => ({
+    projectName: "test",
+    projectDescription: "test project",
+    healthCheck: "bun test",
+    defaultTestCommand: "bun test",
+    implementationFile: "IMPLEMENTATION.md",
+    truncateText: false,
+    summarize: { claudeMdPattern: "**/*.md" },
+    narration: { enabled: false, voice: "alloy", ntfyTopic: "" },
+    review: { maxIterations: 30, postTask: true },
+    ...overrides,
+  });
+
+  function makeDeps(overrides?: Record<string, any>) {
+    const logs: string[] = [];
+    return {
+      deps: {
+        captureGitSha: () => "abc123aftersha",
+        getGitDiff: () => ({ diff: "some diff", log: "some log", files: ["src/foo.ts"] }),
+        spawnPostTaskReviewer: async () => ({ exitCode: 0 }),
+        log: (...args: any[]) => logs.push(args.join(" ")),
+        ...overrides,
+      },
+      logs,
+    };
+  }
+
+  test("skips when config.review.postTask is false", async () => {
+    let spawnerCalled = false;
+    const { deps, logs } = makeDeps({
+      spawnPostTaskReviewer: async () => { spawnerCalled = true; return { exitCode: 0 }; },
+    });
+
+    await runPostTaskReview({
+      projectRoot: "/fake",
+      dataDir: "/fake/.ralph",
+      task: makeTask(),
+      taskStatus: "complete",
+      beforeSha: "sha123",
+      config: makeConfig({ review: { maxIterations: 30, postTask: false } }),
+      deps,
+    });
+
+    expect(spawnerCalled).toBe(false);
+    expect(logs.some((l) => l.includes("disabled"))).toBe(true);
+  });
+
+  test("skips when config.review is undefined", async () => {
+    let spawnerCalled = false;
+    const { deps, logs } = makeDeps({
+      spawnPostTaskReviewer: async () => { spawnerCalled = true; return { exitCode: 0 }; },
+    });
+
+    await runPostTaskReview({
+      projectRoot: "/fake",
+      dataDir: "/fake/.ralph",
+      task: makeTask(),
+      taskStatus: "complete",
+      beforeSha: "sha123",
+      config: makeConfig({ review: undefined }),
+      deps,
+    });
+
+    expect(spawnerCalled).toBe(false);
+  });
+
+  test("skips when taskStatus is not complete", async () => {
+    let spawnerCalled = false;
+    const { deps, logs } = makeDeps({
+      spawnPostTaskReviewer: async () => { spawnerCalled = true; return { exitCode: 0 }; },
+    });
+
+    await runPostTaskReview({
+      projectRoot: "/fake",
+      dataDir: "/fake/.ralph",
+      task: makeTask(),
+      taskStatus: "in-progress",
+      beforeSha: "sha123",
+      config: makeConfig(),
+      deps,
+    });
+
+    expect(spawnerCalled).toBe(false);
+    expect(logs.some((l) => l.includes("not complete"))).toBe(true);
+  });
+
+  test("skips when beforeSha is null", async () => {
+    let spawnerCalled = false;
+    const { deps, logs } = makeDeps({
+      spawnPostTaskReviewer: async () => { spawnerCalled = true; return { exitCode: 0 }; },
+    });
+
+    await runPostTaskReview({
+      projectRoot: "/fake",
+      dataDir: "/fake/.ralph",
+      task: makeTask(),
+      taskStatus: "complete",
+      beforeSha: null,
+      config: makeConfig(),
+      deps,
+    });
+
+    expect(spawnerCalled).toBe(false);
+    expect(logs.some((l) => l.includes("beforeSha"))).toBe(true);
+  });
+
+  test("skips when current SHA equals beforeSha (no commits)", async () => {
+    let spawnerCalled = false;
+    const { deps, logs } = makeDeps({
+      captureGitSha: () => "samesha",
+      spawnPostTaskReviewer: async () => { spawnerCalled = true; return { exitCode: 0 }; },
+    });
+
+    await runPostTaskReview({
+      projectRoot: "/fake",
+      dataDir: "/fake/.ralph",
+      task: makeTask(),
+      taskStatus: "complete",
+      beforeSha: "samesha",
+      config: makeConfig(),
+      deps,
+    });
+
+    expect(spawnerCalled).toBe(false);
+    expect(logs.some((l) => l.includes("no commits"))).toBe(true);
+  });
+
+  test("happy path calls getGitDiff and spawnPostTaskReviewer with correct args", async () => {
+    let diffArgs: any;
+    let spawnerArgs: any;
+    const { deps } = makeDeps({
+      captureGitSha: () => "aftersha999",
+      getGitDiff: (root: string, sha: string) => {
+        diffArgs = { root, sha };
+        return { diff: "the diff", log: "the log", files: ["a.ts"] };
+      },
+      spawnPostTaskReviewer: async (opts: any) => {
+        spawnerArgs = opts;
+        return { exitCode: 0 };
+      },
+    });
+
+    const task = makeTask({ id: 42, title: "My task" });
+
+    await runPostTaskReview({
+      projectRoot: "/proj",
+      dataDir: "/proj/.ralph",
+      task,
+      taskStatus: "complete",
+      beforeSha: "beforesha111",
+      config: makeConfig(),
+      deps,
+    });
+
+    // getGitDiff called with correct args
+    expect(diffArgs.root).toBe("/proj");
+    expect(diffArgs.sha).toBe("beforesha111");
+
+    // spawnPostTaskReviewer called with correct args
+    expect(spawnerArgs.projectRoot).toBe("/proj");
+    expect(spawnerArgs.dataDir).toBe("/proj/.ralph");
+    expect(spawnerArgs.task).toBe(task);
+    expect(spawnerArgs.diff).toBe("the diff");
+    expect(spawnerArgs.log).toBe("the log");
+    expect(spawnerArgs.files).toEqual(["a.ts"]);
+  });
+
+  test("catches and logs errors without throwing", async () => {
+    const { deps, logs } = makeDeps({
+      captureGitSha: () => "differentsha",
+      getGitDiff: () => { throw new Error("git exploded"); },
+    });
+
+    // Should not throw
+    await runPostTaskReview({
+      projectRoot: "/fake",
+      dataDir: "/fake/.ralph",
+      task: makeTask(),
+      taskStatus: "complete",
+      beforeSha: "beforesha",
+      config: makeConfig(),
+      deps,
+    });
+
+    expect(logs.some((l) => l.includes("git exploded"))).toBe(true);
+  });
+
+  test("logs start and completion messages on happy path", async () => {
+    const { deps, logs } = makeDeps({
+      captureGitSha: () => "aftersha",
+    });
+
+    await runPostTaskReview({
+      projectRoot: "/fake",
+      dataDir: "/fake/.ralph",
+      task: makeTask({ id: 5 }),
+      taskStatus: "complete",
+      beforeSha: "beforesha",
+      config: makeConfig(),
+      deps,
+    });
+
+    expect(logs.some((l) => l.includes("Starting") || l.includes("starting") || l.includes("review"))).toBe(true);
+    expect(logs.some((l) => l.includes("complete") || l.includes("finished") || l.includes("done"))).toBe(true);
   });
 });

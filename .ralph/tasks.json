@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 4,
-      "priority": 3,
-      "title": "Post-task reviewer spawner",
-      "description": "TDD. Add `spawnPostTaskReviewer()` to `src/post-task-reviewer.ts`, following the `spawnReviewer()` pattern in `src/commands/plan.ts` (lines 622-663).\n\nInterface:\n```ts\ninterface SpawnPostTaskReviewerOpts {\n  projectRoot: string;\n  dataDir: string;\n  task: { id: number; title: string; description: string; files?: string[]; tests?: string[]; directory?: string };\n  diff: string;\n  log: string;\n  files: string[];\n  streamOpts?: ProcessStreamOptions;\n  deps?: { spawn?: typeof spawn; processStreamFn?: typeof processStream };\n}\n```\n\nImplementation:\n- Build system prompt via `buildPostTaskReviewPrompt()`\n- Build user prompt via `buildPostTaskReviewUserPrompt()`\n- Spawn `claude` with args: `-p`, `--append-system-prompt <systemPrompt>`, `--allowedTools Read,Glob,Grep,Edit,Write`, `--output-format stream-json`, `--model sonnet`, `--verbose`\n- Unset ANTHROPIC_API_KEY in env (same pattern as spawnReviewer)\n- Pipe user prompt to stdin, close stdin\n- Pipe stdout through processStream (use deps.processStreamFn or default)\n- Wait for close event, return `{ exitCode }`\n\nTests mock spawn to verify: correct claude args, stdin receives user prompt, processStream called on stdout, exit code returned.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T21:15:00Z",
-      "completedBy": "iteration-4",
-      "notes": "Added spawnPostTaskReviewer() following the spawnReviewer() pattern from plan.ts. Function builds system/user prompts, spawns claude with -p, --append-system-prompt, --allowedTools Read,Glob,Grep,Edit,Write, --output-format stream-json, --model sonnet, --verbose. Unsets ANTHROPIC_API_KEY, pipes user prompt to stdin, streams stdout through processStream, returns exitCode. 7 new tests verify: correct args, env unsetting, stdin content, processStream called, exit code handling (including null→1), cwd setting. All 720 tests pass.",
-      "files": [
-        "src/post-task-reviewer.ts",
-        "test/post-task-reviewer.test.ts",
-        "src/commands/plan.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        3
-      ],
-      "model": "opus"
-    },
-    {
       "id": 5,
       "priority": 4,
       "title": "Review orchestrator",
       "description": "TDD. Add `runPostTaskReview()` to `src/post-task-reviewer.ts`.\n\nInterface:\n```ts\ninterface RunPostTaskReviewOpts {\n  projectRoot: string;\n  dataDir: string;\n  task: Task;\n  taskStatus: string;\n  beforeSha: string | null;\n  config: RalphConfig;\n  streamOpts?: ProcessStreamOptions;\n  deps?: {\n    captureGitSha?: typeof captureGitSha;\n    getGitDiff?: typeof getGitDiff;\n    spawnPostTaskReviewer?: typeof spawnPostTaskReviewer;\n    log?: (...args: any[]) => void;\n  };\n}\n```\n\nSkip conditions (return early, log reason):\n1. `config.review?.postTask` is not true\n2. `taskStatus` is not 'complete'\n3. `beforeSha` is null\n4. Current SHA equals beforeSha (no commits made) — call `deps.captureGitSha(projectRoot)`\n\nHappy path: call `deps.getGitDiff(projectRoot, beforeSha)`, then `deps.spawnPostTaskReviewer()` with task + diff data. Log start/completion. Return void (informational, never throws).\n\nWrap the entire function body in try/catch — log errors but never throw (review must not break the run loop).\n\nTests cover: each skip condition returns early without spawning, happy path calls getGitDiff and spawnPostTaskReviewer with correct args, errors are caught and logged.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T21:15:00Z",
+      "completedBy": "iteration-5",
+      "notes": "Added runPostTaskReview() orchestrator with 4 skip conditions (disabled config, non-complete status, null beforeSha, no commits) and happy path calling getGitDiff then spawnPostTaskReviewer. Entire body wrapped in try/catch. 8 new tests cover all skip conditions, happy path arg passing, error catching, and log messages. All 728 tests pass.",
       "files": [
         "src/post-task-reviewer.ts",
         "test/post-task-reviewer.test.ts"
