@@ -2,38 +2,22 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 1,
-      "priority": 1,
-      "title": "Add review.postTask to config",
-      "description": "TDD. Extend `RalphConfig.review` from `{ maxIterations: number }` to `{ maxIterations: number; postTask: boolean }`. Update `isValidConfig()` in types.ts to validate the new boolean field (when review is present, postTask must be a boolean). Update `loadConfig()` in config.ts to default `postTask: false` alongside the existing maxIterations default. Add `reviewPostTask: boolean` to `ConfigDefaults` in init.ts with default `false`, and prompt for it in `promptForConfig()` after the existing review maxIterations prompt. Update `getConfigDefaults()` to map from loaded config. Write tests first for each change: isValidConfig accepts/rejects the new field, loadConfig defaults it, promptForConfig includes it in output.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T22:00:00Z",
-      "completedBy": "iteration-1",
-      "notes": "Added review.postTask boolean to RalphConfig type and isValidConfig validation. loadConfig defaults postTask to false. ConfigDefaults has reviewPostTask field. promptForConfig prompts for it after reviewMaxIterations. getConfigDefaults maps from config.review?.postTask. Fixed two existing tests in types.test.ts and init.test.ts that needed postTask added to review objects. All 698 tests pass, build succeeds.",
-      "files": [
-        "src/types.ts",
-        "src/config.ts",
-        "src/commands/init.ts",
-        "test/config.test.ts",
-        "test/commands/init.test.ts"
-      ],
-      "tests": ["bun test"],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 2,
       "priority": 1,
       "title": "Git SHA helpers",
       "description": "TDD. Create `src/post-task-reviewer.ts` with two functions:\n\n1. `captureGitSha(projectRoot: string): string | null` — runs `git rev-parse HEAD` via `child_process.execSync` with `{ cwd: projectRoot }`, returns the trimmed SHA string, or null if the command fails (not a git repo, etc.).\n\n2. `getGitDiff(projectRoot: string, beforeSha: string): { diff: string; log: string; files: string[] }` — runs three git commands with `{ cwd: projectRoot }`:\n   - `git diff <beforeSha>..HEAD` → diff string\n   - `git log --oneline <beforeSha>..HEAD` → log string\n   - `git diff --name-only <beforeSha>..HEAD` → split into files array (filter empty lines)\n\nCreate `test/post-task-reviewer.test.ts`. Tests should create a real temp git repo (mkdtemp), run `git init`, make commits, and verify:\n- captureGitSha returns a valid 40-char hex SHA\n- captureGitSha returns null for a non-git directory\n- getGitDiff returns correct diff/log/files after adding a file and committing",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T21:30:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Created src/post-task-reviewer.ts with captureGitSha and getGitDiff. Both functions use child_process.execSync. Tests use real temp git repos (mkdtempSync + git init). 4 new tests added, all 702 tests pass.",
       "files": [
         "src/post-task-reviewer.ts",
         "test/post-task-reviewer.test.ts"
       ],
-      "tests": ["bun test"],
+      "tests": [
+        "bun test"
+      ],
       "dependencies": [],
       "model": "sonnet"
     },
@@ -48,8 +32,12 @@
         "src/post-task-reviewer.ts",
         "test/post-task-reviewer.test.ts"
       ],
-      "tests": ["bun test"],
-      "dependencies": [2],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        2
+      ],
       "model": "sonnet"
     },
     {
@@ -64,8 +52,12 @@
         "test/post-task-reviewer.test.ts",
         "src/commands/plan.ts"
       ],
-      "tests": ["bun test"],
-      "dependencies": [3],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        3
+      ],
       "model": "opus"
     },
     {
@@ -79,8 +71,12 @@
         "src/post-task-reviewer.ts",
         "test/post-task-reviewer.test.ts"
       ],
-      "tests": ["bun test"],
-      "dependencies": [4],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        4
+      ],
       "model": "opus"
     },
     {
@@ -95,8 +91,13 @@
         "test/commands/run.test.ts",
         "src/post-task-reviewer.ts"
       ],
-      "tests": ["bun test"],
-      "dependencies": [1, 5],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        1,
+        5
+      ],
       "model": "opus"
     },
     {
@@ -106,9 +107,16 @@
       "description": "Run `bun test` and verify all tests pass. Run `bun run build` and verify it compiles without errors. Run `dist/ralph --version` as a smoke test. If any test fails or the build breaks, diagnose and fix the issue.",
       "directory": "",
       "status": "pending",
-      "files": ["package.json"],
-      "tests": ["bun test", "bun run build"],
-      "dependencies": [6],
+      "files": [
+        "package.json"
+      ],
+      "tests": [
+        "bun test",
+        "bun run build"
+      ],
+      "dependencies": [
+        6
+      ],
       "model": "sonnet"
     }
   ]
