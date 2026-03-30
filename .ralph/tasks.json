@@ -2,29 +2,14 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 5,
-      "priority": 3,
-      "title": "Update install.sh for compiled binary",
-      "description": "Rewrite install.sh to install the compiled Bun binary instead of the old shell script.\n\nNew behavior:\n1. Check that 'bun' is available on PATH, error with helpful message if not\n2. Run 'bun run build' to compile src/index.ts \u2192 dist/ralph\n3. Symlink $PREFIX/bin/ralph \u2192 $RALPH_ROOT/dist/ralph (instead of bin/ralph)\n4. Keep the existing PATH check at the end\n\nThe RALPH_ROOT should be derived the same way (cd to script directory, pwd), but point at repo root (the directory containing package.json), not bin/.\n\nKeep the same interface: ./install.sh [prefix], default prefix ~/.local.",
-      "status": "complete",
-      "completedAt": "2026-03-29T19:10:00Z",
-      "completedBy": "iteration-5",
-      "notes": "Rewrote install.sh to check for bun, run 'bun run build', and symlink dist/ralph. RALPH_ROOT now points at repo root (where package.json lives) not bin/. Same interface preserved.",
-      "files": [
-        "install.sh"
-      ],
-      "dependencies": [
-        1
-      ],
-      "tests": [],
-      "model": "sonnet"
-    },
-    {
       "id": 6,
       "priority": 4,
       "title": "Update CLAUDE.md",
       "description": "Update CLAUDE.md to reflect the TypeScript-only architecture:\n\n- Entry point is now src/index.ts, compiled to dist/ralph via 'bun run build'\n- Remove all references to bin/ralph as entry point\n- Update execution flow: src/index.ts uses Commander to dispatch to src/commands/*.ts\n- Update architecture section: lib/ only contains Python narration scripts (ralph_narrate.py, ralph_narrate_server.py)\n- Remove mentions of shell fallback, RALPH_FORCE_SHELL, forceShellFallback\n- Remove references to shell scripts (ralph_common.sh, ralph_config.sh, etc.) as active code\n- Update file structure / per-project data layout if needed\n- Update conventions section: no more 'set -euo pipefail', no more RALPH_LIB_DIR for shell compat\n- Update the Development section: install.sh now runs bun build, mention 'bun test' for running tests\n- Keep the section accurate \u2014 read the current CLAUDE.md first and make targeted updates",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T20:00:00Z",
+      "completedBy": "iteration-6",
+      "notes": "Updated CLAUDE.md to reflect TypeScript-only architecture. Replaced all shell script references with src/commands/*.ts equivalents, updated dev section to mention bun build/test, updated conventions section, removed RALPH_LIB_DIR/set -euo pipefail/shell fallback mentions.",
       "files": [
         "CLAUDE.md"
       ],
