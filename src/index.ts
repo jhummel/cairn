@@ -132,7 +132,7 @@ export function createProgram(): Command {
   program
     .command('plan')
     .description('Interactive planning session: discuss goals, generate tasks')
-    .action(async () => {
+    .action(() => {
       const projectRoot = process.env.RALPH_PROJECT_ROOT!;
       const dataDir = process.env.RALPH_DATA_DIR!;
       const projectName = process.env.RALPH_PROJECT_NAME ?? '';
@@ -142,17 +142,7 @@ export function createProgram(): Command {
       } catch {
         // ignore parse errors
       }
-      const rlNative = readline.createInterface({ input: process.stdin, output: process.stdout });
-      const rl = {
-        question: (prompt: string) =>
-          new Promise<string>((resolve) => rlNative.question(prompt, resolve)),
-        close: () => rlNative.close(),
-      };
-      try {
-        await runPlan({ projectName, projectRoot, dataDir, agents, rl });
-      } finally {
-        rl.close();
-      }
+      runPlan({ projectName, projectRoot, dataDir, agents });
     });
 
   // --- Native run command ---
