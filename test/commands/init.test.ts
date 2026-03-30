@@ -10,6 +10,7 @@ import {
   writeRalphJson,
   createInstructionsFile,
   installNarrationHooks,
+  installSlashCommands,
   showNextSteps,
   runInit,
   type PromptInterface,
@@ -876,6 +877,99 @@ describe('installNarrationHooks', () => {
   });
 });
 
+// --- installSlashCommands tests ---
+
+describe('installSlashCommands', () => {
+  let tmpDir: string;
+  let stdoutLines: string[];
+  let consoleSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-slash-cmds-test-'));
+    stdoutLines = [];
+    consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
+      stdoutLines.push(args.join(' '));
+    });
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  test('creates .claude/commands/ directory', () => {
+    installSlashCommands(tmpDir);
+    expect(fs.existsSync(path.join(tmpDir, '.claude', 'commands'))).toBe(true);
+  });
+
+  test('copies .md files from ralph commands/ to target .claude/commands/', () => {
+    installSlashCommands(tmpDir);
+    const destDir = path.join(tmpDir, '.claude', 'commands');
+    // Should have copied generate-tasks.md and review-tasks.md
+    expect(fs.existsSync(path.join(destDir, 'generate-tasks.md'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'review-tasks.md'))).toBe(true);
+  });
+
+  test('copied files have the same content as source', () => {
+    installSlashCommands(tmpDir);
+    const { resolveRalphRoot } = require('../../src/utils');
+    const ralphRoot = resolveRalphRoot();
+    const srcDir = path.join(ralphRoot, 'commands');
+    const destDir = path.join(tmpDir, '.claude', 'commands');
+
+    for (const file of fs.readdirSync(srcDir).filter((f: string) => f.endsWith('.md'))) {
+      const srcContent = fs.readFileSync(path.join(srcDir, file), 'utf8');
+      const destContent = fs.readFileSync(path.join(destDir, file), 'utf8');
+      expect(destContent).toBe(srcContent);
+    }
+  });
+
+  test('is idempotent — re-run overwrites existing files', () => {
+    installSlashCommands(tmpDir);
+    const destFile = path.join(tmpDir, '.claude', 'commands', 'generate-tasks.md');
+    // Tamper with the file
+    fs.writeFileSync(destFile, 'tampered content');
+    // Re-run
+    installSlashCommands(tmpDir);
+    const content = fs.readFileSync(destFile, 'utf8');
+    expect(content).not.toBe('tampered content');
+  });
+
+  test('logs installed/updated for each file', () => {
+    installSlashCommands(tmpDir);
+    const output = stdoutLines.join('\n');
+    expect(output).toContain('generate-tasks.md');
+    expect(output).toContain('review-tasks.md');
+  });
+
+  test('handles missing commands/ dir gracefully', () => {
+    // We can't easily remove the real commands/ dir, so we test by passing
+    // a custom ralphRoot that doesn't have a commands/ directory
+    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-no-cmds-'));
+    try {
+      installSlashCommands(tmpDir, fakeRalphRoot);
+      // Should not throw, just log a warning or do nothing
+      expect(fs.existsSync(path.join(tmpDir, '.claude', 'commands'))).toBe(false);
+    } finally {
+      fs.rmSync(fakeRalphRoot, { recursive: true });
+    }
+  });
+
+  test('handles commands/ dir with no .md files gracefully', () => {
+    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-empty-cmds-'));
+    fs.mkdirSync(path.join(fakeRalphRoot, 'commands'));
+    fs.writeFileSync(path.join(fakeRalphRoot, 'commands', 'not-markdown.txt'), 'hi');
+    try {
+      installSlashCommands(tmpDir, fakeRalphRoot);
+      // Directory might be created but no .md files copied
+      const output = stdoutLines.join('\n');
+      expect(output).not.toContain('.md');
+    } finally {
+      fs.rmSync(fakeRalphRoot, { recursive: true });
+    }
+  });
+});
+
 // --- showNextSteps tests ---
 
 describe('showNextSteps', () => {
@@ -962,6 +1056,16 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.ralph');
     const rl = createMockPrompt(allDefaultAnswers());
     await runInit(tmpDir, dataDir, rl, noopSpawn);
-    expect(fs.existsSync(path.join(tmpDir, '.claude'))).toBe(false);
+    // .claude/commands/ exists (slash commands are always installed),
+    // but hooks dir should not exist
+    expect(fs.existsSync(path.join(tmpDir, '.claude', 'hooks'))).toBe(false);
+  });
+
+  test('installs slash commands unconditionally', async () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    const rl = createMockPrompt(allDefaultAnswers());
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    expect(fs.existsSync(path.join(tmpDir, '.claude', 'commands', 'generate-tasks.md'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, '.claude', 'commands', 'review-tasks.md'))).toBe(true);
   });
 });

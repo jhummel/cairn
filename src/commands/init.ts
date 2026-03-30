@@ -3,6 +3,7 @@ import * as path from 'path';
 import { spawnSync as nodeSpawnSync } from 'child_process';
 import type { RalphConfig } from '../types';
 import { loadConfig, autoDetectHealthCheck } from '../config';
+import { resolveRalphRoot } from '../utils';
 
 const GITIGNORE_CONTENT = `# Ralph temp files (tasks.json and planning-notes.md are tracked)
 .ralph_complete
@@ -315,6 +316,31 @@ export async function installNarrationHooks(
 }
 
 /**
+ * Copy slash command .md files from ralph's commands/ directory
+ * into the target project's .claude/commands/ directory.
+ * Accepts an optional ralphRoot override for testing.
+ */
+export function installSlashCommands(projectRoot: string, ralphRoot?: string): void {
+  const root = ralphRoot ?? resolveRalphRoot();
+  const srcDir = path.join(root, 'commands');
+
+  if (!fs.existsSync(srcDir)) {
+    return;
+  }
+
+  const mdFiles = fs.readdirSync(srcDir).filter(f => f.endsWith('.md'));
+  if (mdFiles.length === 0) return;
+
+  const destDir = path.join(projectRoot, '.claude', 'commands');
+  fs.mkdirSync(destDir, { recursive: true });
+
+  for (const file of mdFiles) {
+    fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
+    console.log(`  Installed: .claude/commands/${file}`);
+  }
+}
+
+/**
  * Print next steps after init.
  */
 export function showNextSteps(): void {
@@ -338,6 +364,7 @@ export async function runInit(
   console.log('');
 
   initCoreFiles(projectRoot, dataDir);
+  installSlashCommands(projectRoot);
 
   const defaults = getConfigDefaults(projectRoot);
   console.log('');

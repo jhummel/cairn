@@ -6,7 +6,10 @@
       "priority": 2,
       "title": "Add slash command installation to ralph init",
       "description": "In `src/commands/init.ts`, add a function `installSlashCommands(projectRoot: string)` that copies all `.md` files from the ralph repo's `commands/` directory into the target project's `.claude/commands/` directory.\n\nFollow the `installNarrationHooks()` pattern:\n1. Use `resolveRalphRoot()` from `src/utils.ts` to find the ralph repo root\n2. Read all `.md` files from `<ralphRoot>/commands/`\n3. Create `.claude/commands/` in the target project (mkdirSync recursive)\n4. Copy each file, overwriting if it exists (these are ralph-managed, not user-edited)\n5. Log what was created/updated\n\nThis should be unconditional (no prompt) — called from `runInit()` after core file creation.\n\nTDD approach:\n- Write tests first in `test/commands/init.test.ts`\n- Test cases: directory created, files copied, idempotent (re-run overwrites), handles missing commands dir gracefully\n- Use temp directories for test isolation\n- Then implement the function\n\nIMPORTANT: Import `resolveRalphRoot` from `../utils` (or `../utils.js` depending on module resolution).",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T22:15:00Z",
+      "completedBy": "iteration-4",
+      "notes": "Added installSlashCommands(projectRoot, ralphRoot?) that copies .md files from ralph's commands/ dir to target's .claude/commands/. Wired unconditionally into runInit() after initCoreFiles(). Updated existing runInit test that checked .claude didn't exist (now .claude/commands/ always exists). 87 init tests pass, 738 total tests pass.",
       "files": [
         "src/commands/init.ts",
         "test/commands/init.test.ts",
@@ -19,25 +22,6 @@
         1,
         2
       ],
-      "model": "opus"
-    },
-    {
-      "id": 4,
-      "priority": 1,
-      "title": "Simplify buildPlanningPrompt()",
-      "description": "Simplify `buildPlanningPrompt()` in `src/commands/plan.ts` to remove all file embedding. Currently it uses `tryReadFile()` and `fileSection()` to load and embed CLAUDE.md, README.md, package.json, Cargo.toml, Makefile, planning-notes.md, tasks.completed.json, and IMPLEMENTATION.md into the system prompt.\n\nThe simplified version should:\n1. Keep the role description (you are a planning agent...)\n2. Keep the planning-notes.md format specification (Briefing Materials, Goals, Approach, Rejected Alternatives, Rough Task Outline, Open Questions)\n3. Keep the rules/guidelines for the planning conversation\n4. Keep the project context fields (projectName, projectRoot, dataDir)\n5. Keep the specialist agents list\n6. REMOVE all `tryReadFile()` calls and `fileSection()` calls — the agent reads files itself via its tools\n7. Mention that the agent should read CLAUDE.md, README.md, and other project files to understand the codebase (but don't embed them)\n\nTDD approach:\n- Update tests in `test/commands/plan.test.ts` first\n- Remove tests that assert embedded file content\n- Add/update tests that verify the simplified prompt contains role description, format spec, and project context\n- Then simplify the implementation\n\nThe `PlanningPromptInput` interface may need simplification too (remove fields that were only used for file embedding like `implementationFile`).\n\nDo NOT delete `tryReadFile()` or `fileSection()` yet — they may still be used by other prompt builders. Task 5 handles the full cleanup.",
-      "status": "complete",
-      "completedAt": "2026-03-29T22:15:00Z",
-      "completedBy": "iteration-3",
-      "notes": "Removed all tryReadFile()/fileSection() calls from buildPlanningPrompt(). Prompt now tells the agent to read CLAUDE.md, README.md, planning-notes.md, tasks.completed.json, IMPLEMENTATION.md, and build config files itself via tools. Removed implementationFile from PlanningPromptInput interface. Left tryReadFile()/fileSection() functions intact for Task 5 cleanup. Left implementationFile in RunPlanOpts/LaunchPlanningSessionOpts since Task 5 deletes those types entirely.",
-      "files": [
-        "src/commands/plan.ts",
-        "test/commands/plan.test.ts"
-      ],
-      "tests": [
-        "bun test test/commands/plan.test.ts"
-      ],
-      "dependencies": [],
       "model": "opus"
     },
     {
