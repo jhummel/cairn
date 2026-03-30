@@ -2,30 +2,14 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 1,
-      "priority": 1,
-      "title": "Create commands/generate-tasks.md slash command",
-      "description": "Create a `commands/` directory at the ralph repo root and add `generate-tasks.md`. This slash command will replace the current `buildTaskGenPrompt()` in `src/commands/plan.ts`.\n\nThe file should instruct the planning agent to:\n1. Use the Agent tool to spawn a fresh general-purpose subagent\n2. The subagent should read `.ralph/planning-notes.md` and the codebase as needed\n3. The subagent should write `.ralph/tasks.json`\n\nInline the full tasks.json schema from `src/tasks-schema.json`. Include:\n- Task structure guidelines (id, priority, title, description, directory, status, files, dependencies, tests, model, agent)\n- Directory guidelines table (module work → src/services/auth-service, DB migration → src/database, cross-module → empty)\n- Test command guidelines (prefer project's own test scripts like `npm run test` over direct tool invocations like `npx vitest run Foo`)\n- Rules: never modify completed tasks, keep IDs unique/sequential, ~5 min task scope, link via dependencies, include specific file paths\n- Model selection guidance: sonnet for straightforward tasks, opus for complex tasks\n- Agent selection: assign specialist agents from `.claude/agents/` when available and matching\n\nReference `buildTaskGenPrompt()` in `src/commands/plan.ts` (around line 200+) for the current prompt content. Adapt the language for slash command format — the agent reading this IS the planning agent, and it should spawn a subagent to do the actual work.\n\nThe subagent prompt passed to the Agent tool should include all the schema, guidelines, and rules so the subagent is self-contained.\n\nIMPORTANT: The slash command file should instruct preservation of any tasks with status 'complete' and their metadata (completedAt, completedBy, notes). It should also instruct the subagent to present proposed tasks to the user BEFORE writing tasks.json.",
-      "status": "complete",
-      "completedAt": "2026-03-29T22:30:00Z",
-      "completedBy": "iteration-1",
-      "notes": "Created commands/generate-tasks.md slash command with full inlined tasks.json schema, all guidelines from buildTaskGenPrompt(), and instructions for subagent spawning. Includes preservation of completed tasks and user approval flow before writing tasks.json.",
-      "files": [
-        "src/commands/plan.ts",
-        "src/tasks-schema.json"
-      ],
-      "tests": [
-        "test -f commands/generate-tasks.md && echo 'File exists'"
-      ],
-      "dependencies": [],
-      "model": "opus"
-    },
-    {
       "id": 2,
       "priority": 1,
       "title": "Create commands/review-tasks.md slash command",
       "description": "Create `commands/review-tasks.md` in the ralph repo root `commands/` directory. This slash command will replace the current `buildReviewPrompt()` in `src/commands/plan.ts`.\n\nThe file should instruct the planning agent to:\n1. Use the Agent tool to spawn a fresh general-purpose subagent\n2. The subagent reads `.ralph/tasks.json` and `.ralph/planning-notes.md`\n3. The subagent evaluates the task list on 5 dimensions and reports findings conversationally (NOT by writing a file)\n\nThe 5 review dimensions (from current `buildReviewPrompt()` around line 300+):\n1. **Coverage** — Do tasks fully cover the planning notes? Missing work?\n2. **Atomicity** — Is each task scoped to ~5 min of focused agent work? Too large/small?\n3. **Dependencies** — Are dependency links correct? Missing or circular dependencies?\n4. **Acceptance Criteria** — Does each task have clear test commands and file paths?\n5. **Context Sufficiency** — Does each task description give the worker agent enough context to work independently?\n\nEach dimension should be scored as PASS, WARN, or FAIL with specific issue bullets.\nOverall verdict: PASS or NEEDS_WORK.\n\nThe subagent should report findings back conversationally to the user (the Agent tool returns results to the parent). Do NOT write review-feedback.md or any files — just report findings.\n\nReference `buildReviewPrompt()` in `src/commands/plan.ts` for the current prompt content.",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T22:15:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Created commands/review-tasks.md slash command with all 5 review dimensions (Coverage, Atomicity, Dependencies, Acceptance Criteria, Context Sufficiency) from buildReviewPrompt(). Key difference from old approach: subagent reports findings conversationally instead of writing review-feedback.md. This enables natural discussion flow in the planning session.",
       "files": [
         "src/commands/plan.ts"
       ],
@@ -49,7 +33,10 @@
       "tests": [
         "bun test test/commands/init.test.ts"
       ],
-      "dependencies": [1, 2],
+      "dependencies": [
+        1,
+        2
+      ],
       "model": "opus"
     },
     {
@@ -81,7 +68,10 @@
       "tests": [
         "bun test test/commands/plan.test.ts"
       ],
-      "dependencies": [3, 4],
+      "dependencies": [
+        3,
+        4
+      ],
       "model": "opus"
     },
     {
@@ -97,7 +87,9 @@
       "tests": [
         "bun test"
       ],
-      "dependencies": [5],
+      "dependencies": [
+        5
+      ],
       "model": "sonnet"
     },
     {
@@ -111,7 +103,9 @@
         "bun test",
         "bun run build"
       ],
-      "dependencies": [6],
+      "dependencies": [
+        6
+      ],
       "model": "sonnet"
     }
   ]
