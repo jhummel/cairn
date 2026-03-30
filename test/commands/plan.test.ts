@@ -19,6 +19,7 @@ import {
   buildReviewPrompt,
   buildRegeneratorPrompt,
   spawnReviewer,
+  spawnRegenerator,
 } from '../../src/commands/plan';
 import type { AgentInfo } from '../../src/types';
 import type { SpawnSyncReturns } from 'child_process';
@@ -2834,5 +2835,202 @@ describe('spawnReviewer', () => {
     const args = spawnCalls[0].args;
     const idx = args.indexOf('--append-system-prompt');
     expect(args[idx + 1]).toContain('Review Pass 3');
+  });
+});
+
+// --- spawnRegenerator tests ---
+
+describe('spawnRegenerator', () => {
+  function makeMockChild(stdinChunks?: string[]) {
+    const child = new EventEmitter() as EventEmitter & {
+      stdin: { write: (data: string) => boolean; end: () => void };
+      stdout: PassThrough;
+      pid: number;
+    };
+    const chunks = stdinChunks ?? [];
+    child.stdin = {
+      write(data: string) { chunks.push(data); return true; },
+      end() {},
+    };
+    child.stdout = new PassThrough();
+    child.pid = 12346;
+    return child;
+  }
+
+  function makeSpawnOpts(overrides?: Record<string, unknown>) {
+    const stdinChunks: string[] = [];
+    const child = makeMockChild(stdinChunks);
+    const spawnCalls: Array<{ cmd: string; args: string[]; opts: any }> = [];
+    const processStreamCalls: Array<{ input: any; output: any; opts: any }> = [];
+
+    const mockSpawn = (cmd: string, args: string[], opts: any) => {
+      spawnCalls.push({ cmd, args, opts });
+      return child;
+    };
+
+    const mockProcessStream = async (input: any, output: any, opts: any) => {
+      processStreamCalls.push({ input, output, opts });
+    };
+
+    setTimeout(() => child.emit('close', 0), 10);
+
+    return {
+      child,
+      spawnCalls,
+      processStreamCalls,
+      get stdinData() { return stdinChunks.join(''); },
+      opts: {
+        projectRoot: '/test/project',
+        dataDir: '/test/project/.ralph',
+        projectName: 'test-project',
+        agents: [{ name: 'agent1', model: 'sonnet', tools: [] }] as AgentInfo[],
+        gitStatus: 'clean',
+        reviewFeedback: 'FAIL: coverage dimension',
+        deps: {
+          spawn: mockSpawn,
+          processStreamFn: mockProcessStream,
+        },
+        ...overrides,
+      },
+    };
+  }
+
+  test('spawns claude with correct command', async () => {
+    const { opts, spawnCalls } = makeSpawnOpts();
+    await spawnRegenerator(opts as any);
+    expect(spawnCalls.length).toBe(1);
+    expect(spawnCalls[0].cmd).toBe('claude');
+  });
+
+  test('passes -p flag', async () => {
+    const { opts, spawnCalls } = makeSpawnOpts();
+    await spawnRegenerator(opts as any);
+    expect(spawnCalls[0].args).toContain('-p');
+  });
+
+  test('passes --append-system-prompt with regenerator prompt', async () => {
+    const { opts, spawnCalls } = makeSpawnOpts();
+    await spawnRegenerator(opts as any);
+    const args = spawnCalls[0].args;
+    const idx = args.indexOf('--append-system-prompt');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toContain('REVIEW FEEDBACK');
+    expect(args[idx + 1]).toContain('REGENERATION INSTRUCTIONS');
+  });
+
+  test('passes --allowedTools with Read,Glob,Grep,Write,Edit', async () => {
+    const { opts, spawnCalls } = makeSpawnOpts();
+    await spawnRegenerator(opts as any);
+    const args = spawnCalls[0].args;
+    const idx = args.indexOf('--allowedTools');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('Read,Glob,Grep,Write,Edit');
+  });
+
+  test('passes --output-format stream-json', async () => {
+    const { opts, spawnCalls } = makeSpawnOpts();
+    await spawnRegenerator(opts as any);
+    const args = spawnCalls[0].args;
+    const idx = args.indexOf('--output-format');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('stream-json');
+  });
+
+  test('passes --model sonnet', async () => {
+    const { opts, spawnCalls } = makeSpawnOpts();
+    await spawnRegenerator(opts as any);
+    const args = spawnCalls[0].args;
+    const idx = args.indexOf('--model');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('sonnet');
+  });
+
+  test('passes --verbose', async () => {
+    const { opts, spawnCalls } = makeSpawnOpts();
+    await spawnRegenerator(opts as any);
+    expect(spawnCalls[0].args).toContain('--verbose');
+  });
+
+  test('writes correct user prompt to stdin', async () => {
+    const harness = makeSpawnOpts();
+    await spawnRegenerator(harness.opts as any);
+    expect(harness.stdinData).toContain('review feedback');
+    expect(harness.stdinData).toContain('review-feedback.md');
+    expect(harness.stdinData).toContain('tasks.json');
+    expect(harness.stdinData).toContain('Preserve any completed tasks');
+  });
+
+  test('calls processStream on stdout', async () => {
+    const { opts, processStreamCalls } = makeSpawnOpts();
+    await spawnRegenerator(opts as any);
+    expect(processStreamCalls.length).toBe(1);
+    expect(processStreamCalls[0].input).toBeDefined();
+  });
+
+  test('sets cwd to projectRoot', async () => {
+    const { opts, spawnCalls } = makeSpawnOpts();
+    await spawnRegenerator(opts as any);
+    expect(spawnCalls[0].opts.cwd).toBe('/test/project');
+  });
+
+  test('unsets ANTHROPIC_API_KEY', async () => {
+    const { opts, spawnCalls } = makeSpawnOpts();
+    await spawnRegenerator(opts as any);
+    expect(spawnCalls[0].opts.env.ANTHROPIC_API_KEY).toBe('');
+  });
+
+  test('returns exit code from child process', async () => {
+    const child = makeMockChild() as any;
+    const mockSpawn = () => child;
+    const mockProcessStream = async () => {};
+
+    setTimeout(() => child.emit('close', 42), 10);
+
+    const result = await spawnRegenerator({
+      projectRoot: '/test/project',
+      dataDir: '/test/project/.ralph',
+      projectName: 'test-project',
+      agents: [],
+      gitStatus: 'clean',
+      reviewFeedback: 'some feedback',
+      deps: { spawn: mockSpawn, processStreamFn: mockProcessStream },
+    } as any);
+
+    expect(result.exitCode).toBe(42);
+  });
+
+  test('returns exit code 1 when child exits with null', async () => {
+    const child = makeMockChild() as any;
+    const mockSpawn = () => child;
+    const mockProcessStream = async () => {};
+
+    setTimeout(() => child.emit('close', null), 10);
+
+    const result = await spawnRegenerator({
+      projectRoot: '/test/project',
+      dataDir: '/test/project/.ralph',
+      projectName: 'test-project',
+      agents: [],
+      gitStatus: 'clean',
+      reviewFeedback: 'some feedback',
+      deps: { spawn: mockSpawn, processStreamFn: mockProcessStream },
+    } as any);
+
+    expect(result.exitCode).toBe(1);
+  });
+
+  test('passes streamOpts through to processStream', async () => {
+    const streamOpts = { truncateText: false };
+    const { opts, processStreamCalls } = makeSpawnOpts({ streamOpts });
+    await spawnRegenerator(opts as any);
+    expect(processStreamCalls[0].opts).toEqual(streamOpts);
+  });
+
+  test('includes reviewFeedback in regenerator prompt', async () => {
+    const { opts, spawnCalls } = makeSpawnOpts({ reviewFeedback: 'FAIL: dependency ordering is wrong' });
+    await spawnRegenerator(opts as any);
+    const args = spawnCalls[0].args;
+    const idx = args.indexOf('--append-system-prompt');
+    expect(args[idx + 1]).toContain('FAIL: dependency ordering is wrong');
   });
 });

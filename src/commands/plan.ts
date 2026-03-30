@@ -519,6 +519,79 @@ CRITICAL: Preserve any tasks with status 'complete' and their metadata (complete
 Address every FAIL and WARN dimension identified in the review feedback. Do not ask for approval — write the fixed tasks.json directly.`;
 }
 
+// --- Regenerator agent spawner ---
+
+type RegeneratorSpawnFn = (
+  cmd: string,
+  args: string[],
+  opts: { cwd: string; env: Record<string, string | undefined>; stdio: any[] },
+) => ChildProcess;
+
+type RegeneratorProcessStreamFn = (
+  input: Readable,
+  output: Writable,
+  options?: ProcessStreamOptions,
+) => Promise<void>;
+
+export interface SpawnRegeneratorDeps {
+  spawn?: RegeneratorSpawnFn;
+  processStreamFn?: RegeneratorProcessStreamFn;
+}
+
+export interface SpawnRegeneratorOpts {
+  projectRoot: string;
+  dataDir: string;
+  projectName: string;
+  agents: AgentInfo[];
+  gitStatus: string;
+  reviewFeedback: string;
+  streamOpts?: ProcessStreamOptions;
+  deps?: SpawnRegeneratorDeps;
+}
+
+export async function spawnRegenerator(opts: SpawnRegeneratorOpts): Promise<{ exitCode: number }> {
+  const { projectRoot, dataDir, projectName, agents, gitStatus, reviewFeedback, streamOpts, deps } = opts;
+
+  const doSpawn: RegeneratorSpawnFn = deps?.spawn ?? (nodeSpawn as any);
+  const doProcessStream: RegeneratorProcessStreamFn = deps?.processStreamFn ?? processStream;
+
+  const env = { ...process.env, ANTHROPIC_API_KEY: '' };
+
+  const systemPrompt = buildRegeneratorPrompt({ projectName, projectRoot, dataDir, agents, gitStatus, reviewFeedback });
+
+  const args = [
+    '-p',
+    '--append-system-prompt', systemPrompt,
+    '--allowedTools', 'Read,Glob,Grep,Write,Edit',
+    '--output-format', 'stream-json',
+    '--model', 'sonnet',
+    '--verbose',
+  ];
+
+  const child = doSpawn('claude', args, {
+    cwd: projectRoot,
+    env,
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+
+  const userPrompt = 'Read the review feedback in .ralph/review-feedback.md and fix the identified issues in .ralph/tasks.json. Preserve any completed tasks.';
+
+  child.stdin!.write(userPrompt);
+  child.stdin!.end();
+
+  const streamPromise = doProcessStream(child.stdout!, process.stdout, streamOpts);
+
+  const exitCode = await new Promise<number>((resolve) => {
+    child.on('close', (code: number | null) => {
+      resolve(code ?? 1);
+    });
+  });
+
+  await streamPromise.catch(() => {});
+
+  return { exitCode };
+}
+
 // --- Reviewer agent spawner ---
 
 type ReviewerSpawnFn = (

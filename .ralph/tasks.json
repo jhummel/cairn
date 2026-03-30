@@ -2,34 +2,14 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 5,
-      "priority": 5,
-      "title": "Build reviewer agent spawner",
-      "description": "TDD. Create and export an async function `spawnReviewer()` in src/commands/plan.ts that spawns a non-interactive `claude -p` process for task review. Follow the `spawnClaude()` pattern in src/commands/run.ts (lines 184-240).\n\nSignature: `spawnReviewer(opts: { projectRoot: string, dataDir: string, passNumber: number, streamOpts?: ProcessStreamOptions, deps?: { spawn?, processStreamFn? } }): Promise<{ exitCode: number }>`\n\nImplementation:\n- Build args: `['-p', '--append-system-prompt', buildReviewPrompt({dataDir, passNumber}), '--allowedTools', 'Read,Glob,Grep', '--output-format', 'stream-json', '--model', 'sonnet', '--verbose']`\n- User prompt: `'Review the tasks now. Read .ralph/planning-notes.md and .ralph/tasks.json, evaluate on all 5 dimensions, and write your review to .ralph/review-feedback.md.'`\n- Pipe prompt to stdin, pipe stdout through processStream()\n- Set cwd to projectRoot, unset ANTHROPIC_API_KEY\n- Return exit code\n\nWrite tests that mock spawn and processStream to verify: correct args are passed, correct prompt is written to stdin, processStream is called on stdout. Use dependency injection for testability.",
-      "status": "complete",
-      "completedAt": "2026-03-29T21:15:00Z",
-      "completedBy": "iteration-5",
-      "notes": "Implemented spawnReviewer() with full dependency injection for spawn and processStream. 15 tests added covering: correct claude args (-p, --append-system-prompt, --allowedTools Read/Glob/Grep, --output-format stream-json, --model sonnet, --verbose), user prompt written to stdin, processStream called on stdout, cwd set to projectRoot, ANTHROPIC_API_KEY unset, exit code forwarding (including null→1), streamOpts passthrough, passNumber used in review prompt. 654 total tests pass.",
-      "files": [
-        "src/commands/plan.ts",
-        "src/commands/run.ts",
-        "src/stream-filter.ts",
-        "test/commands/plan.test.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        3
-      ],
-      "model": "opus"
-    },
-    {
       "id": 6,
       "priority": 6,
       "title": "Build regenerator agent spawner",
       "description": "TDD. Create and export an async function `spawnRegenerator()` in src/commands/plan.ts that spawns a non-interactive `claude -p` process to fix tasks based on review feedback. Same spawn pattern as spawnReviewer (task 5).\n\nSignature: `spawnRegenerator(opts: { projectRoot: string, dataDir: string, projectName: string, agents: AgentInfo[], gitStatus: string, reviewFeedback: string, streamOpts?: ProcessStreamOptions, deps?: { spawn?, processStreamFn? } }): Promise<{ exitCode: number }>`\n\nImplementation:\n- Build args: `['-p', '--append-system-prompt', buildRegeneratorPrompt({...}), '--allowedTools', 'Read,Glob,Grep,Write,Edit', '--output-format', 'stream-json', '--model', 'sonnet', '--verbose']`\n- User prompt: `'Read the review feedback in .ralph/review-feedback.md and fix the identified issues in .ralph/tasks.json. Preserve any completed tasks.'`\n- Same spawn/stream pattern as reviewer\n- Return exit code\n\nWrite tests with mocked spawn/processStream verifying correct args, allowed tools include Write+Edit, correct prompt.",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T20:30:00Z",
+      "completedBy": "iteration-6",
+      "notes": "Implemented spawnRegenerator() following same pattern as spawnReviewer(). Key differences: allowedTools includes Write,Edit (not just Read,Glob,Grep), uses buildRegeneratorPrompt with full project context and reviewFeedback, user prompt instructs agent to fix tasks.json while preserving completed tasks. 15 tests added covering all args, stdin prompt, processStream, cwd, env, exit codes, streamOpts passthrough, and reviewFeedback inclusion in prompt. 669 total tests pass.",
       "files": [
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"
