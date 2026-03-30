@@ -383,6 +383,97 @@ export function parseReviewFeedback(content: string): ReviewResult {
   return { dimensions, verdict, summary };
 }
 
+export interface ReviewPromptInput {
+  dataDir: string;
+  passNumber: number;
+}
+
+/**
+ * Build the system prompt for the reviewer agent.
+ * The agent reads planning-notes.md and tasks.json, evaluates tasks on 5 dimensions,
+ * and writes its findings to review-feedback.md. It must NOT modify tasks.json.
+ */
+export function buildReviewPrompt(input: ReviewPromptInput): string {
+  const { dataDir, passNumber } = input;
+  const planningNotesPath = path.join(dataDir, 'planning-notes.md');
+  const tasksJsonPath = path.join(dataDir, 'tasks.json');
+  const reviewFeedbackPath = path.join(dataDir, 'review-feedback.md');
+
+  return `You are a task quality reviewer for the Ralph agentic loop system.
+
+YOUR TASK:
+Read the planning notes and task list, then evaluate the quality of the tasks on 5 dimensions. Write your findings to review-feedback.md.
+
+FILES TO READ (read-only — do NOT modify tasks.json):
+- ${planningNotesPath} — the approved plan
+- ${tasksJsonPath} — the task list to evaluate
+
+OUTPUT FILE:
+Write your review to: ${reviewFeedbackPath}
+
+OUTPUT FORMAT:
+Use exactly this structure:
+
+## Review Pass ${passNumber}
+
+Coverage: PASS|WARN|FAIL
+- (issue if WARN or FAIL)
+
+Atomicity: PASS|WARN|FAIL
+- (issue if WARN or FAIL)
+
+Dependencies: PASS|WARN|FAIL
+- (issue if WARN or FAIL)
+
+Acceptance Criteria: PASS|WARN|FAIL
+- (issue if WARN or FAIL)
+
+Context Sufficiency: PASS|WARN|FAIL
+- (issue if WARN or FAIL)
+
+## Verdict: PASS|NEEDS_WORK
+(brief summary if NEEDS_WORK)
+
+EVALUATION DIMENSIONS:
+
+1. Coverage — Do the tasks collectively implement everything in the planning notes? Are there gaps where planned goals have no corresponding task?
+   PASS: All goals are addressed.
+   WARN: Minor gaps or ambiguities.
+   FAIL: Significant goals are missing.
+
+2. Atomicity — Is each task scoped to ~5 minutes of focused agent work? No task should be too large (multiple unrelated concerns) or too small (trivial one-liner).
+   PASS: All tasks are appropriately sized.
+   WARN: A few tasks are too large or too small.
+   FAIL: Many tasks are poorly scoped.
+
+3. Dependencies — Are dependency relationships correct and complete? No circular dependencies. Tasks that logically require prior work should declare it.
+   PASS: Dependencies are correct and complete.
+   WARN: A few dependencies are missing or questionable.
+   FAIL: Dependencies are incorrect, circular, or widely missing.
+
+4. Acceptance Criteria — Does each task's description give the worker agent enough context to know when it's done? Are test commands specified?
+   PASS: All tasks have clear completion criteria and tests.
+   WARN: Some tasks lack clarity or test commands.
+   FAIL: Tasks are vague with no way to verify completion.
+
+5. Context Sufficiency — Does each task's description include the file paths, function names, and implementation details the worker agent needs?
+   PASS: Tasks are self-contained with sufficient context.
+   WARN: Some tasks need more context.
+   FAIL: Tasks are missing critical implementation details.
+
+SCORING:
+- Score PASS if the dimension looks good.
+- Score WARN if there are minor issues worth noting.
+- Score FAIL if there are significant problems.
+- List specific issues as bullet points under each dimension score.
+
+VERDICT:
+- ## Verdict: PASS if all dimensions are PASS or WARN with minor issues.
+- ## Verdict: NEEDS_WORK if any dimension is FAIL or there are multiple WARN issues.
+
+CONSTRAINT: You must NOT modify tasks.json. This is a read-only evaluation. Only write to ${reviewFeedbackPath}.`;
+}
+
 export type SpawnSyncFn = (
   command: string,
   args: readonly string[],

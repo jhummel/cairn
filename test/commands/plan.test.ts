@@ -16,6 +16,7 @@ import {
   reviewTasksLoop,
   runPlan,
   parseReviewFeedback,
+  buildReviewPrompt,
 } from '../../src/commands/plan';
 import type { AgentInfo } from '../../src/types';
 import type { SpawnSyncReturns } from 'child_process';
@@ -2459,5 +2460,91 @@ Too many gaps in coverage.`;
   test('summary text is captured after verdict line', () => {
     const result = parseReviewFeedback(allPassInput);
     expect(result.summary).toContain('All tasks look good');
+  });
+});
+
+describe('buildReviewPrompt', () => {
+  test('returns a string', () => {
+    const result = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 1 });
+    expect(typeof result).toBe('string');
+  });
+
+  test('includes all 5 dimension names', () => {
+    const result = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 1 });
+    expect(result).toContain('Coverage');
+    expect(result).toContain('Atomicity');
+    expect(result).toContain('Dependencies');
+    expect(result).toContain('Acceptance Criteria');
+    expect(result).toContain('Context Sufficiency');
+  });
+
+  test('includes path to planning-notes.md', () => {
+    const result = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 1 });
+    expect(result).toContain('/proj/.ralph/planning-notes.md');
+  });
+
+  test('includes path to tasks.json', () => {
+    const result = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 1 });
+    expect(result).toContain('/proj/.ralph/tasks.json');
+  });
+
+  test('includes path to review-feedback.md output file', () => {
+    const result = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 1 });
+    expect(result).toContain('/proj/.ralph/review-feedback.md');
+  });
+
+  test('includes pass number in output format header', () => {
+    const result = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 2 });
+    expect(result).toContain('## Review Pass 2');
+  });
+
+  test('uses correct pass number', () => {
+    const result1 = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 1 });
+    expect(result1).toContain('## Review Pass 1');
+    const result3 = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 3 });
+    expect(result3).toContain('## Review Pass 3');
+  });
+
+  test('includes PASS, WARN, FAIL scoring instructions', () => {
+    const result = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 1 });
+    expect(result).toContain('PASS');
+    expect(result).toContain('WARN');
+    expect(result).toContain('FAIL');
+  });
+
+  test('includes ## Verdict output format marker', () => {
+    const result = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 1 });
+    expect(result).toContain('## Verdict:');
+  });
+
+  test('includes NEEDS_WORK verdict option', () => {
+    const result = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 1 });
+    expect(result).toContain('NEEDS_WORK');
+  });
+
+  test('instructs agent NOT to modify tasks.json', () => {
+    const result = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 1 });
+    const lower = result.toLowerCase();
+    // Should contain read-only constraint
+    expect(
+      lower.includes('do not modify') ||
+      lower.includes('read-only') ||
+      lower.includes('do not write') ||
+      lower.includes('only read') ||
+      lower.includes('must not modify')
+    ).toBe(true);
+  });
+
+  test('instructs agent to write to review-feedback.md', () => {
+    const result = buildReviewPrompt({ dataDir: '/proj/.ralph', passNumber: 1 });
+    const lower = result.toLowerCase();
+    expect(lower.includes('write') || lower.includes('output')).toBe(true);
+    expect(result).toContain('review-feedback.md');
+  });
+
+  test('pure function returns same output for same input', () => {
+    const a = buildReviewPrompt({ dataDir: '/x/.ralph', passNumber: 5 });
+    const b = buildReviewPrompt({ dataDir: '/x/.ralph', passNumber: 5 });
+    expect(a).toBe(b);
   });
 });
