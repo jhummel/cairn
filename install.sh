@@ -1,15 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Installs ralph by symlinking bin/ralph to a location on PATH.
+# Installs ralph by building the Bun binary and symlinking it to a location on PATH.
 # Usage: ./install.sh [prefix]
 #   Default prefix: ~/.local
 
 PREFIX="${1:-$HOME/.local}"
-RALPH_BIN="$(cd "$(dirname "$0")" && pwd)/bin/ralph"
+RALPH_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+if ! command -v bun &>/dev/null; then
+    echo "ERROR: 'bun' is not available on PATH." >&2
+    echo "Install Bun from https://bun.sh and try again." >&2
+    exit 1
+fi
+
+echo "Building ralph..."
+cd "$RALPH_ROOT"
+bun run build
+
+RALPH_BIN="$RALPH_ROOT/dist/ralph"
 
 if [[ ! -f "$RALPH_BIN" ]]; then
-    echo "ERROR: bin/ralph not found. Run this script from the ralph repo root." >&2
+    echo "ERROR: build succeeded but dist/ralph not found." >&2
     exit 1
 fi
 

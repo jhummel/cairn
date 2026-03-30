@@ -2,32 +2,14 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 4,
-      "priority": 3,
-      "title": "Fix narration server path bug in run.ts",
-      "description": "In src/commands/run.ts, the narration server script path is incorrectly resolved using projectRoot (the target project), but the narration scripts live in the ralph repo's lib/ directory.\n\nLines 390 and 429 have:\n  path.join(projectRoot, 'lib', 'ralph_narrate_server.py')\n\nThis should use process.env.RALPH_LIB_DIR (which is set by setupProjectContext to point at the ralph repo's lib/ dir). Change both to:\n  path.join(process.env.RALPH_LIB_DIR!, 'ralph_narrate_server.py')\n\nOr alternatively use resolveRalphRoot() + 'lib' \u2014 but RALPH_LIB_DIR is already set and is simpler.\n\nAlso check if there are similar issues with ralph_narrate.py references in run.ts.\n\nUpdate test/commands/run.test.ts \u2014 tests that mock or assert narration script paths need to match the new path construction.\n\nRun: bun test test/commands/run.test.ts",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-4",
-      "notes": "Fixed both instances of projectRoot-based path on lines 390 and 429 in run.ts. Changed to process.env.RALPH_LIB_DIR! which is set by setupProjectContext. No test changes needed — tests mock startNarrationServer and don't assert on scriptPath values. 84/84 tests pass.",
-      "files": [
-        "src/commands/run.ts",
-        "test/commands/run.test.ts"
-      ],
-      "dependencies": [
-        2
-      ],
-      "tests": [
-        "bun test test/commands/run.test.ts"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 5,
       "priority": 3,
       "title": "Update install.sh for compiled binary",
       "description": "Rewrite install.sh to install the compiled Bun binary instead of the old shell script.\n\nNew behavior:\n1. Check that 'bun' is available on PATH, error with helpful message if not\n2. Run 'bun run build' to compile src/index.ts \u2192 dist/ralph\n3. Symlink $PREFIX/bin/ralph \u2192 $RALPH_ROOT/dist/ralph (instead of bin/ralph)\n4. Keep the existing PATH check at the end\n\nThe RALPH_ROOT should be derived the same way (cd to script directory, pwd), but point at repo root (the directory containing package.json), not bin/.\n\nKeep the same interface: ./install.sh [prefix], default prefix ~/.local.",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T19:10:00Z",
+      "completedBy": "iteration-5",
+      "notes": "Rewrote install.sh to check for bun, run 'bun run build', and symlink dist/ralph. RALPH_ROOT now points at repo root (where package.json lives) not bin/. Same interface preserved.",
       "files": [
         "install.sh"
       ],
