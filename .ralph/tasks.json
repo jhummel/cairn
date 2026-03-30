@@ -2,34 +2,14 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 3,
-      "priority": 2,
-      "title": "Remove fallback mechanism",
-      "description": "Remove the entire shell fallback system:\n\n1. Delete src/commands/fallback.ts entirely\n2. Delete test/commands/fallback.test.ts entirely\n\n3. In src/index.ts:\n   - Remove import: import { shellFallback, forceShellFallback } from './commands/fallback'\n   - Remove re-export: export { shellFallback, forceShellFallback } from './commands/fallback'\n   - Remove the comment about re-export for backward compatibility (line 66-68)\n   - Remove SHELL_FALLBACK_COMMANDS array (line 20) and its comment (line 19)\n   - Remove PORTED_COMMANDS array (line 22) and its comment (line 21) \u2014 it's unused\n   - Remove the RALPH_FORCE_SHELL check block in main() (lines 222-227)\n   - Remove the shell fallback Commander registration loop (lines 199-210) including the comment\n   - Remove stale comment on line 45 about 'shell fallback' in setupProjectContext\n   - Clean up the comment on line 58 about 'shell fallback compatibility'\n\n4. In test/index.test.ts:\n   - Remove any tests related to RALPH_FORCE_SHELL\n   - Remove any tests related to shellFallback or forceShellFallback\n   - Update command registration count expectations if they include fallback commands\n\nRun: bun test test/index.test.ts",
-      "status": "complete",
-      "completedAt": "2026-03-29T19:10:00Z",
-      "completedBy": "iteration-3",
-      "notes": "Deleted fallback.ts and fallback.test.ts. Removed SHELL_FALLBACK_COMMANDS, PORTED_COMMANDS arrays, RALPH_FORCE_SHELL check block, shell fallback Commander loop, fallback imports/re-exports, and stale comments from src/index.ts. Cleaned RALPH_FORCE_SHELL from test/index.test.ts beforeEach/afterEach. All 24 tests pass.",
-      "files": [
-        "src/commands/fallback.ts",
-        "test/commands/fallback.test.ts",
-        "src/index.ts",
-        "test/index.test.ts"
-      ],
-      "dependencies": [
-        1
-      ],
-      "tests": [
-        "bun test test/index.test.ts"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 4,
       "priority": 3,
       "title": "Fix narration server path bug in run.ts",
       "description": "In src/commands/run.ts, the narration server script path is incorrectly resolved using projectRoot (the target project), but the narration scripts live in the ralph repo's lib/ directory.\n\nLines 390 and 429 have:\n  path.join(projectRoot, 'lib', 'ralph_narrate_server.py')\n\nThis should use process.env.RALPH_LIB_DIR (which is set by setupProjectContext to point at the ralph repo's lib/ dir). Change both to:\n  path.join(process.env.RALPH_LIB_DIR!, 'ralph_narrate_server.py')\n\nOr alternatively use resolveRalphRoot() + 'lib' \u2014 but RALPH_LIB_DIR is already set and is simpler.\n\nAlso check if there are similar issues with ralph_narrate.py references in run.ts.\n\nUpdate test/commands/run.test.ts \u2014 tests that mock or assert narration script paths need to match the new path construction.\n\nRun: bun test test/commands/run.test.ts",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T00:00:00Z",
+      "completedBy": "iteration-4",
+      "notes": "Fixed both instances of projectRoot-based path on lines 390 and 429 in run.ts. Changed to process.env.RALPH_LIB_DIR! which is set by setupProjectContext. No test changes needed — tests mock startNarrationServer and don't assert on scriptPath values. 84/84 tests pass.",
       "files": [
         "src/commands/run.ts",
         "test/commands/run.test.ts"

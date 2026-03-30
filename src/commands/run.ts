@@ -387,7 +387,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     try {
       narrationPid = await deps.startNarrationServer({
         pythonPath: 'python3',
-        scriptPath: path.join(projectRoot, 'lib', 'ralph_narrate_server.py'),
+        scriptPath: path.join(process.env.RALPH_LIB_DIR!, 'ralph_narrate_server.py'),
         voice: config.narration.voice,
         socketPath: narrationSocketPath,
       });
@@ -426,7 +426,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
           try {
             narrationPid = await deps.startNarrationServer({
               pythonPath: 'python3',
-              scriptPath: path.join(projectRoot, 'lib', 'ralph_narrate_server.py'),
+              scriptPath: path.join(process.env.RALPH_LIB_DIR!, 'ralph_narrate_server.py'),
               voice: config.narration.voice,
               socketPath: narrationSocketPath,
             });
