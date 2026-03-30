@@ -17,6 +17,7 @@ import {
   runPlan,
   parseReviewFeedback,
   buildReviewPrompt,
+  buildRegeneratorPrompt,
 } from '../../src/commands/plan';
 import type { AgentInfo } from '../../src/types';
 import type { SpawnSyncReturns } from 'child_process';
@@ -2546,5 +2547,99 @@ describe('buildReviewPrompt', () => {
     const a = buildReviewPrompt({ dataDir: '/x/.ralph', passNumber: 5 });
     const b = buildReviewPrompt({ dataDir: '/x/.ralph', passNumber: 5 });
     expect(a).toBe(b);
+  });
+});
+
+describe('buildRegeneratorPrompt', () => {
+  const baseInput = {
+    projectName: 'test-project',
+    projectRoot: '/proj',
+    dataDir: '/proj/.ralph',
+    agents: [] as AgentInfo[],
+    gitStatus: 'On branch main',
+    reviewFeedback: 'Coverage: FAIL\n- Missing authentication tasks\n## Verdict: NEEDS_WORK',
+  };
+
+  test('includes base task gen prompt content (project name)', () => {
+    const result = buildRegeneratorPrompt(baseInput);
+    expect(result).toContain('test-project');
+  });
+
+  test('includes base task gen prompt content (tasks.json schema reference)', () => {
+    const result = buildRegeneratorPrompt(baseInput);
+    // buildTaskGenPrompt embeds the tasks JSON schema
+    expect(result).toContain('TASKS.JSON SCHEMA');
+  });
+
+  test('embeds the review feedback', () => {
+    const result = buildRegeneratorPrompt(baseInput);
+    expect(result).toContain('Coverage: FAIL');
+    expect(result).toContain('Missing authentication tasks');
+    expect(result).toContain('NEEDS_WORK');
+  });
+
+  test('includes fix instructions referencing review feedback', () => {
+    const result = buildRegeneratorPrompt(baseInput);
+    const lower = result.toLowerCase();
+    expect(
+      lower.includes('fix') ||
+      lower.includes('address') ||
+      lower.includes('issues identified')
+    ).toBe(true);
+  });
+
+  test('mentions reading planning-notes.md', () => {
+    const result = buildRegeneratorPrompt(baseInput);
+    expect(result).toContain('planning-notes.md');
+  });
+
+  test('mentions reading tasks.json', () => {
+    const result = buildRegeneratorPrompt(baseInput);
+    expect(result).toContain('tasks.json');
+  });
+
+  test('mentions reading review-feedback.md', () => {
+    const result = buildRegeneratorPrompt(baseInput);
+    expect(result).toContain('review-feedback.md');
+  });
+
+  test('instructs to preserve complete tasks', () => {
+    const result = buildRegeneratorPrompt(baseInput);
+    const lower = result.toLowerCase();
+    expect(
+      lower.includes("status 'complete'") ||
+      lower.includes('status "complete"') ||
+      lower.includes('completed tasks') ||
+      lower.includes('preserve') && lower.includes('complete')
+    ).toBe(true);
+  });
+
+  test('instructs to NOT modify completed task metadata', () => {
+    const result = buildRegeneratorPrompt(baseInput);
+    const lower = result.toLowerCase();
+    expect(
+      lower.includes('do not modify') ||
+      lower.includes('completed tasks') ||
+      lower.includes('preserve')
+    ).toBe(true);
+  });
+
+  test('uses dataDir paths for files', () => {
+    const result = buildRegeneratorPrompt(baseInput);
+    expect(result).toContain('/proj/.ralph');
+  });
+
+  test('pure function returns same output for same input', () => {
+    const a = buildRegeneratorPrompt(baseInput);
+    const b = buildRegeneratorPrompt(baseInput);
+    expect(a).toBe(b);
+  });
+
+  test('different reviewFeedback produces different output', () => {
+    const a = buildRegeneratorPrompt({ ...baseInput, reviewFeedback: 'feedback A' });
+    const b = buildRegeneratorPrompt({ ...baseInput, reviewFeedback: 'feedback B' });
+    expect(a).not.toBe(b);
+    expect(a).toContain('feedback A');
+    expect(b).toContain('feedback B');
   });
 });

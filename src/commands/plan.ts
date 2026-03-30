@@ -474,6 +474,50 @@ VERDICT:
 CONSTRAINT: You must NOT modify tasks.json. This is a read-only evaluation. Only write to ${reviewFeedbackPath}.`;
 }
 
+export interface RegeneratorPromptInput {
+  projectName: string;
+  projectRoot: string;
+  dataDir: string;
+  agents: AgentInfo[];
+  gitStatus: string;
+  reviewFeedback: string;
+}
+
+/**
+ * Build the system prompt for the regenerator agent.
+ * The agent reads planning-notes.md, tasks.json, and review-feedback.md,
+ * then rewrites tasks.json with fixes based on the review feedback.
+ * It must preserve any tasks with status 'complete' and their metadata.
+ */
+export function buildRegeneratorPrompt(input: RegeneratorPromptInput): string {
+  const { projectName, projectRoot, dataDir, agents, gitStatus, reviewFeedback } = input;
+
+  const basePrompt = buildTaskGenPrompt({ projectName, projectRoot, dataDir, agents, gitStatus });
+
+  const planningNotesPath = path.join(dataDir, 'planning-notes.md');
+  const tasksJsonPath = path.join(dataDir, 'tasks.json');
+  const reviewFeedbackPath = path.join(dataDir, 'review-feedback.md');
+
+  return `REVIEW FEEDBACK (fix the issues identified below before regenerating tasks):
+
+${reviewFeedback}
+
+---
+
+${basePrompt}
+
+REGENERATION INSTRUCTIONS:
+You are fixing an existing tasks.json based on review feedback. Your workflow:
+1. Read ${planningNotesPath} — the approved plan
+2. Read ${tasksJsonPath} — the current task list with issues to fix
+3. Read ${reviewFeedbackPath} — the review feedback explaining what needs to be fixed
+4. Fix the identified issues and rewrite ${tasksJsonPath}
+
+CRITICAL: Preserve any tasks with status 'complete' and their metadata (completedAt, completedBy, notes). Do NOT modify completed tasks.
+
+Address every FAIL and WARN dimension identified in the review feedback. Do not ask for approval — write the fixed tasks.json directly.`;
+}
+
 export type SpawnSyncFn = (
   command: string,
   args: readonly string[],

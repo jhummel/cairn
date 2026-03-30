@@ -2,30 +2,14 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 3,
-      "priority": 3,
-      "title": "Build reviewer prompt builder",
-      "description": "TDD. Create and export a pure function `buildReviewPrompt()` in src/commands/plan.ts that constructs the system prompt for the reviewer agent. The prompt must instruct the agent to:\n\n1. Read planning-notes.md and tasks.json from the project's .ralph/ directory\n2. Evaluate tasks on 5 dimensions: Coverage, Atomicity, Dependencies, Acceptance Criteria, Context Sufficiency\n3. Score each dimension as PASS, WARN, or FAIL with specific issues listed\n4. Write output to .ralph/review-feedback.md in the exact format specified in planning-notes.md (## Review Pass N, dimension scores with issues, ## Verdict: PASS | NEEDS_WORK)\n5. NOT modify tasks.json (read-only evaluation)\n\nThe function should accept `{ dataDir: string, passNumber: number }` and return the system prompt string. Write tests verifying the prompt contains key instructions (dimension names, output format markers, read-only constraint, correct file paths).",
-      "status": "complete",
-      "completedAt": "2026-03-29T21:00:00Z",
-      "completedBy": "iteration-3",
-      "notes": "Implemented buildReviewPrompt({ dataDir, passNumber }) as a pure function. Prompt instructs reviewer to: read planning-notes.md and tasks.json (read-only), score 5 dimensions (Coverage, Atomicity, Dependencies, Acceptance Criteria, Context Sufficiency) as PASS/WARN/FAIL, write output to review-feedback.md with '## Review Pass N' header and '## Verdict: PASS|NEEDS_WORK' footer. Uses path.join for all file paths. 13 tests added covering all requirements. 627 total tests pass.",
-      "files": [
-        "src/commands/plan.ts",
-        "test/commands/plan.test.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 4,
       "priority": 4,
       "title": "Build regenerator prompt builder",
       "description": "TDD. Create and export a pure function `buildRegeneratorPrompt()` in src/commands/plan.ts that constructs the system prompt for the regenerator agent. It should:\n\n1. Accept `{ projectName: string, projectRoot: string, dataDir: string, agents: AgentInfo[], gitStatus: string, reviewFeedback: string }`\n2. Reuse `buildTaskGenPrompt()` to get the base task generation prompt\n3. Prepend the review feedback as additional context, instructing the agent to fix the specific issues identified\n4. Instruct the agent to read planning-notes.md, tasks.json, and review-feedback.md, then rewrite tasks.json with fixes\n5. Instruct it to preserve any tasks with status 'complete' and their metadata\n\nWrite tests verifying: the prompt includes the base task gen prompt content, the review feedback is embedded, fix instructions are present, complete-task preservation is mentioned.",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T20:15:00Z",
+      "completedBy": "iteration-4",
+      "notes": "Implemented buildRegeneratorPrompt() as a pure function. Prepends review feedback block before the base task gen prompt, then appends regeneration instructions: read 3 files (planning-notes.md, tasks.json, review-feedback.md), rewrite tasks.json with fixes, preserve complete tasks. 12 tests added covering: base prompt content, review feedback embedding, fix instructions, file references, complete-task preservation, purity. 639 total tests pass.",
       "files": [
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"
