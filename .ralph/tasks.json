@@ -2,33 +2,14 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 5,
-      "priority": 3,
-      "title": "Simplify runPlan() and delete obsolete code",
-      "description": "This is the main refactor task. Replace the multi-session orchestration in `runPlan()` with a single interactive claude spawn, and delete all obsolete functions.\n\nNew `runPlan()` should:\n1. Call `displayPreflight()` (keep as-is)\n2. Build system prompt via simplified `buildPlanningPrompt()`\n3. Spawn ONE interactive `claude --append-system-prompt <prompt> --allowedTools Read,Glob,Grep,Write,Edit` session\n4. When the user exits claude, ralph is done — return immediately\n\nDelete the following functions and their tests:\n- `buildTaskGenPrompt()` — moved to `commands/generate-tasks.md`\n- `buildReviewPrompt()` — moved to `commands/review-tasks.md`\n- `buildRegeneratorPrompt()` — no longer needed\n- `spawnReviewer()` — replaced by slash command\n- `spawnRegenerator()` — replaced by slash command\n- `runAutoReview()` — replaced by slash command\n- `parseReviewFeedback()` — reviewer reports conversationally now\n- `reviewNotesLoop()` — replaced by natural conversation\n- `reviewTasksLoop()` — replaced by natural conversation\n- `launchPlanningSession()` — collapsed into runPlan()\n- `launchTaskGeneration()` — collapsed into runPlan()\n\nDelete all associated types/interfaces:\n- `LaunchPlanningSessionOpts`, `LaunchTaskGenerationOpts`\n- `SpawnReviewerOpts`, `SpawnReviewerDeps`\n- `SpawnRegeneratorOpts`, `SpawnRegeneratorDeps`\n- `RunAutoReviewOpts`, `ReviewTasksLoopOpts`, `ReviewNotesLoopOpts`\n- `ReviewDimension`, `ReviewResult`\n- Simplify `RunPlanOpts` to only what's needed (projectName, projectRoot, dataDir, agents)\n\nDelete internal helpers that are no longer used:\n- `tryReadFile()`, `fileSection()` — verify no remaining callers first\n- `computeGitStatus()` — only used by deleted task gen prompt\n- `defaultEditFn()` — only used by deleted menu loops\n\nRemove the `tasksSchemaRaw` import (schema is now in the slash command file).\n\nRemove the menu.ts import (but don't delete menu.ts yet — task 6 handles that).\n\nTDD approach:\n- Delete obsolete tests first\n- Write new tests for simplified `runPlan()` (spawns claude with correct args, system prompt contains project context)\n- Then implement\n\nVerify `bun test test/commands/plan.test.ts` passes after all changes.",
-      "status": "complete",
-      "completedAt": "2026-03-29T22:45:00Z",
-      "completedBy": "iteration-5",
-      "notes": "Deleted all obsolete functions (buildTaskGenPrompt, buildReviewPrompt, buildRegeneratorPrompt, spawnReviewer, spawnRegenerator, runAutoReview, parseReviewFeedback, reviewNotesLoop, reviewTasksLoop, launchPlanningSession, launchTaskGeneration) and their types/interfaces. Removed tryReadFile, fileSection, computeGitStatus, defaultEditFn helpers. Removed tasksSchemaRaw and menu.ts imports. Simplified RunPlanOpts to {projectName, projectRoot, dataDir, agents, spawnSyncFn?}. runPlan is now synchronous (void, not Promise<void>) — just displayPreflight + one spawnSync claude call. Updated index.ts to match new sync interface (removed readline/rl plumbing). Test count dropped from ~738 to 600 (removed ~138 obsolete tests). menu.ts still exists but is no longer imported by plan.ts — task 6 will delete it.",
-      "files": [
-        "src/commands/plan.ts",
-        "test/commands/plan.test.ts"
-      ],
-      "tests": [
-        "bun test test/commands/plan.test.ts"
-      ],
-      "dependencies": [
-        3,
-        4
-      ],
-      "model": "opus"
-    },
-    {
       "id": 6,
       "priority": 4,
       "title": "Delete menu.ts",
       "description": "Remove `src/menu.ts` and `test/menu.test.ts`. Verify no remaining imports of menu.ts anywhere in the codebase (grep for 'menu' in src/ and test/ directories). Remove any lingering import statements.\n\nThis should be straightforward — the only consumer was plan.ts menu loops, which were removed in task 5.",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T22:30:00Z",
+      "completedBy": "iteration-6",
+      "notes": "Deleted src/menu.ts and test/menu.test.ts. No remaining imports found in src/ or test/ (plan.test.ts only had a comment mentioning 'menu loops', not an import). All 591 tests pass.",
       "files": [
         "src/menu.ts",
         "test/menu.test.ts"

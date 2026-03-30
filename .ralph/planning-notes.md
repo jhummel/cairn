@@ -1,97 +1,89 @@
 ## Context
 
-Ralph's TypeScript rewrite is complete — all commands (status, edit, logs, init, summarize, plan, run, narrate) are ported with 601 tests passing. The shell scripts in `lib/` and `bin/ralph` are dead code for command dispatch. The compiled Bun binary at `dist/ralph` works end-to-end. But the symlink at `~/.local/bin/ralph` still points to the old `bin/ralph` shell script, and all the shell infrastructure remains in the repo.
-
-Two Python scripts are still needed: `lib/ralph_narrate.py` (one-shot TTS) and `lib/ralph_narrate_server.py` (TTS daemon with Kokoro + Haiku). These are referenced by `src/commands/narrate.ts` and `src/commands/run.ts`.
+Ralph's TypeScript rewrite is complete — all commands ported, 736 tests pass, post-task review and auto-review loop both shipped, two startup bugs fixed. The `ralph plan` command currently works but has a clunky multi-session flow: it spawns separate claude processes for planning, task generation, and review, with menu loops between each phase. This means 3-4 cold-start claude sessions with context loss between each.
 
 ## Goals
 
-Clean cut from shell to TypeScript:
-1. Swap the symlink to point to the compiled Bun binary
-2. Delete all obsolete shell scripts and the old shell entry point
-3. Remove the shell fallback mechanism from TS code
-4. Fix a narration server path bug found during audit
-5. Update docs to reflect the new TS-only architecture
+Collapse the planning flow into a single interactive claude session. Extract the task generation and review prompts into Claude Code slash commands (`.claude/commands/*.md`) that ship with ralph. The planning agent stays interactive for discussion, then the user triggers `/generate-tasks` and `/review-tasks` as slash commands that spawn fresh subagents (via Claude Code's Agent tool) for clean-context execution.
 
 ## Approach
 
-### Delete obsolete files
+### 1. Create slash command files in the ralph repo
 
-Remove everything that's been fully ported:
-- `bin/ralph` — old shell entry point
-- `lib/ralph_common.sh` — shared shell utilities
-- `lib/ralph_config.sh` — config loading (ported to `src/config.ts`)
-- `lib/ralph_init.sh` — init command (ported to `src/commands/init.ts`)
-- `lib/ralph_plan.sh` — plan command (ported to `src/commands/plan.ts`)
-- `lib/ralph_loop.sh` — loop driver (ported to `src/commands/run.ts`)
-- `lib/ralph_execute.sh` — execution engine (decomposed into `src/task-selector.ts`, `src/health-check.ts`, `src/test-validator.ts`, `src/task-archiver.ts`, `src/process.ts`, `src/commands/run.ts`)
-- `lib/ralph_summarize.sh` — summarize command (ported to `src/commands/summarize.ts`)
-- `lib/ralph_stream_filter.py` — stream filter (ported to `src/stream-filter.ts`)
-- `lib/tasks.schema.json` — already copied to `src/tasks-schema.json`
-- `lib/__pycache__/` — Python bytecode cache
+Add a `commands/` directory at the ralph repo root containing:
 
-Keep in `lib/`:
-- `ralph_narrate.py` — one-shot TTS (Python-only Kokoro dependency)
-- `ralph_narrate_server.py` — TTS daemon (Python-only Kokoro + sounddevice)
+- **`commands/generate-tasks.md`** — Instructs the agent to spawn a fresh general-purpose subagent (via the Agent tool) that reads `.ralph/planning-notes.md`, reads the codebase as needed, and writes `.ralph/tasks.json`. Contains the full tasks.json schema, task structure guidelines, directory guidelines, test command guidelines, and rules. All currently in `buildTaskGenPrompt()` in `src/commands/plan.ts`.
 
-### Remove fallback mechanism
+- **`commands/review-tasks.md`** — Instructs the agent to spawn a fresh general-purpose subagent that evaluates `.ralph/tasks.json` against `.ralph/planning-notes.md` on 5 dimensions (Coverage, Atomicity, Dependencies, Acceptance Criteria, Context Sufficiency). Reports findings back to the user conversationally. All currently in `buildReviewPrompt()` in `src/commands/plan.ts`.
 
-Delete `src/commands/fallback.ts` and `test/commands/fallback.test.ts` entirely. Remove all references:
-- `index.ts`: remove `shellFallback`/`forceShellFallback` imports and re-exports, remove `RALPH_FORCE_SHELL` check, remove `SHELL_FALLBACK_COMMANDS` array and its Commander registration loop
-- `test/index.test.ts`: remove RALPH_FORCE_SHELL tests, update command registration expectations
+The general-purpose subagent type inherits all parent tools (including Write/Edit), so subagents can write tasks.json and read any project files.
 
-### Fix `resolveRalphRoot()` marker
+### 2. Update `ralph init` to install slash commands
 
-`src/utils.ts` currently uses `lib/ralph_common.sh` as the marker file to detect the ralph repo root. Change to `package.json` — it's always present and unique to the ralph repo root. Update `test/utils.test.ts` accordingly.
+In `src/commands/init.ts`, add a step that copies `commands/*.md` from the ralph repo into the target project's `.claude/commands/` directory. This should be unconditional (always install, not behind a prompt) since these commands are always useful. Follow the same pattern as `installNarrationHooks()` — create the directory, copy files, log what was created. On re-init, overwrite existing command files (they're ralph-managed, not user-edited — users can customize by editing after install).
 
-### Fix narration server path bug in `run.ts`
+The ralph repo root is available via `resolveRalphRoot()` from `src/utils.ts`.
 
-`src/commands/run.ts` lines 390 and 429 use `path.join(projectRoot, 'lib', 'ralph_narrate_server.py')` — this looks in the *target* project, not the ralph repo. Should use the ralph repo root (available via `resolveRalphRoot()` or `RALPH_LIB_DIR` env var). `narrate.ts` already does this correctly via `RALPH_LIB_DIR`.
+### 3. Simplify `ralph plan`
 
-### Update `install.sh`
+The `runPlan()` function becomes:
+1. Call `displayPreflight()` (keep — nice status overview)
+2. Build a minimal system prompt with just project context (name, root, data dir, agents list) and the planning role/workflow/format instructions
+3. Spawn one interactive `claude --append-system-prompt <prompt> --allowedTools Read,Glob,Grep,Write,Edit` session
+4. When the user exits, ralph is done
 
-Change from symlinking `bin/ralph` to building and symlinking `dist/ralph`:
-1. Run `bun run build` to compile the binary
-2. Symlink `$PREFIX/bin/ralph` → `$RALPH_ROOT/dist/ralph`
-3. Check that `bun` is available, error if not
+The planning agent reads CLAUDE.md, README.md, package.json, etc. itself — no need to embed file contents in the system prompt. The system prompt just needs the role description, planning-notes.md format spec, and rules (the static parts of the current `buildPlanningPrompt()`).
 
-### Clean up `RALPH_LIB_DIR` usage
+### 4. Delete obsolete code from plan.ts
 
-`RALPH_LIB_DIR` is still needed — narration scripts live in `lib/`. Keep it set in `setupProjectContext()`. But remove the comment about "shell fallback compatibility" since that's no longer the reason.
+Remove:
+- `buildTaskGenPrompt()` — moved to `commands/generate-tasks.md`
+- `buildReviewPrompt()` — moved to `commands/review-tasks.md`
+- `buildRegeneratorPrompt()` — no longer needed (user can ask conversationally or re-run `/generate-tasks`)
+- `spawnReviewer()`, `spawnRegenerator()`, `runAutoReview()` — replaced by slash commands
+- `parseReviewFeedback()`, `ReviewDimension`, `ReviewResult` interfaces — reviewer reports conversationally now
+- `reviewNotesLoop()`, `reviewTasksLoop()` — replaced by natural conversation in the interactive session
+- `launchPlanningSession()`, `launchTaskGeneration()` — collapsed into single session spawn
+- All associated types: `LaunchPlanningSessionOpts`, `LaunchTaskGenerationOpts`, `SpawnReviewerOpts`, `SpawnReviewerDeps`, `SpawnRegeneratorOpts`, `SpawnRegeneratorDeps`, `RunAutoReviewOpts`, `ReviewTasksLoopOpts`, `ReviewNotesLoopOpts`, `RunPlanOpts` (will need a simpler replacement)
+- The `tasksSchemaRaw` import — schema moves into the slash command file
 
-### Update documentation
+### 5. Delete menu.ts
 
-Update `CLAUDE.md` and `README.md` to reflect:
-- TS is the primary implementation, no shell scripts for command dispatch
-- `src/index.ts` is the entry point, compiled to `dist/ralph`
-- `lib/` only contains Python narration scripts
-- Remove all references to `bin/ralph` as entry point
-- Update file structure sections
-- Remove mentions of shell fallback, `RALPH_FORCE_SHELL`
+`src/menu.ts` and `test/menu.test.ts` — only consumer was plan.ts menu loops, which are gone.
+
+### 6. Update tests
+
+Delete tests for all removed functions. Add tests for:
+- The new simplified `runPlan()` (spawns claude with correct args, system prompt contains project context)
+- The init command's slash command installation (files copied, directory created, idempotent)
+
+Keep tests for functions that survive: `formatBanner()`, `formatPlanningNotesStatus()`, `formatCompletedCount()`, `formatTasksSummary()`, `displayPreflight()`, `buildPlanningPrompt()` (simplified version).
+
+### 7. Update install.sh / build verification
+
+Ensure `bun test` passes and `bun run build` compiles after all changes. The `commands/` directory is static markdown — it doesn't need to be compiled, just needs to be findable at runtime via `resolveRalphRoot()`.
 
 ## Rejected Alternatives
 
-- **Full rewrite in one phase:** Considered porting everything at once. Rejected — incremental approach with shell fallback means nothing breaks and we can validate each phase independently.
 - **Use Anthropic TS SDK instead of shelling out to claude:** Rejected for now. Shelling out to `claude -p` gives us Claude Code's full tool suite, permissions model, and MCP support for free. Can revisit later.
-- **Port narration to TypeScript:** Rejected for now. Kokoro TTS and sounddevice are Python-specific audio libraries. Keep narration as a Python subprocess spawned from TS (same as bash does today).
-- **Hand-roll CLI arg parsing:** Rejected in favor of Commander. Ralph's CLI is simple but Commander is lightweight, well-known, and the maintainer is familiar with TS ecosystem tooling.
-- **Modify shell scripts during rewrite:** Rejected. Shell scripts are frozen as the immutable safety net. All behavior changes go in TS only.
-- **Use inquirer/prompts library for init:** Considered third-party prompt libraries. Node's built-in `readline/promises` is sufficient for simple line prompts with defaults and avoids adding a dependency.
-- **Async spawn for interactive claude sessions:** Considered using async `spawn()` with event listeners for interactive plan sessions. Rejected — `spawnSync` with `stdio: 'inherit'` is simpler, matches what the shell does, and there's nothing to do while the session runs. (Note: the `run` command uses async spawn because it pipes stdout through the stream filter — this is different from interactive sessions in `plan`.)
-- **Keep `RALPH_FORCE_SHELL` as safety net:** Considered keeping the shell fallback mechanism during the transition. Rejected — all commands are ported with 601 tests, the compiled binary works end-to-end, and keeping dead shell scripts creates confusion about what's authoritative.
-- **Move Python narration scripts out of `lib/`:** Considered moving to a `python/` or `scripts/` directory. Could do this later, but for now `lib/` is fine — it's where `RALPH_LIB_DIR` already points and the narration code references it.
+- **Port narration to TypeScript:** Rejected for now. Kokoro TTS and sounddevice are Python-specific audio libraries. Keep narration as a Python subprocess spawned from TS.
+- **Skills instead of subagents for task generation/review:** Considered having the slash commands execute within the same session context (no Agent tool, the planning agent just does the work). Rejected — clean context matters for task generation (avoids bias from conversational tangents) and review (independent evaluation). Subagents via Agent tool get fresh context while still having full tool access.
+- **Dynamically generated slash commands:** Considered having ralph write `.claude/commands/` files at plan time with templated project-specific values. Rejected in favor of static files copied during `ralph init` — easier to version, edit, and customize. The subagent can read project context from files at runtime.
+- **Regenerator as separate slash command:** Considered keeping a `/regenerate-tasks` command. Rejected — if the review finds issues, the user can ask the planning agent conversationally or just re-run `/generate-tasks`. Separate regenerator adds complexity without clear benefit.
+- **Gating command installation behind a prompt:** Considered asking "Install planning slash commands?" during init. Rejected — these are always useful and non-invasive (they go in `.claude/commands/` which is standard Claude Code). Install unconditionally.
+- **Post-task review blocks archival:** Considered having review failures revert task status or block archival. Rejected — this is informational only for now. Let the human read `review-post.md` and decide what to do. Can add blocking behavior later if the signal proves reliable.
+- **Review using HEAD~1 instead of SHA capture:** Considered diffing against `HEAD~1` for simplicity. Rejected — agents may make multiple commits or amend, so `HEAD~1` wouldn't capture the full delta. Capturing SHA before the agent runs and diffing `<before>..HEAD` is more robust.
 
 ## Rough Task Outline
 
-1. Delete obsolete shell scripts and bin/ralph — `rm bin/ralph lib/ralph_common.sh lib/ralph_config.sh lib/ralph_init.sh lib/ralph_plan.sh lib/ralph_loop.sh lib/ralph_execute.sh lib/ralph_summarize.sh lib/ralph_stream_filter.py lib/tasks.schema.json`, rm `lib/__pycache__/` — `/`
-2. Fix `resolveRalphRoot()` marker — change from `lib/ralph_common.sh` to `package.json`, update tests — `src/utils.ts`, `test/utils.test.ts`
-3. Remove fallback mechanism — delete `src/commands/fallback.ts` and `test/commands/fallback.test.ts`, remove all imports/references in `src/index.ts` and `test/index.test.ts` — `src/`, `test/`
-4. Fix narration server path bug in run.ts — use `RALPH_LIB_DIR` or `resolveRalphRoot()` instead of `projectRoot` for narration script paths — `src/commands/run.ts`, `test/commands/run.test.ts`
-5. Update `install.sh` — build with `bun run build`, symlink `dist/ralph` instead of `bin/ralph`, verify `bun` is on PATH — `/`
-6. Clean up `index.ts` — remove `RALPH_FORCE_SHELL` check, remove `SHELL_FALLBACK_COMMANDS`, remove stale comments, clean up dead imports — `src/index.ts`, `test/index.test.ts`
-7. Update `CLAUDE.md` — rewrite architecture section for TS-only world, update execution flow, file structure, conventions — `/`
-8. Update `README.md` — update file structure, remove shell references, update installation section to mention bun build, remove `RALPH_FORCE_SHELL` mentions — `/`
-9. Full test suite pass + build verification — `bun test`, `bun run build`, smoke test `dist/ralph` — `/`
+1. Create `commands/generate-tasks.md` — extract task gen prompt from `buildTaskGenPrompt()`, adapt for slash command format (instruct agent to use Agent tool to spawn subagent). Inline the tasks.json schema. — `commands/`
+2. Create `commands/review-tasks.md` — extract review prompt from `buildReviewPrompt()`, adapt for slash command format (instruct agent to use Agent tool to spawn subagent). Include 5 dimensions and scoring. — `commands/`
+3. Add slash command installation to `ralph init` — copy `commands/*.md` to target project's `.claude/commands/`, create dir if needed, log output. Unconditional, idempotent. — `src/commands/init.ts`, `test/commands/init.test.ts`
+4. Simplify `buildPlanningPrompt()` — remove file embedding (tryReadFile/fileSection), keep role description, planning-notes format, and rules. Agent reads files itself. — `src/commands/plan.ts`, `test/commands/plan.test.ts`
+5. Simplify `runPlan()` — replace multi-session orchestration with single interactive claude spawn. Remove menu loop calls. — `src/commands/plan.ts`, `test/commands/plan.test.ts`
+6. Delete obsolete plan.ts code — remove `buildTaskGenPrompt`, `buildReviewPrompt`, `buildRegeneratorPrompt`, `spawnReviewer`, `spawnRegenerator`, `runAutoReview`, `parseReviewFeedback`, `reviewNotesLoop`, `reviewTasksLoop`, `launchPlanningSession`, `launchTaskGeneration`, and all associated types/interfaces. — `src/commands/plan.ts`, `test/commands/plan.test.ts`
+7. Delete `menu.ts` — remove `src/menu.ts` and `test/menu.test.ts`. Remove import from plan.ts. — `src/menu.ts`, `test/menu.test.ts`
+8. Verify build + full test suite — `bun test`, `bun run build`, smoke test `ralph plan --help`. — `/`
 
 ## Open Questions
 

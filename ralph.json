@@ -5,6 +5,10 @@
   "defaultTestCommand": "bun test",
   "implementationFile": "IMPLEMENTATION.md",
   "truncateText": false,
+  "review": {
+    "maxIterations": 3,
+    "postTask": true
+  },
   "summarize": {
     "claudeMdPattern": ""
   },
