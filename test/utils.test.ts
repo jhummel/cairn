@@ -135,18 +135,13 @@ describe('findProjectRoot', () => {
 });
 
 describe('resolveRalphRoot', () => {
-  it('returns a directory that contains lib/ralph_common.sh', () => {
-    const root = resolveRalphRoot();
-    expect(existsSync(join(root, 'lib', 'ralph_common.sh'))).toBe(true);
-  });
-
   it('returns a directory that contains package.json', () => {
     const root = resolveRalphRoot();
     expect(existsSync(join(root, 'package.json'))).toBe(true);
   });
 
-  it('returns a directory that contains bin/ralph', () => {
+  it('returns a directory that contains src/utils.ts', () => {
     const root = resolveRalphRoot();
-    expect(existsSync(join(root, 'bin', 'ralph'))).toBe(true);
+    expect(existsSync(join(root, 'src', 'utils.ts'))).toBe(true);
   });
 });

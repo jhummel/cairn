@@ -74,14 +74,14 @@ export function findProjectRoot(cwd?: string): string {
  * In dev mode (bun run src/index.ts): use import.meta to locate src/ → repo root.
  * In compiled binary: follow symlink back to repo.
  *
- * Falls back to walking up from this file's directory looking for lib/ralph_common.sh.
+ * Falls back to walking up from this file's directory looking for package.json.
  */
 export function resolveRalphRoot(): string {
   // In dev/bun mode, __dirname or import.meta.dir points into src/
   // This file is src/utils.ts, so repo root is one level up
   const thisDir = __dirname;
   const candidate = resolve(thisDir, '..');
-  if (existsSync(join(candidate, 'lib', 'ralph_common.sh'))) {
+  if (existsSync(join(candidate, 'package.json'))) {
     return candidate;
   }
 
@@ -92,7 +92,7 @@ export function resolveRalphRoot(): string {
     // Binary could be at dist/ralph or bin/ralph, so check parent
     let dir = dirname(resolvedBin);
     for (let i = 0; i < 3; i++) {
-      if (existsSync(join(dir, 'lib', 'ralph_common.sh'))) {
+      if (existsSync(join(dir, 'package.json'))) {
         return dir;
       }
       dir = dirname(dir);
@@ -102,7 +102,7 @@ export function resolveRalphRoot(): string {
   // Last resort: walk up from this file
   let dir = thisDir;
   while (dir !== dirname(dir)) {
-    if (existsSync(join(dir, 'lib', 'ralph_common.sh'))) {
+    if (existsSync(join(dir, 'package.json'))) {
       return dir;
     }
     dir = dirname(dir);

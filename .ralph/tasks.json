@@ -2,49 +2,31 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 1,
-      "priority": 1,
-      "title": "Delete obsolete shell scripts and bin/ralph",
-      "description": "Delete all obsolete shell scripts and related files that have been fully ported to TypeScript. Remove:\n- bin/ralph\n- lib/ralph_common.sh\n- lib/ralph_config.sh\n- lib/ralph_init.sh\n- lib/ralph_plan.sh\n- lib/ralph_loop.sh\n- lib/ralph_execute.sh\n- lib/ralph_summarize.sh\n- lib/ralph_stream_filter.py\n- lib/tasks.schema.json\n- lib/__pycache__/ (entire directory)\n\nDO NOT delete:\n- lib/ralph_narrate.py (still needed — Python TTS one-shot)\n- lib/ralph_narrate_server.py (still needed — Python TTS daemon)\n\nAfter deletion, verify lib/ only contains ralph_narrate.py and ralph_narrate_server.py. Verify bin/ directory is empty and can be removed too.",
-      "status": "complete",
-      "completedAt": "2026-03-29T00:00:00Z",
-      "completedBy": "iteration-1",
-      "notes": "Deleted all specified shell scripts and Python stream filter. lib/__pycache__ also removed. bin/ is now empty. lib/ contains only ralph_narrate.py and ralph_narrate_server.py as expected.",
-      "files": [
-        "bin/ralph",
-        "lib/ralph_common.sh",
-        "lib/ralph_config.sh",
-        "lib/ralph_init.sh",
-        "lib/ralph_plan.sh",
-        "lib/ralph_loop.sh",
-        "lib/ralph_execute.sh",
-        "lib/ralph_summarize.sh",
-        "lib/ralph_stream_filter.py",
-        "lib/tasks.schema.json"
-      ],
-      "dependencies": [],
-      "tests": [],
-      "model": "sonnet"
-    },
-    {
       "id": 2,
       "priority": 2,
       "title": "Fix resolveRalphRoot() marker",
-      "description": "In src/utils.ts, the resolveRalphRoot() function uses 'lib/ralph_common.sh' as the marker file to detect the ralph repo root. Since ralph_common.sh is being deleted, change the marker to 'package.json' — it's always present and unique to the ralph repo root.\n\nThere are 3 occurrences of the marker check in resolveRalphRoot():\n1. Line 84: existsSync(join(candidate, 'lib', 'ralph_common.sh'))\n2. Line 95: existsSync(join(dir, 'lib', 'ralph_common.sh'))\n3. Line 105: existsSync(join(dir, 'lib', 'ralph_common.sh'))\n\nChange all three to check for 'package.json' instead. For example:\n  existsSync(join(candidate, 'package.json'))\n\nUpdate test/utils.test.ts to reflect the new marker. Tests that create fake ralph repo structures with ralph_common.sh should use package.json instead.\n\nRun: bun test test/utils.test.ts",
-      "status": "pending",
+      "description": "In src/utils.ts, the resolveRalphRoot() function uses 'lib/ralph_common.sh' as the marker file to detect the ralph repo root. Since ralph_common.sh is being deleted, change the marker to 'package.json' \u2014 it's always present and unique to the ralph repo root.\n\nThere are 3 occurrences of the marker check in resolveRalphRoot():\n1. Line 84: existsSync(join(candidate, 'lib', 'ralph_common.sh'))\n2. Line 95: existsSync(join(dir, 'lib', 'ralph_common.sh'))\n3. Line 105: existsSync(join(dir, 'lib', 'ralph_common.sh'))\n\nChange all three to check for 'package.json' instead. For example:\n  existsSync(join(candidate, 'package.json'))\n\nUpdate test/utils.test.ts to reflect the new marker. Tests that create fake ralph repo structures with ralph_common.sh should use package.json instead.\n\nRun: bun test test/utils.test.ts",
+      "status": "complete",
+      "completedAt": "2026-03-29T19:15:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Changed all 3 ralph_common.sh marker checks to package.json in resolveRalphRoot(). Updated tests: removed the ralph_common.sh and bin/ralph assertions (bin/ralph deleted in task #1), kept package.json check, added src/utils.ts check. All 13 tests pass.",
       "files": [
         "src/utils.ts",
         "test/utils.test.ts"
       ],
-      "dependencies": [1],
-      "tests": ["bun test test/utils.test.ts"],
+      "dependencies": [
+        1
+      ],
+      "tests": [
+        "bun test test/utils.test.ts"
+      ],
       "model": "sonnet"
     },
     {
       "id": 3,
       "priority": 2,
       "title": "Remove fallback mechanism",
-      "description": "Remove the entire shell fallback system:\n\n1. Delete src/commands/fallback.ts entirely\n2. Delete test/commands/fallback.test.ts entirely\n\n3. In src/index.ts:\n   - Remove import: import { shellFallback, forceShellFallback } from './commands/fallback'\n   - Remove re-export: export { shellFallback, forceShellFallback } from './commands/fallback'\n   - Remove the comment about re-export for backward compatibility (line 66-68)\n   - Remove SHELL_FALLBACK_COMMANDS array (line 20) and its comment (line 19)\n   - Remove PORTED_COMMANDS array (line 22) and its comment (line 21) — it's unused\n   - Remove the RALPH_FORCE_SHELL check block in main() (lines 222-227)\n   - Remove the shell fallback Commander registration loop (lines 199-210) including the comment\n   - Remove stale comment on line 45 about 'shell fallback' in setupProjectContext\n   - Clean up the comment on line 58 about 'shell fallback compatibility'\n\n4. In test/index.test.ts:\n   - Remove any tests related to RALPH_FORCE_SHELL\n   - Remove any tests related to shellFallback or forceShellFallback\n   - Update command registration count expectations if they include fallback commands\n\nRun: bun test test/index.test.ts",
+      "description": "Remove the entire shell fallback system:\n\n1. Delete src/commands/fallback.ts entirely\n2. Delete test/commands/fallback.test.ts entirely\n\n3. In src/index.ts:\n   - Remove import: import { shellFallback, forceShellFallback } from './commands/fallback'\n   - Remove re-export: export { shellFallback, forceShellFallback } from './commands/fallback'\n   - Remove the comment about re-export for backward compatibility (line 66-68)\n   - Remove SHELL_FALLBACK_COMMANDS array (line 20) and its comment (line 19)\n   - Remove PORTED_COMMANDS array (line 22) and its comment (line 21) \u2014 it's unused\n   - Remove the RALPH_FORCE_SHELL check block in main() (lines 222-227)\n   - Remove the shell fallback Commander registration loop (lines 199-210) including the comment\n   - Remove stale comment on line 45 about 'shell fallback' in setupProjectContext\n   - Clean up the comment on line 58 about 'shell fallback compatibility'\n\n4. In test/index.test.ts:\n   - Remove any tests related to RALPH_FORCE_SHELL\n   - Remove any tests related to shellFallback or forceShellFallback\n   - Update command registration count expectations if they include fallback commands\n\nRun: bun test test/index.test.ts",
       "status": "pending",
       "files": [
         "src/commands/fallback.ts",
@@ -52,34 +34,44 @@
         "src/index.ts",
         "test/index.test.ts"
       ],
-      "dependencies": [1],
-      "tests": ["bun test test/index.test.ts"],
+      "dependencies": [
+        1
+      ],
+      "tests": [
+        "bun test test/index.test.ts"
+      ],
       "model": "sonnet"
     },
     {
       "id": 4,
       "priority": 3,
       "title": "Fix narration server path bug in run.ts",
-      "description": "In src/commands/run.ts, the narration server script path is incorrectly resolved using projectRoot (the target project), but the narration scripts live in the ralph repo's lib/ directory.\n\nLines 390 and 429 have:\n  path.join(projectRoot, 'lib', 'ralph_narrate_server.py')\n\nThis should use process.env.RALPH_LIB_DIR (which is set by setupProjectContext to point at the ralph repo's lib/ dir). Change both to:\n  path.join(process.env.RALPH_LIB_DIR!, 'ralph_narrate_server.py')\n\nOr alternatively use resolveRalphRoot() + 'lib' — but RALPH_LIB_DIR is already set and is simpler.\n\nAlso check if there are similar issues with ralph_narrate.py references in run.ts.\n\nUpdate test/commands/run.test.ts — tests that mock or assert narration script paths need to match the new path construction.\n\nRun: bun test test/commands/run.test.ts",
+      "description": "In src/commands/run.ts, the narration server script path is incorrectly resolved using projectRoot (the target project), but the narration scripts live in the ralph repo's lib/ directory.\n\nLines 390 and 429 have:\n  path.join(projectRoot, 'lib', 'ralph_narrate_server.py')\n\nThis should use process.env.RALPH_LIB_DIR (which is set by setupProjectContext to point at the ralph repo's lib/ dir). Change both to:\n  path.join(process.env.RALPH_LIB_DIR!, 'ralph_narrate_server.py')\n\nOr alternatively use resolveRalphRoot() + 'lib' \u2014 but RALPH_LIB_DIR is already set and is simpler.\n\nAlso check if there are similar issues with ralph_narrate.py references in run.ts.\n\nUpdate test/commands/run.test.ts \u2014 tests that mock or assert narration script paths need to match the new path construction.\n\nRun: bun test test/commands/run.test.ts",
       "status": "pending",
       "files": [
         "src/commands/run.ts",
         "test/commands/run.test.ts"
       ],
-      "dependencies": [2],
-      "tests": ["bun test test/commands/run.test.ts"],
+      "dependencies": [
+        2
+      ],
+      "tests": [
+        "bun test test/commands/run.test.ts"
+      ],
       "model": "sonnet"
     },
     {
       "id": 5,
       "priority": 3,
       "title": "Update install.sh for compiled binary",
-      "description": "Rewrite install.sh to install the compiled Bun binary instead of the old shell script.\n\nNew behavior:\n1. Check that 'bun' is available on PATH, error with helpful message if not\n2. Run 'bun run build' to compile src/index.ts → dist/ralph\n3. Symlink $PREFIX/bin/ralph → $RALPH_ROOT/dist/ralph (instead of bin/ralph)\n4. Keep the existing PATH check at the end\n\nThe RALPH_ROOT should be derived the same way (cd to script directory, pwd), but point at repo root (the directory containing package.json), not bin/.\n\nKeep the same interface: ./install.sh [prefix], default prefix ~/.local.",
+      "description": "Rewrite install.sh to install the compiled Bun binary instead of the old shell script.\n\nNew behavior:\n1. Check that 'bun' is available on PATH, error with helpful message if not\n2. Run 'bun run build' to compile src/index.ts \u2192 dist/ralph\n3. Symlink $PREFIX/bin/ralph \u2192 $RALPH_ROOT/dist/ralph (instead of bin/ralph)\n4. Keep the existing PATH check at the end\n\nThe RALPH_ROOT should be derived the same way (cd to script directory, pwd), but point at repo root (the directory containing package.json), not bin/.\n\nKeep the same interface: ./install.sh [prefix], default prefix ~/.local.",
       "status": "pending",
       "files": [
         "install.sh"
       ],
-      "dependencies": [1],
+      "dependencies": [
+        1
+      ],
       "tests": [],
       "model": "sonnet"
     },
@@ -87,12 +79,15 @@
       "id": 6,
       "priority": 4,
       "title": "Update CLAUDE.md",
-      "description": "Update CLAUDE.md to reflect the TypeScript-only architecture:\n\n- Entry point is now src/index.ts, compiled to dist/ralph via 'bun run build'\n- Remove all references to bin/ralph as entry point\n- Update execution flow: src/index.ts uses Commander to dispatch to src/commands/*.ts\n- Update architecture section: lib/ only contains Python narration scripts (ralph_narrate.py, ralph_narrate_server.py)\n- Remove mentions of shell fallback, RALPH_FORCE_SHELL, forceShellFallback\n- Remove references to shell scripts (ralph_common.sh, ralph_config.sh, etc.) as active code\n- Update file structure / per-project data layout if needed\n- Update conventions section: no more 'set -euo pipefail', no more RALPH_LIB_DIR for shell compat\n- Update the Development section: install.sh now runs bun build, mention 'bun test' for running tests\n- Keep the section accurate — read the current CLAUDE.md first and make targeted updates",
+      "description": "Update CLAUDE.md to reflect the TypeScript-only architecture:\n\n- Entry point is now src/index.ts, compiled to dist/ralph via 'bun run build'\n- Remove all references to bin/ralph as entry point\n- Update execution flow: src/index.ts uses Commander to dispatch to src/commands/*.ts\n- Update architecture section: lib/ only contains Python narration scripts (ralph_narrate.py, ralph_narrate_server.py)\n- Remove mentions of shell fallback, RALPH_FORCE_SHELL, forceShellFallback\n- Remove references to shell scripts (ralph_common.sh, ralph_config.sh, etc.) as active code\n- Update file structure / per-project data layout if needed\n- Update conventions section: no more 'set -euo pipefail', no more RALPH_LIB_DIR for shell compat\n- Update the Development section: install.sh now runs bun build, mention 'bun test' for running tests\n- Keep the section accurate \u2014 read the current CLAUDE.md first and make targeted updates",
       "status": "pending",
       "files": [
         "CLAUDE.md"
       ],
-      "dependencies": [1, 3],
+      "dependencies": [
+        1,
+        3
+      ],
       "tests": [],
       "model": "sonnet"
     },
@@ -100,12 +95,16 @@
       "id": 7,
       "priority": 4,
       "title": "Update README.md",
-      "description": "Update README.md to reflect the TypeScript-only architecture:\n\n- Update installation section to mention bun as a prerequisite and that install.sh runs bun build\n- Update file/directory structure to show src/ as the main code, lib/ as Python narration only\n- Remove references to shell scripts, bin/ralph, RALPH_FORCE_SHELL\n- Update any usage examples if they reference the old shell entry point\n- Keep it concise and accurate — read the current README.md first and make targeted updates",
+      "description": "Update README.md to reflect the TypeScript-only architecture:\n\n- Update installation section to mention bun as a prerequisite and that install.sh runs bun build\n- Update file/directory structure to show src/ as the main code, lib/ as Python narration only\n- Remove references to shell scripts, bin/ralph, RALPH_FORCE_SHELL\n- Update any usage examples if they reference the old shell entry point\n- Keep it concise and accurate \u2014 read the current README.md first and make targeted updates",
       "status": "pending",
       "files": [
         "README.md"
       ],
-      "dependencies": [1, 3, 5],
+      "dependencies": [
+        1,
+        3,
+        5
+      ],
       "tests": [],
       "model": "sonnet"
     },
@@ -113,14 +112,22 @@
       "id": 8,
       "priority": 5,
       "title": "Full test suite + build verification",
-      "description": "Run the full verification suite to confirm everything works after the shell-to-TS cutover:\n\n1. Run 'bun test' — all tests must pass (expect 601+ tests)\n2. Run 'bun run build' — must compile cleanly to dist/ralph\n3. Run './dist/ralph --version' — must print version string\n\nIf any tests fail, investigate and fix the root cause. Common issues:\n- Tests that reference deleted files (ralph_common.sh, fallback.ts)\n- Tests that check for RALPH_FORCE_SHELL behavior\n- Tests that assert specific command counts including fallback commands\n- Import errors from removed modules\n\nDo NOT skip or delete failing tests — fix them or the code they test.",
+      "description": "Run the full verification suite to confirm everything works after the shell-to-TS cutover:\n\n1. Run 'bun test' \u2014 all tests must pass (expect 601+ tests)\n2. Run 'bun run build' \u2014 must compile cleanly to dist/ralph\n3. Run './dist/ralph --version' \u2014 must print version string\n\nIf any tests fail, investigate and fix the root cause. Common issues:\n- Tests that reference deleted files (ralph_common.sh, fallback.ts)\n- Tests that check for RALPH_FORCE_SHELL behavior\n- Tests that assert specific command counts including fallback commands\n- Import errors from removed modules\n\nDo NOT skip or delete failing tests \u2014 fix them or the code they test.",
       "status": "pending",
       "files": [
         "src/index.ts",
         "package.json"
       ],
-      "dependencies": [2, 3, 4, 5],
-      "tests": ["bun test", "bun run build"],
+      "dependencies": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "tests": [
+        "bun test",
+        "bun run build"
+      ],
       "model": "sonnet"
     }
   ]
