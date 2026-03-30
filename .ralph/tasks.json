@@ -2,32 +2,14 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 4,
-      "priority": 4,
-      "title": "Build regenerator prompt builder",
-      "description": "TDD. Create and export a pure function `buildRegeneratorPrompt()` in src/commands/plan.ts that constructs the system prompt for the regenerator agent. It should:\n\n1. Accept `{ projectName: string, projectRoot: string, dataDir: string, agents: AgentInfo[], gitStatus: string, reviewFeedback: string }`\n2. Reuse `buildTaskGenPrompt()` to get the base task generation prompt\n3. Prepend the review feedback as additional context, instructing the agent to fix the specific issues identified\n4. Instruct the agent to read planning-notes.md, tasks.json, and review-feedback.md, then rewrite tasks.json with fixes\n5. Instruct it to preserve any tasks with status 'complete' and their metadata\n\nWrite tests verifying: the prompt includes the base task gen prompt content, the review feedback is embedded, fix instructions are present, complete-task preservation is mentioned.",
-      "status": "complete",
-      "completedAt": "2026-03-29T20:15:00Z",
-      "completedBy": "iteration-4",
-      "notes": "Implemented buildRegeneratorPrompt() as a pure function. Prepends review feedback block before the base task gen prompt, then appends regeneration instructions: read 3 files (planning-notes.md, tasks.json, review-feedback.md), rewrite tasks.json with fixes, preserve complete tasks. 12 tests added covering: base prompt content, review feedback embedding, fix instructions, file references, complete-task preservation, purity. 639 total tests pass.",
-      "files": [
-        "src/commands/plan.ts",
-        "test/commands/plan.test.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        3
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 5,
       "priority": 5,
       "title": "Build reviewer agent spawner",
       "description": "TDD. Create and export an async function `spawnReviewer()` in src/commands/plan.ts that spawns a non-interactive `claude -p` process for task review. Follow the `spawnClaude()` pattern in src/commands/run.ts (lines 184-240).\n\nSignature: `spawnReviewer(opts: { projectRoot: string, dataDir: string, passNumber: number, streamOpts?: ProcessStreamOptions, deps?: { spawn?, processStreamFn? } }): Promise<{ exitCode: number }>`\n\nImplementation:\n- Build args: `['-p', '--append-system-prompt', buildReviewPrompt({dataDir, passNumber}), '--allowedTools', 'Read,Glob,Grep', '--output-format', 'stream-json', '--model', 'sonnet', '--verbose']`\n- User prompt: `'Review the tasks now. Read .ralph/planning-notes.md and .ralph/tasks.json, evaluate on all 5 dimensions, and write your review to .ralph/review-feedback.md.'`\n- Pipe prompt to stdin, pipe stdout through processStream()\n- Set cwd to projectRoot, unset ANTHROPIC_API_KEY\n- Return exit code\n\nWrite tests that mock spawn and processStream to verify: correct args are passed, correct prompt is written to stdin, processStream is called on stdout. Use dependency injection for testability.",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T21:15:00Z",
+      "completedBy": "iteration-5",
+      "notes": "Implemented spawnReviewer() with full dependency injection for spawn and processStream. 15 tests added covering: correct claude args (-p, --append-system-prompt, --allowedTools Read/Glob/Grep, --output-format stream-json, --model sonnet, --verbose), user prompt written to stdin, processStream called on stdout, cwd set to projectRoot, ANTHROPIC_API_KEY unset, exit code forwarding (including null→1), streamOpts passthrough, passNumber used in review prompt. 654 total tests pass.",
       "files": [
         "src/commands/plan.ts",
         "src/commands/run.ts",

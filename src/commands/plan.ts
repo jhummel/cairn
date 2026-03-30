@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawnSync as nodeSpawnSync, type SpawnSyncReturns, type SpawnSyncOptions } from 'child_process';
-import { sendToNarrate as defaultSendToNarrate, sendNtfy as defaultSendNtfy, type NtfyOpts } from '../stream-filter';
+import { spawnSync as nodeSpawnSync, type SpawnSyncReturns, type SpawnSyncOptions, spawn as nodeSpawn, type ChildProcess } from 'child_process';
+import type { Readable, Writable } from 'stream';
+import { sendToNarrate as defaultSendToNarrate, sendNtfy as defaultSendNtfy, processStream, type ProcessStreamOptions, type NtfyOpts } from '../stream-filter';
 import { Task, AgentInfo } from '../types';
 import { runMenu as defaultRunMenu, type MenuOption, type MenuResult, type ReadlineInterface } from '../menu';
 import tasksSchemaRaw from '../tasks-schema.json';
@@ -516,6 +517,76 @@ You are fixing an existing tasks.json based on review feedback. Your workflow:
 CRITICAL: Preserve any tasks with status 'complete' and their metadata (completedAt, completedBy, notes). Do NOT modify completed tasks.
 
 Address every FAIL and WARN dimension identified in the review feedback. Do not ask for approval — write the fixed tasks.json directly.`;
+}
+
+// --- Reviewer agent spawner ---
+
+type ReviewerSpawnFn = (
+  cmd: string,
+  args: string[],
+  opts: { cwd: string; env: Record<string, string | undefined>; stdio: any[] },
+) => ChildProcess;
+
+type ReviewerProcessStreamFn = (
+  input: Readable,
+  output: Writable,
+  options?: ProcessStreamOptions,
+) => Promise<void>;
+
+export interface SpawnReviewerDeps {
+  spawn?: ReviewerSpawnFn;
+  processStreamFn?: ReviewerProcessStreamFn;
+}
+
+export interface SpawnReviewerOpts {
+  projectRoot: string;
+  dataDir: string;
+  passNumber: number;
+  streamOpts?: ProcessStreamOptions;
+  deps?: SpawnReviewerDeps;
+}
+
+export async function spawnReviewer(opts: SpawnReviewerOpts): Promise<{ exitCode: number }> {
+  const { projectRoot, dataDir, passNumber, streamOpts, deps } = opts;
+
+  const doSpawn: ReviewerSpawnFn = deps?.spawn ?? (nodeSpawn as any);
+  const doProcessStream: ReviewerProcessStreamFn = deps?.processStreamFn ?? processStream;
+
+  const env = { ...process.env, ANTHROPIC_API_KEY: '' };
+
+  const systemPrompt = buildReviewPrompt({ dataDir, passNumber });
+
+  const args = [
+    '-p',
+    '--append-system-prompt', systemPrompt,
+    '--allowedTools', 'Read,Glob,Grep',
+    '--output-format', 'stream-json',
+    '--model', 'sonnet',
+    '--verbose',
+  ];
+
+  const child = doSpawn('claude', args, {
+    cwd: projectRoot,
+    env,
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+
+  const userPrompt = 'Review the tasks now. Read .ralph/planning-notes.md and .ralph/tasks.json, evaluate on all 5 dimensions, and write your review to .ralph/review-feedback.md.';
+
+  child.stdin!.write(userPrompt);
+  child.stdin!.end();
+
+  const streamPromise = doProcessStream(child.stdout!, process.stdout, streamOpts);
+
+  const exitCode = await new Promise<number>((resolve) => {
+    child.on('close', (code: number | null) => {
+      resolve(code ?? 1);
+    });
+  });
+
+  await streamPromise.catch(() => {});
+
+  return { exitCode };
 }
 
 export type SpawnSyncFn = (
