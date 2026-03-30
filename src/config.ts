@@ -22,6 +22,10 @@ export function loadConfig(projectRoot: string): RalphConfig {
     ? raw.summarize as Record<string, unknown>
     : {};
 
+  const reviewRaw = (typeof raw.review === 'object' && raw.review !== null)
+    ? raw.review as Record<string, unknown>
+    : {};
+
   return {
     projectName: typeof raw.projectName === 'string' ? raw.projectName : path.basename(projectRoot),
     projectDescription: typeof raw.projectDescription === 'string' ? raw.projectDescription : '',
@@ -36,6 +40,9 @@ export function loadConfig(projectRoot: string): RalphConfig {
       enabled: typeof narrationRaw.enabled === 'boolean' ? narrationRaw.enabled : false,
       voice: typeof narrationRaw.voice === 'string' ? narrationRaw.voice : 'bf_emma',
       ntfyTopic: typeof narrationRaw.ntfyTopic === 'string' ? narrationRaw.ntfyTopic : '',
+    },
+    review: {
+      maxIterations: typeof reviewRaw.maxIterations === 'number' ? reviewRaw.maxIterations : 3,
     },
   };
 }

@@ -11,6 +11,7 @@ export interface RalphConfig {
     voice: string;
     ntfyTopic: string;
   };
+  review?: { maxIterations: number };
 }
 
 export interface Task {
@@ -57,6 +58,12 @@ export function isValidConfig(data: unknown): data is RalphConfig {
   if (typeof narration.enabled !== 'boolean') return false;
   if (typeof narration.voice !== 'string') return false;
   if (typeof narration.ntfyTopic !== 'string') return false;
+
+  if (d.review !== undefined) {
+    if (typeof d.review !== 'object' || d.review === null) return false;
+    const review = d.review as Record<string, unknown>;
+    if (typeof review.maxIterations !== 'number') return false;
+  }
 
   return true;
 }

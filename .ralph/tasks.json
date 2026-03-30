@@ -2,28 +2,152 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 8,
-      "priority": 5,
-      "title": "Full test suite + build verification",
-      "description": "Run the full verification suite to confirm everything works after the shell-to-TS cutover:\n\n1. Run 'bun test' \u2014 all tests must pass (expect 601+ tests)\n2. Run 'bun run build' \u2014 must compile cleanly to dist/ralph\n3. Run './dist/ralph --version' \u2014 must print version string\n\nIf any tests fail, investigate and fix the root cause. Common issues:\n- Tests that reference deleted files (ralph_common.sh, fallback.ts)\n- Tests that check for RALPH_FORCE_SHELL behavior\n- Tests that assert specific command counts including fallback commands\n- Import errors from removed modules\n\nDo NOT skip or delete failing tests \u2014 fix them or the code they test.",
+      "id": 1,
+      "priority": 1,
+      "title": "Add review.maxIterations to RalphConfig",
+      "description": "TDD. Update the RalphConfig interface in src/types.ts to add an optional `review` field: `review?: { maxIterations: number }`. Update `isValidConfig()` to validate it (optional object, if present must have numeric maxIterations). Update `loadConfig()` in src/config.ts to default `review.maxIterations` to 3 when not specified in ralph.json. Update src/commands/init.ts to add a prompt for review.maxIterations (with default 3) during `ralph init`. Write tests first in the appropriate test files, then implement.",
       "status": "complete",
-      "completedAt": "2026-03-29T19:10:00Z",
-      "completedBy": "iteration-8",
-      "notes": "All checks passed: 585 tests (0 fail), clean build (29 modules), ./dist/ralph --version prints 'ralph 0.1.0'. Task expected 601+ tests — count is 585 because prior iterations removed shell-based/fallback tests that no longer apply to the TS codebase. No fixes needed.",
+      "completedAt": "2026-03-29T20:00:00Z",
+      "completedBy": "iteration-1",
+      "notes": "Added review?.maxIterations to RalphConfig (optional field). isValidConfig validates it when present. loadConfig defaults to 3. init.ts adds reviewMaxIterations to ConfigDefaults and prompts for it (after narration prompts, before instructions). One existing runInit test required +1 answer in its hardcoded array due to new prompt. All 599 tests pass.",
       "files": [
-        "src/index.ts",
-        "package.json"
+        "src/types.ts",
+        "src/config.ts",
+        "src/commands/init.ts",
+        "test/types.test.ts",
+        "test/config.test.ts",
+        "test/commands/init.test.ts"
       ],
-      "dependencies": [
-        2,
-        3,
-        4,
-        5
+      "tests": ["bun test"],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 2,
+      "priority": 2,
+      "title": "Build review feedback parser",
+      "description": "TDD. Create and export a function `parseReviewFeedback(content: string)` in src/commands/plan.ts. It parses the review-feedback.md format and returns structured data:\n\n```ts\ninterface ReviewDimension {\n  name: string;\n  score: 'PASS' | 'WARN' | 'FAIL';\n  issues: string[];\n}\ninterface ReviewResult {\n  dimensions: ReviewDimension[];\n  verdict: 'PASS' | 'NEEDS_WORK';\n  summary: string;\n}\n```\n\nThe input format has sections like:\n```\nCoverage: PASS | WARN | FAIL\n- [issue text]\n\n## Verdict: PASS | NEEDS_WORK\n[summary text]\n```\n\nHandle edge cases: missing dimensions, malformed input (return NEEDS_WORK verdict as safe default). Write tests first in test/commands/plan.test.ts covering: all-pass case, mixed scores, NEEDS_WORK verdict, malformed input, missing sections.",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts"
       ],
-      "tests": [
-        "bun test",
-        "bun run build"
+      "tests": ["bun test"],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 3,
+      "priority": 3,
+      "title": "Build reviewer prompt builder",
+      "description": "TDD. Create and export a pure function `buildReviewPrompt()` in src/commands/plan.ts that constructs the system prompt for the reviewer agent. The prompt must instruct the agent to:\n\n1. Read planning-notes.md and tasks.json from the project's .ralph/ directory\n2. Evaluate tasks on 5 dimensions: Coverage, Atomicity, Dependencies, Acceptance Criteria, Context Sufficiency\n3. Score each dimension as PASS, WARN, or FAIL with specific issues listed\n4. Write output to .ralph/review-feedback.md in the exact format specified in planning-notes.md (## Review Pass N, dimension scores with issues, ## Verdict: PASS | NEEDS_WORK)\n5. NOT modify tasks.json (read-only evaluation)\n\nThe function should accept `{ dataDir: string, passNumber: number }` and return the system prompt string. Write tests verifying the prompt contains key instructions (dimension names, output format markers, read-only constraint, correct file paths).",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts"
       ],
+      "tests": ["bun test"],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 4,
+      "priority": 4,
+      "title": "Build regenerator prompt builder",
+      "description": "TDD. Create and export a pure function `buildRegeneratorPrompt()` in src/commands/plan.ts that constructs the system prompt for the regenerator agent. It should:\n\n1. Accept `{ projectName: string, projectRoot: string, dataDir: string, agents: AgentInfo[], gitStatus: string, reviewFeedback: string }`\n2. Reuse `buildTaskGenPrompt()` to get the base task generation prompt\n3. Prepend the review feedback as additional context, instructing the agent to fix the specific issues identified\n4. Instruct the agent to read planning-notes.md, tasks.json, and review-feedback.md, then rewrite tasks.json with fixes\n5. Instruct it to preserve any tasks with status 'complete' and their metadata\n\nWrite tests verifying: the prompt includes the base task gen prompt content, the review feedback is embedded, fix instructions are present, complete-task preservation is mentioned.",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts"
+      ],
+      "tests": ["bun test"],
+      "dependencies": [3],
+      "model": "sonnet"
+    },
+    {
+      "id": 5,
+      "priority": 5,
+      "title": "Build reviewer agent spawner",
+      "description": "TDD. Create and export an async function `spawnReviewer()` in src/commands/plan.ts that spawns a non-interactive `claude -p` process for task review. Follow the `spawnClaude()` pattern in src/commands/run.ts (lines 184-240).\n\nSignature: `spawnReviewer(opts: { projectRoot: string, dataDir: string, passNumber: number, streamOpts?: ProcessStreamOptions, deps?: { spawn?, processStreamFn? } }): Promise<{ exitCode: number }>`\n\nImplementation:\n- Build args: `['-p', '--append-system-prompt', buildReviewPrompt({dataDir, passNumber}), '--allowedTools', 'Read,Glob,Grep', '--output-format', 'stream-json', '--model', 'sonnet', '--verbose']`\n- User prompt: `'Review the tasks now. Read .ralph/planning-notes.md and .ralph/tasks.json, evaluate on all 5 dimensions, and write your review to .ralph/review-feedback.md.'`\n- Pipe prompt to stdin, pipe stdout through processStream()\n- Set cwd to projectRoot, unset ANTHROPIC_API_KEY\n- Return exit code\n\nWrite tests that mock spawn and processStream to verify: correct args are passed, correct prompt is written to stdin, processStream is called on stdout. Use dependency injection for testability.",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts",
+        "src/commands/run.ts",
+        "src/stream-filter.ts",
+        "test/commands/plan.test.ts"
+      ],
+      "tests": ["bun test"],
+      "dependencies": [3],
+      "model": "opus"
+    },
+    {
+      "id": 6,
+      "priority": 6,
+      "title": "Build regenerator agent spawner",
+      "description": "TDD. Create and export an async function `spawnRegenerator()` in src/commands/plan.ts that spawns a non-interactive `claude -p` process to fix tasks based on review feedback. Same spawn pattern as spawnReviewer (task 5).\n\nSignature: `spawnRegenerator(opts: { projectRoot: string, dataDir: string, projectName: string, agents: AgentInfo[], gitStatus: string, reviewFeedback: string, streamOpts?: ProcessStreamOptions, deps?: { spawn?, processStreamFn? } }): Promise<{ exitCode: number }>`\n\nImplementation:\n- Build args: `['-p', '--append-system-prompt', buildRegeneratorPrompt({...}), '--allowedTools', 'Read,Glob,Grep,Write,Edit', '--output-format', 'stream-json', '--model', 'sonnet', '--verbose']`\n- User prompt: `'Read the review feedback in .ralph/review-feedback.md and fix the identified issues in .ralph/tasks.json. Preserve any completed tasks.'`\n- Same spawn/stream pattern as reviewer\n- Return exit code\n\nWrite tests with mocked spawn/processStream verifying correct args, allowed tools include Write+Edit, correct prompt.",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts"
+      ],
+      "tests": ["bun test"],
+      "dependencies": [4],
+      "model": "opus"
+    },
+    {
+      "id": 7,
+      "priority": 7,
+      "title": "Build review loop orchestrator",
+      "description": "TDD. Create and export an async function `runAutoReview()` in src/commands/plan.ts that orchestrates the review/regeneration loop.\n\nSignature: `runAutoReview(opts: { projectRoot: string, dataDir: string, projectName: string, agents: AgentInfo[], gitStatus: string, maxIterations: number, streamOpts?: ProcessStreamOptions, deps?: { spawnReviewerFn?, spawnRegeneratorFn?, readFileFn?, consoleLogFn? } }): Promise<ReviewResult>`\n\nLoop logic:\n1. For pass = 1 to maxIterations:\n   a. Print `Auto-review pass {pass} of {maxIterations}...`\n   b. Call spawnReviewer with passNumber=pass\n   c. Read .ralph/review-feedback.md\n   d. Parse with parseReviewFeedback()\n   e. Display each dimension's score and issues (colored: green=PASS, yellow=WARN, red=FAIL)\n   f. If verdict is PASS, print 'All dimensions passed. Tasks are ready for review.' and return result\n   g. If not last iteration: print 'Regenerating tasks with reviewer feedback...', call spawnRegenerator with the feedback content\n2. If loop exhausted without PASS: print remaining concerns from last feedback, return last result\n\nWrite tests covering: single-pass PASS (early exit), convergence on pass 2, max iterations reached with NEEDS_WORK, dimension display output.",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts"
+      ],
+      "tests": ["bun test"],
+      "dependencies": [1, 2, 5, 6],
+      "model": "opus"
+    },
+    {
+      "id": 8,
+      "priority": 8,
+      "title": "Add auto-review menu option to reviewTasksLoop",
+      "description": "TDD. Add an `[a]uto-review` menu option to the `reviewTasksLoop()` function in src/commands/plan.ts. Insert it between the existing `[v]iew` and `[p]lan` options (around line 660).\n\nThe handler should:\n1. Check that tasks.json exists (print error and return {exit: false} if not)\n2. Load config to get review.maxIterations (default 3)\n3. Call runAutoReview() with appropriate opts\n4. After the loop completes, display the final review-feedback.md content if verdict is NEEDS_WORK\n5. Return {exit: false} to stay in the menu loop\n\nUpdate the ReviewTasksLoopOpts interface to include any new dependencies needed (projectRoot, projectName, agents, gitStatus, config). Thread these through from the caller in the plan command handler (around line 776).\n\nWrite tests verifying: menu option appears with key 'a', handler checks for tasks.json existence, handler calls runAutoReview, returns to menu after completion.",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts"
+      ],
+      "tests": ["bun test"],
+      "dependencies": [7],
+      "model": "opus"
+    },
+    {
+      "id": 9,
+      "priority": 9,
+      "title": "Make task generation auto-start",
+      "description": "Update the user prompt string on line 411 of src/commands/plan.ts in the `launchTaskGeneration()` function. Change from:\n\n`'Read planning-notes.md and generate the task breakdown. Show me the proposed tasks for approval before writing tasks.json.'`\n\nTo something more directive like:\n\n`'Read planning-notes.md now and generate the complete task breakdown. Present the tasks in a table, then ask if you should write tasks.json.'`\n\nThe key change is making it unambiguous that the agent should start immediately without waiting for additional human input. Write a test verifying the prompt string contains directive language (e.g., 'now', 'generate the complete').",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts"
+      ],
+      "tests": ["bun test"],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 10,
+      "priority": 10,
+      "title": "Verify build and full test suite",
+      "description": "Run the full test suite with `bun test` and verify all tests pass. Run `bun run build` and verify the compiled binary builds successfully. Run `ralph --version` to smoke test the binary. If any tests fail or the build breaks, fix the issues. Check that the new [a]uto-review option appears in the help/menu output if applicable.",
+      "status": "pending",
+      "files": [
+        "package.json",
+        "src/index.ts"
+      ],
+      "tests": ["bun test", "bun run build"],
+      "dependencies": [1, 2, 3, 4, 5, 6, 7, 8, 9],
       "model": "sonnet"
     }
   ]

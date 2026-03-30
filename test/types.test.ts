@@ -62,6 +62,28 @@ describe('isValidConfig', () => {
     const { voice: _, ...narrationRest } = validConfig.narration;
     expect(isValidConfig({ ...validConfig, narration: narrationRest })).toBe(false);
   });
+
+  it('accepts config without review field (optional)', () => {
+    expect(isValidConfig(validConfig)).toBe(true);
+  });
+
+  it('accepts config with valid review.maxIterations', () => {
+    expect(isValidConfig({ ...validConfig, review: { maxIterations: 3 } })).toBe(true);
+  });
+
+  it('rejects review field that is not an object', () => {
+    expect(isValidConfig({ ...validConfig, review: 'invalid' })).toBe(false);
+    expect(isValidConfig({ ...validConfig, review: 42 })).toBe(false);
+  });
+
+  it('rejects review without maxIterations', () => {
+    expect(isValidConfig({ ...validConfig, review: {} })).toBe(false);
+  });
+
+  it('rejects review.maxIterations that is not a number', () => {
+    expect(isValidConfig({ ...validConfig, review: { maxIterations: '3' } })).toBe(false);
+    expect(isValidConfig({ ...validConfig, review: { maxIterations: true } })).toBe(false);
+  });
 });
 
 describe('isValidTask', () => {

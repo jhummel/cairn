@@ -103,6 +103,32 @@ describe('loadConfig', () => {
     const config = loadConfig(namedDir);
     expect(config.projectName).toBe('my-cool-project');
   });
+
+  it('defaults review.maxIterations to 3 when not specified', () => {
+    const config = loadConfig(tmpDir);
+    expect(config.review?.maxIterations).toBe(3);
+  });
+
+  it('loads review.maxIterations from ralph.json when specified', () => {
+    const configData = { review: { maxIterations: 5 } };
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(configData));
+    const config = loadConfig(tmpDir);
+    expect(config.review?.maxIterations).toBe(5);
+  });
+
+  it('defaults review.maxIterations to 3 when review object is missing from ralph.json', () => {
+    const configData = { projectName: 'my-project' };
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(configData));
+    const config = loadConfig(tmpDir);
+    expect(config.review?.maxIterations).toBe(3);
+  });
+
+  it('defaults review.maxIterations to 3 when review.maxIterations is missing', () => {
+    const configData = { review: {} };
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(configData));
+    const config = loadConfig(tmpDir);
+    expect(config.review?.maxIterations).toBe(3);
+  });
 });
 
 describe('autoDetectHealthCheck', () => {

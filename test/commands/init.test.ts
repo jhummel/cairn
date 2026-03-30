@@ -315,6 +315,20 @@ describe('getConfigDefaults', () => {
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.healthCheck).toBe('npm run type-check');
   });
+
+  test('returns reviewMaxIterations default of 3 when no ralph.json', () => {
+    const defaults = getConfigDefaults(tmpDir);
+    expect(defaults.reviewMaxIterations).toBe(3);
+  });
+
+  test('loads reviewMaxIterations from ralph.json', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'ralph.json'),
+      JSON.stringify({ review: { maxIterations: 5 } })
+    );
+    const defaults = getConfigDefaults(tmpDir);
+    expect(defaults.reviewMaxIterations).toBe(5);
+  });
 });
 
 // --- Mock PromptInterface helper ---
@@ -344,6 +358,7 @@ describe('promptForConfig', () => {
     narrationEnabled: false,
     narrationVoice: 'bf_emma',
     ntfyTopic: '',
+    reviewMaxIterations: 3,
   };
 
   test('all empty answers use defaults', async () => {
@@ -472,6 +487,35 @@ describe('promptForConfig', () => {
     expect(nameQ).toContain('existing-app');
     const implQ = questions.find(q => q.includes('Implementation file'));
     expect(implQ).toContain('DOCS.md');
+  });
+
+  test('empty answer for review.maxIterations uses default 3', async () => {
+    // All prompts empty → review.maxIterations should default to 3
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '']);
+    const config = await promptForConfig(rl, baseDefaults);
+    expect(config.review?.maxIterations).toBe(3);
+  });
+
+  test('custom review.maxIterations value is used', async () => {
+    // Prompts: name, desc, health, test, impl, truncate, claudeMd, narration, reviewMaxIterations
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '5']);
+    const config = await promptForConfig(rl, baseDefaults);
+    expect(config.review?.maxIterations).toBe(5);
+  });
+
+  test('review.maxIterations prompt shows default value in brackets', async () => {
+    const questions: string[] = [];
+    const rl: PromptInterface = {
+      question: async (query: string) => {
+        questions.push(query);
+        return '';
+      },
+      close: () => {},
+    };
+    await promptForConfig(rl, { ...baseDefaults, reviewMaxIterations: 3 });
+    const reviewQ = questions.find(q => q.toLowerCase().includes('review') || q.toLowerCase().includes('max iterations'));
+    expect(reviewQ).toBeDefined();
+    expect(reviewQ).toContain('3');
   });
 });
 
@@ -842,8 +886,8 @@ describe('runInit', () => {
 
   test('installs hooks when narration enabled and user accepts', async () => {
     const dataDir = path.join(tmpDir, '.ralph');
-    // 8 config prompts (narration='y', voice='', ntfy='') + instructions='n' + install hooks='y'
-    const rl = createMockPrompt(['', '', '', '', '', '', '', 'y', '', '', 'n', 'y']);
+    // 9 config prompts (narration='y', voice='', ntfy='', review='') + instructions='n' + install hooks='y'
+    const rl = createMockPrompt(['', '', '', '', '', '', '', 'y', '', '', '', 'n', 'y']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     const hooksDir = path.join(tmpDir, '.claude', 'hooks');
     expect(fs.existsSync(path.join(hooksDir, 'narrate.sh'))).toBe(true);
