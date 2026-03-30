@@ -3286,6 +3286,7 @@ describe('runAutoReview', () => {
           spawnReviewerFn,
           spawnRegeneratorFn,
           readFileFn,
+          existsSyncFn: (_p: string) => true,
           consoleLogFn,
         },
       },
@@ -3446,5 +3447,19 @@ describe('runAutoReview', () => {
     expect(spawnRegeneratorCalls[0].gitStatus).toBe('clean');
     expect(spawnRegeneratorCalls[0].reviewFeedback).toBe(failFeedback);
     expect(spawnRegeneratorCalls[0].streamOpts).toEqual(streamOpts);
+  });
+
+  test('returns NEEDS_WORK with warning when reviewer does not produce feedback file', async () => {
+    const { opts, spawnReviewerCalls, logMessages } = makeOpts({ maxIterations: 1 });
+    // Override existsSyncFn to simulate missing feedback file
+    opts.deps.existsSyncFn = (_p: string) => false;
+
+    const result = await runAutoReview(opts);
+
+    expect(result.verdict).toBe('NEEDS_WORK');
+    expect(result.summary).toBe('Reviewer did not produce feedback file');
+    expect(result.dimensions).toHaveLength(0);
+    expect(spawnReviewerCalls).toHaveLength(1);
+    expect(logMessages.some(m => m.includes('Reviewer did not produce feedback'))).toBe(true);
   });
 });

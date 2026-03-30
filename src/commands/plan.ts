@@ -688,6 +688,7 @@ export interface RunAutoReviewOpts {
     spawnReviewerFn?: SpawnReviewerFn;
     spawnRegeneratorFn?: SpawnRegeneratorFn;
     readFileFn?: ReadFileFn;
+    existsSyncFn?: (path: string) => boolean;
     consoleLogFn?: ConsoleLogFn;
   };
 }
@@ -701,6 +702,7 @@ export async function runAutoReview(opts: RunAutoReviewOpts): Promise<ReviewResu
   const doSpawnReviewer = deps?.spawnReviewerFn ?? spawnReviewer;
   const doSpawnRegenerator = deps?.spawnRegeneratorFn ?? spawnRegenerator;
   const doReadFile: ReadFileFn = deps?.readFileFn ?? fs.readFileSync as any;
+  const doExistsSync = deps?.existsSyncFn ?? fs.existsSync;
   const log: ConsoleLogFn = deps?.consoleLogFn ?? console.log;
 
   let lastResult: ReviewResult = { dimensions: [], verdict: 'NEEDS_WORK', summary: '' };
@@ -711,6 +713,11 @@ export async function runAutoReview(opts: RunAutoReviewOpts): Promise<ReviewResu
     await doSpawnReviewer({ projectRoot, dataDir, passNumber: pass, streamOpts });
 
     const feedbackPath = path.join(dataDir, 'review-feedback.md');
+    if (!doExistsSync(feedbackPath)) {
+      log('Reviewer did not produce feedback file; treating as NEEDS_WORK');
+      lastResult = { dimensions: [], verdict: 'NEEDS_WORK', summary: 'Reviewer did not produce feedback file' };
+      continue;
+    }
     const feedbackContent = doReadFile(feedbackPath, 'utf8');
     const result = parseReviewFeedback(feedbackContent);
     lastResult = result;

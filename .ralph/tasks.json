@@ -2,32 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 1,
-      "priority": 1,
-      "title": "Fix narration startup retry loop (TDD)",
-      "description": "Bug: `startNarrationServer()` in `src/narration.ts` waits 1s then does a single health check. Kokoro TTS takes 3-5s to init, so the check fires too early and throws.\n\nFix (TDD — write tests first):\n\n1. In `test/narration.test.ts`, add tests for:\n   - Retry succeeds on Nth attempt (mock `checkNarrationHealth` to return false N-1 times then true)\n   - Early exit on first success (verify health check is not called more than necessary)\n   - Throws after all retries exhausted (mock health check to always return false)\n\n2. In `src/narration.ts` `startNarrationServer()`, replace:\n   ```ts\n   await new Promise<void>((resolve) => setTimeout(resolve, 1000));\n   const healthy = await checkNarrationHealth(socketPath);\n   if (!healthy) {\n     throw new Error('Narration server failed health check after startup');\n   }\n   ```\n   With a retry loop: poll `checkNarrationHealth()` up to 10 times with 1s intervals (~10s max wait). Return PID on first successful PONG. Throw only if all 10 retries are exhausted.\n\n3. Run `bun test test/narration.test.ts` to confirm all tests pass.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-29T21:30:00Z",
-      "completedBy": "iteration-1",
-      "notes": "Refactored startNarrationServer to accept optional deps.checkHealth and deps.sleep for testability. Retry loop polls up to 10 times with 1s intervals. Added 3 new tests: retry-succeeds-on-Nth, early-exit-on-first-success, throws-after-all-retries. All 15 narration tests pass. Existing tests updated to inject noopSleep to avoid real timeouts.",
-      "files": [
-        "src/narration.ts",
-        "test/narration.test.ts"
-      ],
-      "dependencies": [],
-      "tests": [
-        "bun test test/narration.test.ts"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 2,
       "priority": 1,
       "title": "Guard auto-review feedback read (TDD)",
       "description": "Bug: `runAutoReview()` in `src/commands/plan.ts` (~line 714) does `readFileSync` on `.ralph/review-feedback.md` without guarding for existence. If the reviewer agent fails or writes nothing, the read throws ENOENT and crashes the plan command.\n\nFix (TDD — write tests first):\n\n1. In `test/commands/plan.test.ts`, add a test for the missing-file scenario:\n   - Mock/inject a `readFileFn` that throws ENOENT (or use the `deps` injection pattern already in `runAutoReview`)\n   - Verify the function logs a warning containing \"Reviewer did not produce feedback\" instead of crashing\n   - Verify it returns a NEEDS_WORK result with an explanatory summary\n\n2. In `src/commands/plan.ts` `runAutoReview()`, before line 714 (`const feedbackContent = doReadFile(feedbackPath, 'utf8');`), add an existence check. The function already has `doReadFile` injected via `deps`. Add a corresponding `existsSyncFn` to the deps interface (defaulting to `fs.existsSync`). If the file doesn't exist:\n   - Log a warning: `log('Reviewer did not produce feedback file; treating as NEEDS_WORK');`\n   - Set `lastResult = { dimensions: [], verdict: 'NEEDS_WORK', summary: 'Reviewer did not produce feedback file' };`\n   - `continue` to next pass (or fall through if last iteration)\n\n3. Run `bun test test/commands/plan.test.ts` to confirm all tests pass.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T22:00:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Added existsSyncFn to RunAutoReviewOpts deps interface. Added guard in runAutoReview() before readFileSync: if feedback file doesn't exist, logs warning and sets lastResult to NEEDS_WORK with explanatory summary, then continues. Updated makeOpts helper in tests to include existsSyncFn defaulting to true. Added new test for missing-file scenario. All 188 tests pass.",
       "files": [
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"
@@ -46,7 +29,10 @@
       "directory": "",
       "status": "pending",
       "files": [],
-      "dependencies": [1, 2],
+      "dependencies": [
+        1,
+        2
+      ],
       "tests": [
         "bun test",
         "bun run build"
