@@ -76,7 +76,6 @@ export interface PlanningPromptInput {
   projectRoot: string;
   dataDir: string;
   agents: AgentInfo[];
-  implementationFile?: string;
 }
 
 export interface TaskGenPromptInput {
@@ -104,47 +103,11 @@ function fileSection(label: string, content: string | null): string {
 }
 
 /**
- * Build the planning system prompt, matching the shell version in ralph_plan.sh.
+ * Build the planning system prompt.
+ * The agent reads project files itself via its tools — we don't embed them.
  */
 export function buildPlanningPrompt(input: PlanningPromptInput): string {
-  const { projectName, projectRoot, dataDir, agents, implementationFile = 'IMPLEMENTATION.md' } = input;
-
-  // Gather briefing file contents
-  const claudeMd = tryReadFile(path.join(projectRoot, 'CLAUDE.md'));
-  const readmeMd = tryReadFile(path.join(projectRoot, 'README.md'));
-  const packageJson = tryReadFile(path.join(projectRoot, 'package.json'));
-  const cargoToml = tryReadFile(path.join(projectRoot, 'Cargo.toml'));
-  const makefile = tryReadFile(path.join(projectRoot, 'Makefile'));
-  const planningNotes = tryReadFile(path.join(dataDir, 'planning-notes.md'));
-  const completedTasks = tryReadFile(path.join(dataDir, 'tasks.completed.json'));
-  const implContent = tryReadFile(path.join(projectRoot, implementationFile));
-
-  // Build briefing section
-  let briefing = `BRIEFING MATERIALS (read these before starting):
-- CLAUDE.md and README.md (if they exist at the project root)
-- Build configuration files (package.json, Cargo.toml, Makefile, etc.) in relevant modules`;
-
-  if (planningNotes !== null) {
-    briefing += `\n- planning-notes.md — notes from the previous planning session. Read this first for context on prior decisions.`;
-  }
-  if (completedTasks !== null) {
-    briefing += `\n- tasks.completed.json — archive of completed tasks with agent notes. Skim for context on what's already been built.`;
-  }
-  if (implContent !== null) {
-    briefing += `\n- ${implementationFile} — high-level system architecture summary. Read for cross-project context.`;
-  }
-
-  // Embed file contents
-  const embeddedFiles = [
-    fileSection('CLAUDE.md', claudeMd),
-    fileSection('README.md', readmeMd),
-    fileSection('package.json', packageJson),
-    fileSection('Cargo.toml', cargoToml),
-    fileSection('Makefile', makefile),
-    fileSection('planning-notes.md', planningNotes),
-    fileSection('tasks.completed.json', completedTasks),
-    fileSection('IMPLEMENTATION.md', implContent),
-  ].filter(s => s !== '').join('');
+  const { projectName, projectRoot, dataDir, agents } = input;
 
   // Build agents section
   let agentsSection = '';
@@ -155,7 +118,6 @@ export function buildPlanningPrompt(input: PlanningPromptInput): string {
       return `  - ${a.name}${desc}${model}`;
     });
     agentsSection = `\nAVAILABLE SPECIALIST AGENTS (.claude/agents/):\n${lines.join('\n')}`;
-    briefing += `\n- .claude/agents/*.md — specialist agent definitions. Read these to understand what specialized agents are available for task assignment.`;
   }
 
   const prompt = `You are a planning assistant for the Ralph agentic loop system.
@@ -163,8 +125,16 @@ export function buildPlanningPrompt(input: PlanningPromptInput): string {
 PROJECT: ${projectName}
 PROJECT ROOT: ${projectRoot}
 
-${briefing}
-${embeddedFiles}
+BRIEFING MATERIALS (read these before starting):
+- CLAUDE.md and README.md (if they exist at the project root)
+- Build configuration files (package.json, Cargo.toml, Makefile, etc.) in relevant modules
+- planning-notes.md in ${dataDir} — notes from any previous planning session. Read this first for context on prior decisions.
+- tasks.completed.json in ${dataDir} — archive of completed tasks with agent notes. Skim for context on what's already been built.
+- IMPLEMENTATION.md (if it exists) — high-level system architecture summary. Read for cross-project context.
+- .claude/agents/*.md — specialist agent definitions, if any exist.
+
+You have full tool access to read these files yourself. Do NOT ask the user to paste file contents — read them directly.
+
 YOUR ROLE:
 Help the user decide WHAT to build next for this project. This is a high-level discussion — you are NOT generating tasks yet. A separate step will handle that after the user reviews your notes. You have access to the entire repository, not just a single service.
 
@@ -814,7 +784,7 @@ export function launchPlanningSession(opts: LaunchPlanningSessionOpts): void {
     });
   }
 
-  const prompt = buildPlanningPrompt({ projectName, projectRoot, dataDir, agents, implementationFile });
+  const prompt = buildPlanningPrompt({ projectName, projectRoot, dataDir, agents });
 
   spawnSyncFn('claude', [
     '--append-system-prompt', prompt,

@@ -2,24 +2,6 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 2,
-      "priority": 1,
-      "title": "Create commands/review-tasks.md slash command",
-      "description": "Create `commands/review-tasks.md` in the ralph repo root `commands/` directory. This slash command will replace the current `buildReviewPrompt()` in `src/commands/plan.ts`.\n\nThe file should instruct the planning agent to:\n1. Use the Agent tool to spawn a fresh general-purpose subagent\n2. The subagent reads `.ralph/tasks.json` and `.ralph/planning-notes.md`\n3. The subagent evaluates the task list on 5 dimensions and reports findings conversationally (NOT by writing a file)\n\nThe 5 review dimensions (from current `buildReviewPrompt()` around line 300+):\n1. **Coverage** — Do tasks fully cover the planning notes? Missing work?\n2. **Atomicity** — Is each task scoped to ~5 min of focused agent work? Too large/small?\n3. **Dependencies** — Are dependency links correct? Missing or circular dependencies?\n4. **Acceptance Criteria** — Does each task have clear test commands and file paths?\n5. **Context Sufficiency** — Does each task description give the worker agent enough context to work independently?\n\nEach dimension should be scored as PASS, WARN, or FAIL with specific issue bullets.\nOverall verdict: PASS or NEEDS_WORK.\n\nThe subagent should report findings back conversationally to the user (the Agent tool returns results to the parent). Do NOT write review-feedback.md or any files — just report findings.\n\nReference `buildReviewPrompt()` in `src/commands/plan.ts` for the current prompt content.",
-      "status": "complete",
-      "completedAt": "2026-03-29T22:15:00Z",
-      "completedBy": "iteration-2",
-      "notes": "Created commands/review-tasks.md slash command with all 5 review dimensions (Coverage, Atomicity, Dependencies, Acceptance Criteria, Context Sufficiency) from buildReviewPrompt(). Key difference from old approach: subagent reports findings conversationally instead of writing review-feedback.md. This enables natural discussion flow in the planning session.",
-      "files": [
-        "src/commands/plan.ts"
-      ],
-      "tests": [
-        "test -f commands/review-tasks.md && echo 'File exists'"
-      ],
-      "dependencies": [],
-      "model": "opus"
-    },
-    {
       "id": 3,
       "priority": 2,
       "title": "Add slash command installation to ralph init",
@@ -44,7 +26,10 @@
       "priority": 1,
       "title": "Simplify buildPlanningPrompt()",
       "description": "Simplify `buildPlanningPrompt()` in `src/commands/plan.ts` to remove all file embedding. Currently it uses `tryReadFile()` and `fileSection()` to load and embed CLAUDE.md, README.md, package.json, Cargo.toml, Makefile, planning-notes.md, tasks.completed.json, and IMPLEMENTATION.md into the system prompt.\n\nThe simplified version should:\n1. Keep the role description (you are a planning agent...)\n2. Keep the planning-notes.md format specification (Briefing Materials, Goals, Approach, Rejected Alternatives, Rough Task Outline, Open Questions)\n3. Keep the rules/guidelines for the planning conversation\n4. Keep the project context fields (projectName, projectRoot, dataDir)\n5. Keep the specialist agents list\n6. REMOVE all `tryReadFile()` calls and `fileSection()` calls — the agent reads files itself via its tools\n7. Mention that the agent should read CLAUDE.md, README.md, and other project files to understand the codebase (but don't embed them)\n\nTDD approach:\n- Update tests in `test/commands/plan.test.ts` first\n- Remove tests that assert embedded file content\n- Add/update tests that verify the simplified prompt contains role description, format spec, and project context\n- Then simplify the implementation\n\nThe `PlanningPromptInput` interface may need simplification too (remove fields that were only used for file embedding like `implementationFile`).\n\nDo NOT delete `tryReadFile()` or `fileSection()` yet — they may still be used by other prompt builders. Task 5 handles the full cleanup.",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T22:15:00Z",
+      "completedBy": "iteration-3",
+      "notes": "Removed all tryReadFile()/fileSection() calls from buildPlanningPrompt(). Prompt now tells the agent to read CLAUDE.md, README.md, planning-notes.md, tasks.completed.json, IMPLEMENTATION.md, and build config files itself via tools. Removed implementationFile from PlanningPromptInput interface. Left tryReadFile()/fileSection() functions intact for Task 5 cleanup. Left implementationFile in RunPlanOpts/LaunchPlanningSessionOpts since Task 5 deletes those types entirely.",
       "files": [
         "src/commands/plan.ts",
         "test/commands/plan.test.ts"

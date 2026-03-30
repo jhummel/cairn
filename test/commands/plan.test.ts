@@ -376,94 +376,12 @@ describe('buildPlanningPrompt', () => {
     }
   });
 
-  test('embeds CLAUDE.md content when file exists', () => {
+  test('does not embed file contents (agent reads files itself)', () => {
     const { tmpDir, ralphDir } = makeTempDir(true);
     try {
       fs.writeFileSync(path.join(tmpDir, 'CLAUDE.md'), '# My Project Guidelines');
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('CLAUDE.md');
-      expect(result).toContain('# My Project Guidelines');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('embeds README.md content when file exists', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
       fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Read Me Please');
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('README.md');
-      expect(result).toContain('# Read Me Please');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('embeds package.json content when file exists', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
       fs.writeFileSync(path.join(tmpDir, 'package.json'), '{"name":"test"}');
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('package.json');
-      expect(result).toContain('{"name":"test"}');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('embeds Cargo.toml content when file exists', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      fs.writeFileSync(path.join(tmpDir, 'Cargo.toml'), '[package]\nname = "test"');
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('Cargo.toml');
-      expect(result).toContain('[package]');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('embeds Makefile content when file exists', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      fs.writeFileSync(path.join(tmpDir, 'Makefile'), 'build:\n\techo hi');
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('Makefile');
-      expect(result).toContain('build:');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('embeds planning-notes.md when file exists in dataDir', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
       fs.writeFileSync(path.join(ralphDir, 'planning-notes.md'), '## Context\nPrior work here');
       const result = buildPlanningPrompt({
         projectName: 'proj',
@@ -471,64 +389,48 @@ describe('buildPlanningPrompt', () => {
         dataDir: ralphDir,
         agents: [],
       });
-      expect(result).toContain('planning-notes.md');
-      expect(result).toContain('Prior work here');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('embeds tasks.completed.json when file exists', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      fs.writeFileSync(path.join(ralphDir, 'tasks.completed.json'), '{"tasks":[{"id":1}]}');
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('tasks.completed.json');
-      expect(result).toContain('"tasks"');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('embeds IMPLEMENTATION.md when file exists', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      fs.writeFileSync(path.join(tmpDir, 'IMPLEMENTATION.md'), '# Architecture\nSystem overview here');
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-        implementationFile: 'IMPLEMENTATION.md',
-      });
-      expect(result).toContain('IMPLEMENTATION.md');
-      expect(result).toContain('System overview here');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('omits sections for files that do not exist', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      // Should not contain embedded file content sections for missing files
+      // Should NOT contain embedded file content
+      expect(result).not.toContain('# My Project Guidelines');
+      expect(result).not.toContain('# Read Me Please');
+      expect(result).not.toContain('{"name":"test"}');
+      expect(result).not.toContain('Prior work here');
+      // Should NOT contain file section delimiters
       expect(result).not.toContain('--- CLAUDE.md ---');
       expect(result).not.toContain('--- README.md ---');
       expect(result).not.toContain('--- package.json ---');
       expect(result).not.toContain('--- planning-notes.md ---');
-      expect(result).not.toContain('--- tasks.completed.json ---');
-      expect(result).not.toContain('--- IMPLEMENTATION.md ---');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('tells agent to read project files itself', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      const result = buildPlanningPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+      });
+      expect(result).toContain('CLAUDE.md');
+      expect(result).toContain('README.md');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('does not require implementationFile parameter', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true);
+    try {
+      // Should work without implementationFile — field removed from interface
+      const result = buildPlanningPrompt({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+      });
+      expect(result).toContain('planning assistant');
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
