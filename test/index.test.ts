@@ -161,17 +161,10 @@ describe('main', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    savedEnv.RALPH_FORCE_SHELL = process.env.RALPH_FORCE_SHELL;
     savedEnv.RALPH_PROJECT_ROOT = process.env.RALPH_PROJECT_ROOT;
-    delete process.env.RALPH_FORCE_SHELL;
   });
 
   afterEach(() => {
-    if (savedEnv.RALPH_FORCE_SHELL !== undefined) {
-      process.env.RALPH_FORCE_SHELL = savedEnv.RALPH_FORCE_SHELL;
-    } else {
-      delete process.env.RALPH_FORCE_SHELL;
-    }
     if (savedEnv.RALPH_PROJECT_ROOT !== undefined) {
       process.env.RALPH_PROJECT_ROOT = savedEnv.RALPH_PROJECT_ROOT;
     } else {

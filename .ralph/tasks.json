@@ -2,32 +2,14 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 2,
-      "priority": 2,
-      "title": "Fix resolveRalphRoot() marker",
-      "description": "In src/utils.ts, the resolveRalphRoot() function uses 'lib/ralph_common.sh' as the marker file to detect the ralph repo root. Since ralph_common.sh is being deleted, change the marker to 'package.json' \u2014 it's always present and unique to the ralph repo root.\n\nThere are 3 occurrences of the marker check in resolveRalphRoot():\n1. Line 84: existsSync(join(candidate, 'lib', 'ralph_common.sh'))\n2. Line 95: existsSync(join(dir, 'lib', 'ralph_common.sh'))\n3. Line 105: existsSync(join(dir, 'lib', 'ralph_common.sh'))\n\nChange all three to check for 'package.json' instead. For example:\n  existsSync(join(candidate, 'package.json'))\n\nUpdate test/utils.test.ts to reflect the new marker. Tests that create fake ralph repo structures with ralph_common.sh should use package.json instead.\n\nRun: bun test test/utils.test.ts",
-      "status": "complete",
-      "completedAt": "2026-03-29T19:15:00Z",
-      "completedBy": "iteration-2",
-      "notes": "Changed all 3 ralph_common.sh marker checks to package.json in resolveRalphRoot(). Updated tests: removed the ralph_common.sh and bin/ralph assertions (bin/ralph deleted in task #1), kept package.json check, added src/utils.ts check. All 13 tests pass.",
-      "files": [
-        "src/utils.ts",
-        "test/utils.test.ts"
-      ],
-      "dependencies": [
-        1
-      ],
-      "tests": [
-        "bun test test/utils.test.ts"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 3,
       "priority": 2,
       "title": "Remove fallback mechanism",
       "description": "Remove the entire shell fallback system:\n\n1. Delete src/commands/fallback.ts entirely\n2. Delete test/commands/fallback.test.ts entirely\n\n3. In src/index.ts:\n   - Remove import: import { shellFallback, forceShellFallback } from './commands/fallback'\n   - Remove re-export: export { shellFallback, forceShellFallback } from './commands/fallback'\n   - Remove the comment about re-export for backward compatibility (line 66-68)\n   - Remove SHELL_FALLBACK_COMMANDS array (line 20) and its comment (line 19)\n   - Remove PORTED_COMMANDS array (line 22) and its comment (line 21) \u2014 it's unused\n   - Remove the RALPH_FORCE_SHELL check block in main() (lines 222-227)\n   - Remove the shell fallback Commander registration loop (lines 199-210) including the comment\n   - Remove stale comment on line 45 about 'shell fallback' in setupProjectContext\n   - Clean up the comment on line 58 about 'shell fallback compatibility'\n\n4. In test/index.test.ts:\n   - Remove any tests related to RALPH_FORCE_SHELL\n   - Remove any tests related to shellFallback or forceShellFallback\n   - Update command registration count expectations if they include fallback commands\n\nRun: bun test test/index.test.ts",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-29T19:10:00Z",
+      "completedBy": "iteration-3",
+      "notes": "Deleted fallback.ts and fallback.test.ts. Removed SHELL_FALLBACK_COMMANDS, PORTED_COMMANDS arrays, RALPH_FORCE_SHELL check block, shell fallback Commander loop, fallback imports/re-exports, and stale comments from src/index.ts. Cleaned RALPH_FORCE_SHELL from test/index.test.ts beforeEach/afterEach. All 24 tests pass.",
       "files": [
         "src/commands/fallback.ts",
         "test/commands/fallback.test.ts",

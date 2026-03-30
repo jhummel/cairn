@@ -3,7 +3,6 @@ import { join } from 'path';
 import * as readline from 'readline';
 import { findProjectRoot, resolveRalphRoot } from './utils';
 import { loadConfig, autoDetectHealthCheck, setConfigEnvVars, discoverAgents } from './config';
-import { shellFallback, forceShellFallback } from './commands/fallback';
 import { runStatus } from './commands/status';
 import { runEdit } from './commands/edit';
 import { runLogs } from './commands/logs';
@@ -15,12 +14,6 @@ import { runNarrate } from './commands/narrate';
 import type { AgentInfo } from './types';
 
 const RALPH_VERSION = '0.1.0';
-
-/** Shell-fallback commands that haven't been ported to TS yet */
-const SHELL_FALLBACK_COMMANDS = [] as const;
-
-/** Ported commands with stub handlers (filled in by tasks 8-11) */
-const PORTED_COMMANDS = ['status', 'edit', 'logs'] as const;
 
 /**
  * Resolve project context: project root, data dir, config, and set env vars.
@@ -42,7 +35,7 @@ export function setupProjectContext(projectRootOverride?: string): {
   const dataDir = join(projectRoot, '.ralph');
   const libDir = join(ralphRoot, 'lib');
 
-  // Set env vars for subcommands and shell fallback
+  // Set env vars for subcommands
   process.env.RALPH_PROJECT_ROOT = projectRoot;
   process.env.RALPH_DATA_DIR = dataDir;
   process.env.RALPH_LIB_DIR = libDir;
@@ -55,17 +48,13 @@ export function setupProjectContext(projectRootOverride?: string): {
   }
   setConfigEnvVars(config);
 
-  // Discover agents and set env var for shell fallback compatibility
+  // Discover agents and set env vars
   const agents = discoverAgents(projectRoot);
   process.env.RALPH_AGENTS_DIR = join(projectRoot, '.claude', 'agents');
   process.env.RALPH_AGENTS_JSON = JSON.stringify(agents);
 
   return { projectRoot, dataDir, ralphRoot, libDir };
 }
-
-// shellFallback and forceShellFallback are imported from ./commands/fallback
-// Re-export for backward compatibility with existing tests
-export { shellFallback, forceShellFallback } from './commands/fallback';
 
 /**
  * Build and return the Commander program.
@@ -196,19 +185,6 @@ export function createProgram(): Command {
       await runNarrate(action);
     });
 
-  // --- Shell fallback commands ---
-
-  for (const cmd of SHELL_FALLBACK_COMMANDS) {
-    program
-      .command(cmd)
-      .description(`[shell fallback] ${cmd}`)
-      .allowUnknownOption(true)
-      .action((_options, command) => {
-        const args = command.args ?? [];
-        shellFallback(cmd, args);
-      });
-  }
-
   return program;
 }
 
@@ -217,14 +193,6 @@ export function createProgram(): Command {
  */
 export async function main(argv?: string[]): Promise<void> {
   const args = argv ?? process.argv;
-
-  // RALPH_FORCE_SHELL=1 → delegate everything to the shell version
-  if (process.env.RALPH_FORCE_SHELL === '1') {
-    // Strip 'node'/'bun' and script path from args to get the raw command
-    const cmdArgs = args.slice(2);
-    forceShellFallback(cmdArgs);
-    return; // shellFallback calls process.exit, but for testing clarity
-  }
 
   const program = createProgram();
 
