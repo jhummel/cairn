@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 6,
-      "priority": 2,
-      "title": "Refactor post-task-reviewer.ts to use buildAgentArgs()",
-      "description": "Refactor `spawnPostTaskReviewer()` in `src/post-task-reviewer.ts` to use `buildAgentArgs('post-task-reviewer', 'Sr. Dev code reviewer', projectRoot)` instead of the inline `--append-system-prompt` approach.\n\nChanges:\n1. Import `buildAgentArgs` from `./agent-prompt`\n2. Delete the `buildPostTaskReviewPrompt()` function (lines 10-73)\n3. In `spawnPostTaskReviewer()`, replace the `systemPrompt` variable and `'--append-system-prompt', systemPrompt` in the args array with `...buildAgentArgs('post-task-reviewer', 'Sr. Dev code reviewer', projectRoot)`\n4. Keep `buildPostTaskReviewUserPrompt()` unchanged\n5. Keep all orchestration logic (`SpawnPostTaskReviewerOpts`, `captureGitSha`, `getGitDiff`, `runPostTaskReview`) unchanged\n\nThe args array should spread the result of `buildAgentArgs()` alongside the existing `--allowedTools`, `--output-format`, `--model`, `--verbose` flags.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-31T12:15:00Z",
-      "completedBy": "iteration-6",
-      "notes": "Deleted buildPostTaskReviewPrompt() and replaced --append-system-prompt with buildAgentArgs('post-task-reviewer', ...). Updated tests: removed 5 buildPostTaskReviewPrompt tests, updated spawn tests to use temp dirs with agent files and assert --agents/--agent instead of --append-system-prompt. Task #7 (update post-task-reviewer tests) is now largely done — the tests were updated here to keep them passing. 589 tests pass.",
-      "files": [
-        "src/post-task-reviewer.ts",
-        "src/agent-prompt.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        1,
-        3
-      ],
-      "model": "opus"
-    },
-    {
       "id": 7,
       "priority": 2,
       "title": "Update post-task-reviewer tests",
       "description": "Update `test/post-task-reviewer.test.ts` to reflect the refactored `post-task-reviewer.ts`.\n\n1. Remove any tests that assert on `buildPostTaskReviewPrompt()` (it's been deleted)\n2. Update tests for `spawnPostTaskReviewer()` to expect `--agents` and `--agent` in the spawn args instead of `--append-system-prompt <string>`\n3. Keep tests for `buildPostTaskReviewUserPrompt()`, `captureGitSha()`, `getGitDiff()`, and `runPostTaskReview()` orchestration logic\n4. The spawn mock may need to account for the agent file being read — either mock the file system or create a temp agent file",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-31T00:00:00Z",
+      "completedBy": "iteration-7",
+      "notes": "Tests were already updated in iteration 6 as part of the post-task-reviewer refactor. All 25 tests in post-task-reviewer.test.ts pass: removed buildPostTaskReviewPrompt tests, updated spawnPostTaskReviewer tests to use temp dirs with agent files and assert --agents/--agent args. Full suite: 589 pass.",
       "files": [
         "test/post-task-reviewer.test.ts",
         "src/post-task-reviewer.ts"
