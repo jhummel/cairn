@@ -2,34 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 2,
-      "priority": 1,
-      "title": "Add tests for buildAgentArgs() helper",
-      "description": "Write unit tests for `buildAgentArgs()` in `test/agent-prompt.test.ts`. Test:\n\n1. Reads a file and returns correct `['--agents', jsonString, '--agent', name]` args\n2. The JSON string parses to `{name: {description: '...', prompt: '<file contents>'}}`\n3. Throws a descriptive error when the agent file is missing\n\nUse a temp directory with a test .md file for the happy path. Use `expect().toThrow()` for the missing file case.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-31T00:00:00Z",
-      "completedBy": "iteration-2",
-      "notes": "Tests and implementation were already done by iteration 1. Verified all 594 tests pass. Tests cover: correct args array shape, JSON structure with name/description/prompt, and descriptive error for missing file.",
-      "files": [
-        "test/agent-prompt.test.ts",
-        "src/agent-prompt.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        1
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 3,
       "priority": 1,
       "title": "Create agents/post-task-reviewer.md",
       "description": "Create `agents/post-task-reviewer.md` at ralph's project root. Extract the full static prompt text from `buildPostTaskReviewPrompt()` in `src/post-task-reviewer.ts` (lines 11-72). This is a clean extraction with zero dynamic parts — copy the exact prompt string returned by that function into the markdown file. The file should contain the complete review instructions including the coverage diagram format, gap detection, regression checks, and output format sections.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-31T00:00:00Z",
+      "completedBy": "iteration-3",
+      "notes": "Created agents/post-task-reviewer.md with exact prompt text extracted from buildPostTaskReviewPrompt() in src/post-task-reviewer.ts lines 11-72. Escaped backtick in template literal converted to literal backtick in markdown. All 594 tests pass.",
       "files": [
         "agents/post-task-reviewer.md",
         "src/post-task-reviewer.ts"
