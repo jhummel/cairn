@@ -341,6 +341,31 @@ export function installSlashCommands(projectRoot: string, ralphRoot?: string): v
 }
 
 /**
+ * Copy agent .md files from ralph's agents/ directory
+ * into the target project's .claude/agents/ directory.
+ * Accepts an optional ralphRoot override for testing.
+ */
+export function installAgents(projectRoot: string, ralphRoot?: string): void {
+  const root = ralphRoot ?? resolveRalphRoot();
+  const srcDir = path.join(root, 'agents');
+
+  if (!fs.existsSync(srcDir)) {
+    return;
+  }
+
+  const mdFiles = fs.readdirSync(srcDir).filter(f => f.endsWith('.md'));
+  if (mdFiles.length === 0) return;
+
+  const destDir = path.join(projectRoot, '.claude', 'agents');
+  fs.mkdirSync(destDir, { recursive: true });
+
+  for (const file of mdFiles) {
+    fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
+    console.log(`  Installed: .claude/agents/${file}`);
+  }
+}
+
+/**
  * Print next steps after init.
  */
 export function showNextSteps(): void {
@@ -365,6 +390,7 @@ export async function runInit(
 
   initCoreFiles(projectRoot, dataDir);
   installSlashCommands(projectRoot);
+  installAgents(projectRoot);
 
   const defaults = getConfigDefaults(projectRoot);
   console.log('');

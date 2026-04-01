@@ -2,34 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 11,
-      "priority": 2,
-      "title": "Update summarize tests",
-      "description": "Update `test/commands/summarize.test.ts` to reflect the refactored `summarize.ts`.\n\n1. Remove tests for `buildSummarizePrompt()`, `buildContext()`, `buildClaudeMdPruning()`, and `SummarizePromptOpts`\n2. Update tests for `runSummarize()` to expect `--agents`/`--agent` args instead of `--append-system-prompt <string>`\n3. Update tests to verify the dynamic context appears in the user prompt written to stdin (project name, impl file, pruning instructions)\n4. Keep tests for timeout, banner output, and file existence checks\n5. The spawn mock may need to account for the agent file being read — either mock the file system or create a temp agent file",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-31T00:00:00Z",
-      "completedBy": "iteration-11",
-      "notes": "Tests were already updated by the previous iteration (task #10). The test file imports buildUserPrompt and runSummarize, tests --agents/--agent args, dynamic context in stdin, timeout, banner output, file existence checks. All 577 tests pass.",
-      "files": [
-        "test/commands/summarize.test.ts",
-        "src/commands/summarize.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        10
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 12,
       "priority": 2,
       "title": "Add installAgents() to init.ts",
       "description": "Add an `installAgents()` function to `src/commands/init.ts`, mirroring the existing `installSlashCommands()` function (lines 323-341).\n\n1. Create `installAgents(projectRoot: string, ralphRoot?: string): void` — same signature pattern as `installSlashCommands`\n2. Resolve ralph root via `ralphRoot ?? resolveRalphRoot()`\n3. Build source path: `path.join(root, 'agents')`\n4. If source dir doesn't exist, return silently\n5. Read all `.md` files from source dir\n6. Build dest path: `path.join(projectRoot, '.claude', 'agents')`\n7. Create dest dir with `fs.mkdirSync(destDir, { recursive: true })`\n8. Copy each file, logging `Installed: .claude/agents/<filename>`\n9. Call `installAgents(projectRoot)` from `runInit()`, right after the `installSlashCommands(projectRoot)` call\n10. Export `installAgents` for testing",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-31T00:00:00Z",
+      "completedBy": "iteration-12",
+      "notes": "Added installAgents() mirroring installSlashCommands() pattern. Sources from ralph's agents/ dir, copies .md files to .claude/agents/. Returns silently if source dir missing. Called from runInit() after installSlashCommands(). Exported for testing. All 577 tests pass.",
       "files": [
         "src/commands/init.ts"
       ],
