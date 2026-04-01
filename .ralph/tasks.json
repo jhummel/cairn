@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 8,
-      "priority": 2,
-      "title": "Refactor plan.ts to use buildAgentArgs()",
-      "description": "Refactor `runPlan()` in `src/commands/plan.ts` to use `buildAgentArgs('planner', 'Planning assistant / software architect', projectRoot)` for the agent definition.\n\nChanges:\n1. Import `buildAgentArgs` from `../agent-prompt`\n2. Delete `buildPlanningPrompt()` function (lines 81-151) and `PlanningPromptInput` interface (lines 63-74)\n3. In `runPlan()`, build a short dynamic `--append-system-prompt` string containing ONLY the interpolated values: project name, project root, data dir path, and available agents list (formatted as the current `agentsSection`)\n4. The spawn args should be: `[...buildAgentArgs('planner', 'Planning assistant / software architect', projectRoot), '--append-system-prompt', dynamicContext, '--allowedTools', 'Read,Glob,Grep,Write,Edit']`\n5. Plan runs interactively with `spawnSync` and `stdio: 'inherit'` — no changes to interaction mode\n6. Keep `displayPreflight()` and all formatting functions unchanged",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-31T18:45:00Z",
-      "completedBy": "iteration-8",
-      "notes": "Refactored plan.ts to use buildAgentArgs('planner', ...). Removed buildPlanningPrompt() and PlanningPromptInput. Added buildDynamicContext() which produces a short string with project name, root, data dir, and agents list. Updated tests: replaced buildPlanningPrompt tests with buildDynamicContext tests, updated runPlan tests to create .claude/agents/planner.md in temp dirs and assert --agents/--agent args. 582 tests pass.",
-      "files": [
-        "src/commands/plan.ts",
-        "src/agent-prompt.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        1,
-        4
-      ],
-      "model": "opus"
-    },
-    {
       "id": 9,
       "priority": 2,
       "title": "Update plan tests",
       "description": "Update `test/commands/plan.test.ts` to reflect the refactored `plan.ts`.\n\n1. Remove tests for `buildPlanningPrompt()` and `PlanningPromptInput`\n2. Update tests for `runPlan()` to expect `--agents`/`--agent` args plus a short `--append-system-prompt` with dynamic context (project name, root, data dir, agents), instead of the full prompt string in `--append-system-prompt`\n3. Keep tests for display/formatting functions (`formatBanner`, `formatPlanningNotesStatus`, `formatCompletedCount`, `formatTasksSummary`, `displayPreflight`)\n4. The spawn mock may need to account for the agent file being read — either mock the file system or create a temp agent file",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-31T00:00:00Z",
+      "completedBy": "iteration-9",
+      "notes": "Tests were already updated by the previous iteration. 37 plan tests pass, 582 total. Tests cover: formatBanner, formatPlanningNotesStatus, formatCompletedCount, formatTasksSummary, displayPreflight, buildDynamicContext, and runPlan. runPlan tests use makeTempDir(true, true) to create .claude/agents/planner.md, and assert --agents/--agent args plus --append-system-prompt with dynamic context.",
       "files": [
         "test/commands/plan.test.ts",
         "src/commands/plan.ts"
