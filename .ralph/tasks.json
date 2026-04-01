@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 10,
-      "priority": 2,
-      "title": "Refactor summarize.ts to use buildAgentArgs()",
-      "description": "Refactor `runSummarize()` in `src/commands/summarize.ts` to use `buildAgentArgs('summarizer', 'Technical writer / architecture documenter', projectRoot)` for the agent definition.\n\nChanges:\n1. Import `buildAgentArgs` from `../agent-prompt`\n2. Delete `buildSummarizePrompt()` (lines 59-120), `buildContext()` (lines 18-25), `buildClaudeMdPruning()` (lines 31-54), and `SummarizePromptOpts` type\n3. In `runSummarize()`, build the dynamic context as the user prompt written to stdin. Include: project name, impl file name, whether the impl file already exists, completed tasks path, and CLAUDE.md pruning instructions (with the specific glob pattern from config)\n4. The spawn args should use `...buildAgentArgs('summarizer', 'Technical writer / architecture documenter', projectRoot)` instead of `'--append-system-prompt', systemPrompt`\n5. Keep the existing `--output-format`, `--verbose`, `--model`, `--dangerously-skip-permissions` flags\n6. Update `RunSummarizeOpts` interface to remove fields only needed by deleted functions",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-31T19:45:00Z",
-      "completedBy": "iteration-10",
-      "notes": "Refactored summarize.ts to use buildAgentArgs(). Deleted buildSummarizePrompt(), buildContext(), buildClaudeMdPruning(), and SummarizePromptOpts. Created buildUserPrompt() that includes project name, impl file, existence check, completed tasks path, and CLAUDE.md pruning instructions. Updated tests to match new exports — old prompt-builder tests replaced with buildUserPrompt tests, runSummarize tests updated to assert --agents/--agent args. Tests require .claude/agents/summarizer.md via makeTempDir(true, true). Task #11 (update summarize tests) may already be covered by this work — verify before starting.",
-      "files": [
-        "src/commands/summarize.ts",
-        "src/agent-prompt.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        1,
-        5
-      ],
-      "model": "opus"
-    },
-    {
       "id": 11,
       "priority": 2,
       "title": "Update summarize tests",
       "description": "Update `test/commands/summarize.test.ts` to reflect the refactored `summarize.ts`.\n\n1. Remove tests for `buildSummarizePrompt()`, `buildContext()`, `buildClaudeMdPruning()`, and `SummarizePromptOpts`\n2. Update tests for `runSummarize()` to expect `--agents`/`--agent` args instead of `--append-system-prompt <string>`\n3. Update tests to verify the dynamic context appears in the user prompt written to stdin (project name, impl file, pruning instructions)\n4. Keep tests for timeout, banner output, and file existence checks\n5. The spawn mock may need to account for the agent file being read — either mock the file system or create a temp agent file",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-31T00:00:00Z",
+      "completedBy": "iteration-11",
+      "notes": "Tests were already updated by the previous iteration (task #10). The test file imports buildUserPrompt and runSummarize, tests --agents/--agent args, dynamic context in stdin, timeout, banner output, file existence checks. All 577 tests pass.",
       "files": [
         "test/commands/summarize.test.ts",
         "src/commands/summarize.ts"
