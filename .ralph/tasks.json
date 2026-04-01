@@ -2,32 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 4,
-      "priority": 1,
-      "title": "Create agents/planner.md",
-      "description": "Create `agents/planner.md` at ralph's project root. Extract the static portions of `buildPlanningPrompt()` in `src/commands/plan.ts` (lines 95-148). Remove the interpolated values (`${projectName}`, `${projectRoot}`, `${dataDir}`, `${agentsSection}`). The markdown file should contain the persona definition (\"You are a planning assistant...\"), the briefing materials list (with generic placeholders like 'the project data directory' instead of specific paths), the workflow steps, the planning-notes.md format specification, and the rules. Dynamic values (project name, root, data dir, agents list) will be passed separately at runtime via `--append-system-prompt`.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-31T00:00:00Z",
-      "completedBy": "iteration-4",
-      "notes": "Created agents/planner.md with static prompt extracted from buildPlanningPrompt() in src/commands/plan.ts lines 95-148. Replaced ${projectName}/${projectRoot} header with a generic intro line, replaced ${dataDir} path references with 'the project data directory', and removed the trailing ${agentsSection} interpolation (that dynamic list will be appended at runtime). All 594 tests pass.",
-      "files": [
-        "agents/planner.md",
-        "src/commands/plan.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 5,
       "priority": 1,
       "title": "Create agents/summarizer.md",
       "description": "Create `agents/summarizer.md` at ralph's project root. Extract the static portions of `buildSummarizePrompt()` in `src/commands/summarize.ts` (lines 71-119). Remove interpolated values (`projectName`, `implFile`, `context`, `existingNote`, `claudeMdPruning`). The markdown file should contain the persona definition, the PURPOSE section, the AUDIENCE section, the YOUR TASK steps, the STRUCTURE suggestion, and the RULES. Dynamic context (project name, impl file name, whether it exists, completed tasks path, CLAUDE.md pruning instructions) will be passed via the user prompt at runtime.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-31T00:00:00Z",
+      "completedBy": "iteration-5",
+      "notes": "Created agents/summarizer.md with the static portions of buildSummarizePrompt(). Removed all interpolated values: ${implFile}, ${projectName}, ${context} (TRIGGER line), ${existingNote}, and ${claudeMdPruning} (entire CLAUDE.MD PRUNING block). Replaced file/project-specific references with generic language ('implementation file', 'the project'). The dynamic context (impl file name, project name, whether file exists, completed tasks path, CLAUDE.md pruning instructions with glob pattern) will be passed via the user prompt at runtime. No changes made to summarize.ts — that refactor is task #10. All 594 tests pass.",
       "files": [
         "agents/summarizer.md",
         "src/commands/summarize.ts"
