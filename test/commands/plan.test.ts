@@ -8,7 +8,7 @@ import {
   formatCompletedCount,
   formatTasksSummary,
   displayPreflight,
-  buildPlanningPrompt,
+  buildDynamicContext,
   runPlan,
 } from '../../src/commands/plan';
 import type { AgentInfo } from '../../src/types';
@@ -17,10 +17,15 @@ import type { SpawnSyncReturns } from 'child_process';
 const FIXTURES_DIR = path.join(__dirname, '..', 'fixtures');
 
 // Helper to create a temp dir with optional .ralph subdir
-function makeTempDir(withRalphDir = false): { tmpDir: string; ralphDir: string } {
+function makeTempDir(withRalphDir = false, withAgentFile = false): { tmpDir: string; ralphDir: string } {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-plan-test-'));
   const ralphDir = path.join(tmpDir, '.ralph');
   if (withRalphDir) fs.mkdirSync(ralphDir);
+  if (withAgentFile) {
+    const agentsDir = path.join(tmpDir, '.claude', 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(path.join(agentsDir, 'planner.md'), 'You are a planning assistant.');
+  }
   return { tmpDir, ralphDir };
 }
 
@@ -280,221 +285,70 @@ describe('displayPreflight', () => {
   });
 });
 
-describe('buildPlanningPrompt', () => {
-  test('includes project name and root in prompt', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'test-project',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('PROJECT: test-project');
-      expect(result).toContain(`PROJECT ROOT: ${tmpDir}`);
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
+describe('buildDynamicContext', () => {
+  test('includes project name and root', () => {
+    const result = buildDynamicContext({
+      projectName: 'test-project',
+      projectRoot: '/tmp/test',
+      dataDir: '/tmp/test/.ralph',
+      agents: [],
+    });
+    expect(result).toContain('PROJECT: test-project');
+    expect(result).toContain('PROJECT ROOT: /tmp/test');
   });
 
-  test('includes planning assistant role', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('planning assistant');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('includes briefing materials section header', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('BRIEFING MATERIALS');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('includes planning-notes.md format specification', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('PLANNING-NOTES.MD FORMAT');
-      expect(result).toContain('## Context');
-      expect(result).toContain('## Goals');
-      expect(result).toContain('## Approach');
-      expect(result).toContain('## Rejected Alternatives');
-      expect(result).toContain('## Rough Task Outline');
-      expect(result).toContain('## Open Questions');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('includes rules section', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('RULES:');
-      expect(result).toContain('planning-notes.md');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('does not embed file contents (agent reads files itself)', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      fs.writeFileSync(path.join(tmpDir, 'CLAUDE.md'), '# My Project Guidelines');
-      fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Read Me Please');
-      fs.writeFileSync(path.join(tmpDir, 'package.json'), '{"name":"test"}');
-      fs.writeFileSync(path.join(ralphDir, 'planning-notes.md'), '## Context\nPrior work here');
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      // Should NOT contain embedded file content
-      expect(result).not.toContain('# My Project Guidelines');
-      expect(result).not.toContain('# Read Me Please');
-      expect(result).not.toContain('{"name":"test"}');
-      expect(result).not.toContain('Prior work here');
-      // Should NOT contain file section delimiters
-      expect(result).not.toContain('--- CLAUDE.md ---');
-      expect(result).not.toContain('--- README.md ---');
-      expect(result).not.toContain('--- package.json ---');
-      expect(result).not.toContain('--- planning-notes.md ---');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('tells agent to read project files itself', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('CLAUDE.md');
-      expect(result).toContain('README.md');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('does not require implementationFile parameter', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain('planning assistant');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
+  test('includes data dir path', () => {
+    const result = buildDynamicContext({
+      projectName: 'proj',
+      projectRoot: '/tmp/test',
+      dataDir: '/tmp/test/.ralph',
+      agents: [],
+    });
+    expect(result).toContain('DATA DIR: /tmp/test/.ralph');
   });
 
   test('includes agent list when agents are provided', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
     const agents: AgentInfo[] = [
       { name: 'reviewer', description: 'Code review specialist', model: 'opus', file: 'reviewer.md' },
       { name: 'tester', description: 'Test writer', model: 'sonnet', file: 'tester.md' },
     ];
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents,
-      });
-      expect(result).toContain('AVAILABLE SPECIALIST AGENTS');
-      expect(result).toContain('reviewer');
-      expect(result).toContain('Code review specialist');
-      expect(result).toContain('(model: opus)');
-      expect(result).toContain('tester');
-      expect(result).toContain('Test writer');
-      expect(result).toContain('(model: sonnet)');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
+    const result = buildDynamicContext({
+      projectName: 'proj',
+      projectRoot: '/tmp/test',
+      dataDir: '/tmp/test/.ralph',
+      agents,
+    });
+    expect(result).toContain('AVAILABLE SPECIALIST AGENTS');
+    expect(result).toContain('reviewer');
+    expect(result).toContain('Code review specialist');
+    expect(result).toContain('(model: opus)');
+    expect(result).toContain('tester');
+    expect(result).toContain('Test writer');
+    expect(result).toContain('(model: sonnet)');
   });
 
   test('omits agent section when agents array is empty', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).not.toContain('AVAILABLE SPECIALIST AGENTS');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
+    const result = buildDynamicContext({
+      projectName: 'proj',
+      projectRoot: '/tmp/test',
+      dataDir: '/tmp/test/.ralph',
+      agents: [],
+    });
+    expect(result).not.toContain('AVAILABLE SPECIALIST AGENTS');
   });
 
-  test('includes agent description without trailing dash when description is empty', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+  test('includes agent name without trailing dash when description is empty', () => {
     const agents: AgentInfo[] = [
       { name: 'helper', description: '', model: '', file: 'helper.md' },
     ];
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents,
-      });
-      expect(result).toContain('helper');
-      expect(result).not.toContain('helper —');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
-  });
-
-  test('includes data dir path in format specification', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
-    try {
-      const result = buildPlanningPrompt({
-        projectName: 'proj',
-        projectRoot: tmpDir,
-        dataDir: ralphDir,
-        agents: [],
-      });
-      expect(result).toContain(ralphDir);
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true });
-    }
+    const result = buildDynamicContext({
+      projectName: 'proj',
+      projectRoot: '/tmp/test',
+      dataDir: '/tmp/test/.ralph',
+      agents,
+    });
+    expect(result).toContain('helper');
+    expect(result).not.toContain('helper —');
   });
 });
 
@@ -521,7 +375,7 @@ describe('runPlan', () => {
   });
 
   test('calls displayPreflight before spawning claude', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
     const { spawnFn } = makeSpawnSyncSpy();
     const lines: string[] = [];
     consoleSpy.mockImplementation((...args: any[]) => { lines.push(args.join(' ')); });
@@ -540,8 +394,8 @@ describe('runPlan', () => {
     }
   });
 
-  test('spawns claude with --append-system-prompt', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+  test('spawns claude with --agents and --agent args', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
@@ -553,14 +407,16 @@ describe('runPlan', () => {
       });
       expect(calls).toHaveLength(1);
       expect(calls[0].command).toBe('claude');
-      expect(calls[0].args).toContain('--append-system-prompt');
+      expect(calls[0].args).toContain('--agents');
+      expect(calls[0].args).toContain('--agent');
+      expect(calls[0].args).toContain('planner');
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
   });
 
   test('spawns claude with --allowedTools Read,Glob,Grep,Write,Edit', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
@@ -579,8 +435,8 @@ describe('runPlan', () => {
     }
   });
 
-  test('system prompt contains project context', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+  test('append-system-prompt contains dynamic context', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
@@ -591,18 +447,19 @@ describe('runPlan', () => {
         spawnSyncFn: spawnFn,
       });
       const args = calls[0].args;
+      expect(args).toContain('--append-system-prompt');
       const promptIdx = args.indexOf('--append-system-prompt');
       const prompt = args[promptIdx + 1];
-      expect(prompt).toContain('planning assistant');
       expect(prompt).toContain('PROJECT: my-app');
       expect(prompt).toContain(`PROJECT ROOT: ${tmpDir}`);
+      expect(prompt).toContain(`DATA DIR: ${ralphDir}`);
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
   });
 
   test('sets cwd to projectRoot', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
@@ -619,7 +476,7 @@ describe('runPlan', () => {
   });
 
   test('clears ANTHROPIC_API_KEY in spawned env', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
@@ -636,7 +493,7 @@ describe('runPlan', () => {
   });
 
   test('uses stdio inherit for interactive session', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
@@ -652,8 +509,8 @@ describe('runPlan', () => {
     }
   });
 
-  test('includes agents in system prompt when provided', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+  test('includes agents in dynamic context when provided', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     const agents: AgentInfo[] = [
       { name: 'reviewer', description: 'Code review', model: 'opus', file: 'reviewer.md' },
@@ -677,7 +534,7 @@ describe('runPlan', () => {
   });
 
   test('returns void (synchronous, no menu loops)', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
     const { spawnFn } = makeSpawnSyncSpy();
     try {
       const result = runPlan({
