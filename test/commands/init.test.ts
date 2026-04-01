@@ -11,6 +11,7 @@ import {
   createInstructionsFile,
   installNarrationHooks,
   installSlashCommands,
+  installAgents,
   showNextSteps,
   runInit,
   type PromptInterface,
@@ -967,6 +968,113 @@ describe('installSlashCommands', () => {
     } finally {
       fs.rmSync(fakeRalphRoot, { recursive: true });
     }
+  });
+});
+
+// --- installAgents tests ---
+
+describe('installAgents', () => {
+  let tmpDir: string;
+  let stdoutLines: string[];
+  let consoleSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-agents-test-'));
+    stdoutLines = [];
+    consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
+      stdoutLines.push(args.join(' '));
+    });
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  test('creates .claude/agents/ directory if it does not exist', () => {
+    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-agents-src-'));
+    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
+    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'test-agent.md'), '# test agent');
+    try {
+      installAgents(tmpDir, fakeRalphRoot);
+      expect(fs.existsSync(path.join(tmpDir, '.claude', 'agents'))).toBe(true);
+      expect(fs.statSync(path.join(tmpDir, '.claude', 'agents')).isDirectory()).toBe(true);
+    } finally {
+      fs.rmSync(fakeRalphRoot, { recursive: true });
+    }
+  });
+
+  test('copies .md files from ralph agents/ to target .claude/agents/', () => {
+    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-agents-src-'));
+    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
+    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'planner.md'), '# planner');
+    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'summarizer.md'), '# summarizer');
+    try {
+      installAgents(tmpDir, fakeRalphRoot);
+      const destDir = path.join(tmpDir, '.claude', 'agents');
+      expect(fs.existsSync(path.join(destDir, 'planner.md'))).toBe(true);
+      expect(fs.existsSync(path.join(destDir, 'summarizer.md'))).toBe(true);
+    } finally {
+      fs.rmSync(fakeRalphRoot, { recursive: true });
+    }
+  });
+
+  test('copied files have the same content as source', () => {
+    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-agents-src-'));
+    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
+    const content = '# agent content\nsome details here';
+    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'my-agent.md'), content);
+    try {
+      installAgents(tmpDir, fakeRalphRoot);
+      const destContent = fs.readFileSync(path.join(tmpDir, '.claude', 'agents', 'my-agent.md'), 'utf8');
+      expect(destContent).toBe(content);
+    } finally {
+      fs.rmSync(fakeRalphRoot, { recursive: true });
+    }
+  });
+
+  test('logs installed message for each copied file', () => {
+    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-agents-src-'));
+    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
+    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'planner.md'), '# planner');
+    try {
+      installAgents(tmpDir, fakeRalphRoot);
+      const output = stdoutLines.join('\n');
+      expect(output).toContain('planner.md');
+    } finally {
+      fs.rmSync(fakeRalphRoot, { recursive: true });
+    }
+  });
+
+  test('handles missing agents/ dir gracefully — no error, no files created', () => {
+    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-no-agents-'));
+    try {
+      expect(() => installAgents(tmpDir, fakeRalphRoot)).not.toThrow();
+      expect(fs.existsSync(path.join(tmpDir, '.claude', 'agents'))).toBe(false);
+    } finally {
+      fs.rmSync(fakeRalphRoot, { recursive: true });
+    }
+  });
+
+  test('handles agents/ dir with no .md files gracefully', () => {
+    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-empty-agents-'));
+    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
+    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'not-markdown.txt'), 'hi');
+    try {
+      expect(() => installAgents(tmpDir, fakeRalphRoot)).not.toThrow();
+      const output = stdoutLines.join('\n');
+      expect(output).not.toContain('.md');
+    } finally {
+      fs.rmSync(fakeRalphRoot, { recursive: true });
+    }
+  });
+
+  test('copies actual ralph agents to .claude/agents/', () => {
+    installAgents(tmpDir);
+    const destDir = path.join(tmpDir, '.claude', 'agents');
+    expect(fs.existsSync(path.join(destDir, 'planner.md'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'summarizer.md'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'post-task-reviewer.md'))).toBe(true);
   });
 });
 
