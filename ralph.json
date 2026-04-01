@@ -5,10 +5,6 @@
   "defaultTestCommand": "bun test",
   "implementationFile": "IMPLEMENTATION.md",
   "truncateText": false,
-  "review": {
-    "maxIterations": 3,
-    "postTask": true
-  },
   "summarize": {
     "claudeMdPattern": ""
   },
@@ -16,5 +12,9 @@
     "enabled": true,
     "voice": "bf_emma",
     "ntfyTopic": "jhummel-ralph-cli-tool"
+  },
+  "review": {
+    "maxIterations": 3,
+    "postTask": true
   }
 }

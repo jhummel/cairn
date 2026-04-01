@@ -42,7 +42,7 @@ export async function startNarrationServer(opts: StartNarrationOpts): Promise<nu
   const checkHealth = opts.deps?.checkHealth ?? checkNarrationHealth;
   const sleep = opts.deps?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
-  const MAX_RETRIES = 10;
+  const MAX_RETRIES = 30;
   for (let i = 0; i < MAX_RETRIES; i++) {
     await sleep(1000);
     const healthy = await checkHealth(socketPath);
@@ -83,7 +83,7 @@ export async function checkNarrationHealth(socketPath?: string): Promise<boolean
   if (!existsSync(sock)) return false;
 
   return new Promise<boolean>((resolve) => {
-    const socket = net.createConnection(sock);
+    const socket = net.createConnection({ path: sock });
     let responded = false;
 
     const cleanup = (result: boolean) => {

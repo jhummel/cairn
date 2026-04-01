@@ -2078,6 +2078,25 @@
         5
       ],
       "model": "sonnet"
+    },
+    {
+      "id": 7,
+      "priority": 5,
+      "title": "Verify build and full test suite",
+      "description": "Final verification task. Run the full test suite and build to ensure everything works after all refactoring.\n\n1. Run `bun test` — all tests must pass\n2. Run `bun run build` — must compile without errors\n3. Run `./dist/ralph plan --help` — smoke test that the command still registers\n4. Verify `commands/generate-tasks.md` and `commands/review-tasks.md` exist and are well-formed\n5. If any issues found, fix them\n\nThe `commands/` directory is static markdown — it doesn't need to be compiled, just needs to be findable at runtime via `resolveRalphRoot()`.",
+      "status": "complete",
+      "completedAt": "2026-03-29T22:35:00Z",
+      "completedBy": "iteration-7",
+      "notes": "All 591 tests pass, build compiles cleanly (28 modules), plan --help smoke test works, commands/generate-tasks.md and commands/review-tasks.md both exist. No issues found.",
+      "files": [],
+      "tests": [
+        "bun test",
+        "bun run build"
+      ],
+      "dependencies": [
+        6
+      ],
+      "model": "sonnet"
     }
   ]
 }

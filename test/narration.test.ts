@@ -19,9 +19,13 @@ describe('checkNarrationHealth', () => {
 
   it('returns true when server responds with PONG', async () => {
     const sockPath = makeSockPath();
+    // Respond immediately on data — Bun's net module doesn't reliably fire the
+    // server-side 'end' event on Unix socket half-close, so we can't use EOF-based
+    // protocol in JS mock servers. The real Python server uses raw recv() which
+    // correctly detects FIN at the OS level.
     const server = net.createServer((client) => {
-      client.on('data', (data) => {
-        if (data.toString().includes('PING')) {
+      client.on('data', (chunk) => {
+        if (chunk.toString().includes('PING')) {
           client.write('PONG\n');
         }
       });
@@ -174,10 +178,11 @@ describe('startNarrationServer', () => {
   it('spawns server and returns PID when server becomes healthy', async () => {
     const sockPath = makeSockPath();
 
-    // Create a mock PONG server that listens before we call startNarrationServer
+    // Respond immediately on data — see comment in checkNarrationHealth tests
+    // about Bun's Unix socket 'end' event limitation.
     const mockServer = net.createServer((client) => {
-      client.on('data', (data) => {
-        if (data.toString().includes('PING')) {
+      client.on('data', (chunk) => {
+        if (chunk.toString().includes('PING')) {
           client.write('PONG\n');
         }
       });
@@ -262,7 +267,7 @@ describe('startNarrationServer', () => {
     expect(callCount).toBe(1);
   });
 
-  it('throws after all 10 retries exhausted when health check always fails', async () => {
+  it('throws after all 30 retries exhausted when health check always fails', async () => {
     const sockPath = makeSockPath();
     const noopSleep = async (_ms: number) => {};
     let callCount = 0;
@@ -281,6 +286,6 @@ describe('startNarrationServer', () => {
       }),
     ).rejects.toThrow('Narration server failed health check after startup');
 
-    expect(callCount).toBe(10);
+    expect(callCount).toBe(30);
   });
 });

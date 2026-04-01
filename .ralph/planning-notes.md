@@ -1,67 +1,28 @@
 ## Context
 
-Ralph's TypeScript rewrite is complete — all commands ported, 736 tests pass, post-task review and auto-review loop both shipped, two startup bugs fixed. The `ralph plan` command currently works but has a clunky multi-session flow: it spawns separate claude processes for planning, task generation, and review, with menu loops between each phase. This means 3-4 cold-start claude sessions with context loss between each.
+Ralph's TypeScript rewrite is complete and the planning flow simplification (slash commands, single-session plan) shipped in the previous round. The narration system — a Python TTS server (`lib/ralph_narrate_server.py`) managed from TypeScript (`src/narration.ts`, `src/commands/narrate.ts`) — has a protocol bug that prevents the server from passing health checks, causing `ralph narrate on` to always fail.
 
 ## Goals
 
-Collapse the planning flow into a single interactive claude session. Extract the task generation and review prompts into Claude Code slash commands (`.claude/commands/*.md`) that ship with ralph. The planning agent stays interactive for discussion, then the user triggers `/generate-tasks` and `/review-tasks` as slash commands that spawn fresh subagents (via Claude Code's Agent tool) for clean-context execution.
+Fix the narration server health check so `ralph narrate on` works reliably.
 
 ## Approach
 
-### 1. Create slash command files in the ralph repo
+### Bug 1: Health check protocol mismatch (root cause)
 
-Add a `commands/` directory at the ralph repo root containing:
+The Python server's `handle_client()` reads in a loop until EOF (`conn.recv(4096)` returns empty bytes), *then* checks if the message was "PING" and responds with "PONG". But the Node.js `checkNarrationHealth()` sends `PING\n` and waits for a response *without closing the write side of the socket*. The Python side never sees EOF, so it blocks in `recv()` forever, never sends PONG, and the health check times out.
 
-- **`commands/generate-tasks.md`** — Instructs the agent to spawn a fresh general-purpose subagent (via the Agent tool) that reads `.ralph/planning-notes.md`, reads the codebase as needed, and writes `.ralph/tasks.json`. Contains the full tasks.json schema, task structure guidelines, directory guidelines, test command guidelines, and rules. All currently in `buildTaskGenPrompt()` in `src/commands/plan.ts`.
+**Fix in `src/narration.ts` (`checkNarrationHealth`):** After `socket.write('PING\n')`, call `socket.end()` to half-close the write side. This signals EOF to the Python server, which then processes the PING and responds with PONG. The Node socket can still read the response after half-closing writes.
 
-- **`commands/review-tasks.md`** — Instructs the agent to spawn a fresh general-purpose subagent that evaluates `.ralph/tasks.json` against `.ralph/planning-notes.md` on 5 dimensions (Coverage, Atomicity, Dependencies, Acceptance Criteria, Context Sufficiency). Reports findings back to the user conversationally. All currently in `buildReviewPrompt()` in `src/commands/plan.ts`.
+### Bug 2: Startup timeout too tight
 
-The general-purpose subagent type inherits all parent tools (including Write/Edit), so subagents can write tasks.json and read any project files.
+KPipeline (Kokoro TTS model) initialization takes ~7-9 seconds before the socket is even created. The current health check window is 10 retries × 1 second = 10 seconds. This leaves only 1-3 retries after the socket appears, which is fragile.
 
-### 2. Update `ralph init` to install slash commands
+**Fix in `src/narration.ts` (`startNarrationServer`):** Bump `MAX_RETRIES` from 10 to 30. This gives a comfortable 30-second window for model loading + socket creation + health check response. The 1-second retry interval is fine.
 
-In `src/commands/init.ts`, add a step that copies `commands/*.md` from the ralph repo into the target project's `.claude/commands/` directory. This should be unconditional (always install, not behind a prompt) since these commands are always useful. Follow the same pattern as `installNarrationHooks()` — create the directory, copy files, log what was created. On re-init, overwrite existing command files (they're ralph-managed, not user-edited — users can customize by editing after install).
+### Update tests
 
-The ralph repo root is available via `resolveRalphRoot()` from `src/utils.ts`.
-
-### 3. Simplify `ralph plan`
-
-The `runPlan()` function becomes:
-1. Call `displayPreflight()` (keep — nice status overview)
-2. Build a minimal system prompt with just project context (name, root, data dir, agents list) and the planning role/workflow/format instructions
-3. Spawn one interactive `claude --append-system-prompt <prompt> --allowedTools Read,Glob,Grep,Write,Edit` session
-4. When the user exits, ralph is done
-
-The planning agent reads CLAUDE.md, README.md, package.json, etc. itself — no need to embed file contents in the system prompt. The system prompt just needs the role description, planning-notes.md format spec, and rules (the static parts of the current `buildPlanningPrompt()`).
-
-### 4. Delete obsolete code from plan.ts
-
-Remove:
-- `buildTaskGenPrompt()` — moved to `commands/generate-tasks.md`
-- `buildReviewPrompt()` — moved to `commands/review-tasks.md`
-- `buildRegeneratorPrompt()` — no longer needed (user can ask conversationally or re-run `/generate-tasks`)
-- `spawnReviewer()`, `spawnRegenerator()`, `runAutoReview()` — replaced by slash commands
-- `parseReviewFeedback()`, `ReviewDimension`, `ReviewResult` interfaces — reviewer reports conversationally now
-- `reviewNotesLoop()`, `reviewTasksLoop()` — replaced by natural conversation in the interactive session
-- `launchPlanningSession()`, `launchTaskGeneration()` — collapsed into single session spawn
-- All associated types: `LaunchPlanningSessionOpts`, `LaunchTaskGenerationOpts`, `SpawnReviewerOpts`, `SpawnReviewerDeps`, `SpawnRegeneratorOpts`, `SpawnRegeneratorDeps`, `RunAutoReviewOpts`, `ReviewTasksLoopOpts`, `ReviewNotesLoopOpts`, `RunPlanOpts` (will need a simpler replacement)
-- The `tasksSchemaRaw` import — schema moves into the slash command file
-
-### 5. Delete menu.ts
-
-`src/menu.ts` and `test/menu.test.ts` — only consumer was plan.ts menu loops, which are gone.
-
-### 6. Update tests
-
-Delete tests for all removed functions. Add tests for:
-- The new simplified `runPlan()` (spawns claude with correct args, system prompt contains project context)
-- The init command's slash command installation (files copied, directory created, idempotent)
-
-Keep tests for functions that survive: `formatBanner()`, `formatPlanningNotesStatus()`, `formatCompletedCount()`, `formatTasksSummary()`, `displayPreflight()`, `buildPlanningPrompt()` (simplified version).
-
-### 7. Update install.sh / build verification
-
-Ensure `bun test` passes and `bun run build` compiles after all changes. The `commands/` directory is static markdown — it doesn't need to be compiled, just needs to be findable at runtime via `resolveRalphRoot()`.
+The existing narration tests mock the health check and sleep functions, so they won't need major changes for the timeout bump. But the `checkNarrationHealth` tests should verify that `socket.end()` is called after writing PING. If there are integration-style tests, they should confirm the half-close behavior.
 
 ## Rejected Alternatives
 
@@ -73,17 +34,14 @@ Ensure `bun test` passes and `bun run build` compiles after all changes. The `co
 - **Gating command installation behind a prompt:** Considered asking "Install planning slash commands?" during init. Rejected — these are always useful and non-invasive (they go in `.claude/commands/` which is standard Claude Code). Install unconditionally.
 - **Post-task review blocks archival:** Considered having review failures revert task status or block archival. Rejected — this is informational only for now. Let the human read `review-post.md` and decide what to do. Can add blocking behavior later if the signal proves reliable.
 - **Review using HEAD~1 instead of SHA capture:** Considered diffing against `HEAD~1` for simplicity. Rejected — agents may make multiple commits or amend, so `HEAD~1` wouldn't capture the full delta. Capturing SHA before the agent runs and diffing `<before>..HEAD` is more robust.
+- **Fix on the Python side instead of Node side:** Considered changing the Python server to use a line-based protocol (read until `\n` instead of EOF). Rejected — the EOF-based protocol is correct for the narration data path (variable-length JSON payloads). The PING health check is the special case, and the simpler fix is to have the Node client half-close after sending PING, which is the correct socket protocol for "I'm done sending."
+- **Longer sleep instead of more retries:** Considered using fewer retries with longer sleep intervals (e.g., 5 × 3s). Rejected — 1-second polling gives faster startup feedback when the server is ready quickly, and 30 × 1s still has a reasonable total timeout.
 
 ## Rough Task Outline
 
-1. Create `commands/generate-tasks.md` — extract task gen prompt from `buildTaskGenPrompt()`, adapt for slash command format (instruct agent to use Agent tool to spawn subagent). Inline the tasks.json schema. — `commands/`
-2. Create `commands/review-tasks.md` — extract review prompt from `buildReviewPrompt()`, adapt for slash command format (instruct agent to use Agent tool to spawn subagent). Include 5 dimensions and scoring. — `commands/`
-3. Add slash command installation to `ralph init` — copy `commands/*.md` to target project's `.claude/commands/`, create dir if needed, log output. Unconditional, idempotent. — `src/commands/init.ts`, `test/commands/init.test.ts`
-4. Simplify `buildPlanningPrompt()` — remove file embedding (tryReadFile/fileSection), keep role description, planning-notes format, and rules. Agent reads files itself. — `src/commands/plan.ts`, `test/commands/plan.test.ts`
-5. Simplify `runPlan()` — replace multi-session orchestration with single interactive claude spawn. Remove menu loop calls. — `src/commands/plan.ts`, `test/commands/plan.test.ts`
-6. Delete obsolete plan.ts code — remove `buildTaskGenPrompt`, `buildReviewPrompt`, `buildRegeneratorPrompt`, `spawnReviewer`, `spawnRegenerator`, `runAutoReview`, `parseReviewFeedback`, `reviewNotesLoop`, `reviewTasksLoop`, `launchPlanningSession`, `launchTaskGeneration`, and all associated types/interfaces. — `src/commands/plan.ts`, `test/commands/plan.test.ts`
-7. Delete `menu.ts` — remove `src/menu.ts` and `test/menu.test.ts`. Remove import from plan.ts. — `src/menu.ts`, `test/menu.test.ts`
-8. Verify build + full test suite — `bun test`, `bun run build`, smoke test `ralph plan --help`. — `/`
+1. Fix `checkNarrationHealth()` to half-close socket after PING — add `socket.end()` after `socket.write('PING\n')`. Update corresponding tests. — `src/narration.ts`, `test/narration.test.ts`
+2. Bump `MAX_RETRIES` from 10 to 30 in `startNarrationServer()` — gives 30s window for slow Kokoro init. Update any tests that assert on retry count. — `src/narration.ts`, `test/narration.test.ts`
+3. Verify build + test suite — `bun test`, `bun run build`, manual smoke test `ralph narrate on && ralph narrate status && ralph narrate off`. — `/`
 
 ## Open Questions
 

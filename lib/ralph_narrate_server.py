@@ -129,17 +129,18 @@ def handle_client(conn):
                 break
             data += chunk
 
+            # Fast-path: respond to PING immediately without waiting for EOF.
+            # Bun's net module doesn't support half-close on Unix sockets, so
+            # the client can't signal EOF via socket.end(). Detect PING early.
+            if data.strip() == b"PING":
+                try:
+                    conn.sendall(b"PONG")
+                except OSError:
+                    pass
+                conn.close()
+                return
+
         text = data.decode("utf-8").strip()
-
-        # Health check — respond with PONG so callers can verify we're alive
-        if text == "PING":
-            try:
-                conn.sendall(b"PONG")
-            except OSError:
-                pass
-            conn.close()
-            return
-
         conn.close()
 
         if not text:
