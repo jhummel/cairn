@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { execSync } from "child_process";
@@ -8,7 +8,6 @@ import { PassThrough } from "stream";
 import {
   captureGitSha,
   getGitDiff,
-  buildPostTaskReviewPrompt,
   buildPostTaskReviewUserPrompt,
   spawnPostTaskReviewer,
   runPostTaskReview,
@@ -86,41 +85,6 @@ describe("getGitDiff", () => {
     expect(result.diff).toBe("");
     expect(result.log).toBe("");
     expect(result.files).toEqual([]);
-  });
-});
-
-describe("buildPostTaskReviewPrompt", () => {
-  test("contains coverage marker keywords", () => {
-    const prompt = buildPostTaskReviewPrompt();
-    expect(prompt).toContain("[DONE]");
-    expect(prompt).toContain("[GAP]");
-    expect(prompt).toContain("[PARTIAL]");
-  });
-
-  test("references review-post.md output file", () => {
-    const prompt = buildPostTaskReviewPrompt();
-    expect(prompt).toContain("review-post.md");
-  });
-
-  test("instructs use of Edit tool", () => {
-    const prompt = buildPostTaskReviewPrompt();
-    expect(prompt).toContain("Edit");
-  });
-
-  test("includes verdict keywords", () => {
-    const prompt = buildPostTaskReviewPrompt();
-    expect(prompt).toContain("CLEAN");
-    expect(prompt).toContain("HAS_GAPS");
-    expect(prompt).toContain("HAS_RISKS");
-  });
-
-  test("includes output format fields", () => {
-    const prompt = buildPostTaskReviewPrompt();
-    expect(prompt).toContain("Reviewed:");
-    expect(prompt).toContain("Files Changed");
-    expect(prompt).toContain("Gaps");
-    expect(prompt).toContain("Regression Risks");
-    expect(prompt).toContain("Verdict");
   });
 });
 
@@ -209,6 +173,19 @@ describe("spawnPostTaskReviewer", () => {
     directory: "src",
   };
 
+  let spawnTmpDir: string;
+
+  beforeEach(() => {
+    spawnTmpDir = mkdtempSync(join(tmpdir(), "ralph-spawn-test-"));
+    const agentDir = join(spawnTmpDir, ".claude", "agents");
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, "post-task-reviewer.md"), "You are a reviewer.");
+  });
+
+  afterEach(() => {
+    rmSync(spawnTmpDir, { recursive: true, force: true });
+  });
+
   function createMockChild() {
     const stdin = new PassThrough();
     const stdout = new PassThrough();
@@ -232,8 +209,8 @@ describe("spawnPostTaskReviewer", () => {
     const mockProcessStream = async () => {};
 
     await spawnPostTaskReviewer({
-      projectRoot: "/fake/root",
-      dataDir: "/fake/root/.ralph",
+      projectRoot: spawnTmpDir,
+      dataDir: join(spawnTmpDir, ".ralph"),
       task: sampleTask,
       diff: "some diff",
       log: "some log",
@@ -253,7 +230,9 @@ describe("spawnPostTaskReviewer", () => {
     expect(args[args.indexOf("--allowedTools") + 1]).toBe(
       "Read,Glob,Grep,Edit,Write"
     );
-    expect(args).toContain("--append-system-prompt");
+    expect(args).toContain("--agents");
+    expect(args).toContain("--agent");
+    expect(args[args.indexOf("--agent") + 1]).toBe("post-task-reviewer");
   });
 
   test("unsets ANTHROPIC_API_KEY in env", async () => {
@@ -266,8 +245,8 @@ describe("spawnPostTaskReviewer", () => {
     };
 
     await spawnPostTaskReviewer({
-      projectRoot: "/fake/root",
-      dataDir: "/fake/root/.ralph",
+      projectRoot: spawnTmpDir,
+      dataDir: join(spawnTmpDir, ".ralph"),
       task: sampleTask,
       diff: "",
       log: "",
@@ -291,8 +270,8 @@ describe("spawnPostTaskReviewer", () => {
     };
 
     await spawnPostTaskReviewer({
-      projectRoot: "/fake/root",
-      dataDir: "/fake/root/.ralph",
+      projectRoot: spawnTmpDir,
+      dataDir: join(spawnTmpDir, ".ralph"),
       task: sampleTask,
       diff: "the diff",
       log: "the log",
@@ -320,8 +299,8 @@ describe("spawnPostTaskReviewer", () => {
     };
 
     await spawnPostTaskReviewer({
-      projectRoot: "/fake/root",
-      dataDir: "/fake/root/.ralph",
+      projectRoot: spawnTmpDir,
+      dataDir: join(spawnTmpDir, ".ralph"),
       task: sampleTask,
       diff: "",
       log: "",
@@ -341,8 +320,8 @@ describe("spawnPostTaskReviewer", () => {
     };
 
     const result = await spawnPostTaskReviewer({
-      projectRoot: "/fake/root",
-      dataDir: "/fake/root/.ralph",
+      projectRoot: spawnTmpDir,
+      dataDir: join(spawnTmpDir, ".ralph"),
       task: sampleTask,
       diff: "",
       log: "",
@@ -361,8 +340,8 @@ describe("spawnPostTaskReviewer", () => {
     };
 
     const result = await spawnPostTaskReviewer({
-      projectRoot: "/fake/root",
-      dataDir: "/fake/root/.ralph",
+      projectRoot: spawnTmpDir,
+      dataDir: join(spawnTmpDir, ".ralph"),
       task: sampleTask,
       diff: "",
       log: "",
@@ -383,8 +362,8 @@ describe("spawnPostTaskReviewer", () => {
     };
 
     await spawnPostTaskReviewer({
-      projectRoot: "/my/project",
-      dataDir: "/my/project/.ralph",
+      projectRoot: spawnTmpDir,
+      dataDir: join(spawnTmpDir, ".ralph"),
       task: sampleTask,
       diff: "",
       log: "",
@@ -392,7 +371,7 @@ describe("spawnPostTaskReviewer", () => {
       deps: { spawn: mockSpawn, processStreamFn: async () => {} },
     });
 
-    expect(spawnOpts.cwd).toBe("/my/project");
+    expect(spawnOpts.cwd).toBe(spawnTmpDir);
   });
 });
 

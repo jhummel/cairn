@@ -2,32 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 5,
-      "priority": 1,
-      "title": "Create agents/summarizer.md",
-      "description": "Create `agents/summarizer.md` at ralph's project root. Extract the static portions of `buildSummarizePrompt()` in `src/commands/summarize.ts` (lines 71-119). Remove interpolated values (`projectName`, `implFile`, `context`, `existingNote`, `claudeMdPruning`). The markdown file should contain the persona definition, the PURPOSE section, the AUDIENCE section, the YOUR TASK steps, the STRUCTURE suggestion, and the RULES. Dynamic context (project name, impl file name, whether it exists, completed tasks path, CLAUDE.md pruning instructions) will be passed via the user prompt at runtime.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-31T00:00:00Z",
-      "completedBy": "iteration-5",
-      "notes": "Created agents/summarizer.md with the static portions of buildSummarizePrompt(). Removed all interpolated values: ${implFile}, ${projectName}, ${context} (TRIGGER line), ${existingNote}, and ${claudeMdPruning} (entire CLAUDE.MD PRUNING block). Replaced file/project-specific references with generic language ('implementation file', 'the project'). The dynamic context (impl file name, project name, whether file exists, completed tasks path, CLAUDE.md pruning instructions with glob pattern) will be passed via the user prompt at runtime. No changes made to summarize.ts — that refactor is task #10. All 594 tests pass.",
-      "files": [
-        "agents/summarizer.md",
-        "src/commands/summarize.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [],
-      "model": "sonnet"
-    },
-    {
       "id": 6,
       "priority": 2,
       "title": "Refactor post-task-reviewer.ts to use buildAgentArgs()",
       "description": "Refactor `spawnPostTaskReviewer()` in `src/post-task-reviewer.ts` to use `buildAgentArgs('post-task-reviewer', 'Sr. Dev code reviewer', projectRoot)` instead of the inline `--append-system-prompt` approach.\n\nChanges:\n1. Import `buildAgentArgs` from `./agent-prompt`\n2. Delete the `buildPostTaskReviewPrompt()` function (lines 10-73)\n3. In `spawnPostTaskReviewer()`, replace the `systemPrompt` variable and `'--append-system-prompt', systemPrompt` in the args array with `...buildAgentArgs('post-task-reviewer', 'Sr. Dev code reviewer', projectRoot)`\n4. Keep `buildPostTaskReviewUserPrompt()` unchanged\n5. Keep all orchestration logic (`SpawnPostTaskReviewerOpts`, `captureGitSha`, `getGitDiff`, `runPostTaskReview`) unchanged\n\nThe args array should spread the result of `buildAgentArgs()` alongside the existing `--allowedTools`, `--output-format`, `--model`, `--verbose` flags.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-31T12:15:00Z",
+      "completedBy": "iteration-6",
+      "notes": "Deleted buildPostTaskReviewPrompt() and replaced --append-system-prompt with buildAgentArgs('post-task-reviewer', ...). Updated tests: removed 5 buildPostTaskReviewPrompt tests, updated spawn tests to use temp dirs with agent files and assert --agents/--agent instead of --append-system-prompt. Task #7 (update post-task-reviewer tests) is now largely done — the tests were updated here to keep them passing. 589 tests pass.",
       "files": [
         "src/post-task-reviewer.ts",
         "src/agent-prompt.ts"
