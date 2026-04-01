@@ -208,14 +208,17 @@ describe('buildSummarizePrompt', () => {
 
 // Helper: create a fake child process for testing
 function createFakeProcess() {
+  const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const proc = new EventEmitter() as EventEmitter & {
+    stdin: PassThrough;
     stdout: PassThrough;
     stderr: PassThrough;
     pid: number;
     kill: () => boolean;
   };
+  proc.stdin = stdin;
   proc.stdout = stdout;
   proc.stderr = stderr;
   proc.pid = 12345;
@@ -270,15 +273,16 @@ describe('runSummarize', () => {
     expect(capturedArgs).toContain('stream-json');
     expect(capturedArgs).toContain('--model');
     expect(capturedArgs).toContain('sonnet');
+    expect(capturedArgs).toContain('--verbose');
     expect(capturedArgs).toContain('--dangerously-skip-permissions');
   });
 
-  it('user prompt mentions the impl file', async () => {
+  it('user prompt is written to stdin and mentions the impl file', async () => {
     const fakeProc = createFakeProcess();
-    let capturedArgs: string[] = [];
+    let stdinData = '';
+    fakeProc.stdin.on('data', (chunk: Buffer) => { stdinData += chunk.toString(); });
 
-    const mockSpawn: SpawnFn = (cmd, args, _opts) => {
-      capturedArgs = args as string[];
+    const mockSpawn: SpawnFn = (_cmd, _args, _opts) => {
       setTimeout(() => {
         fakeProc.stdout.end();
         fakeProc.emit('close', 0);
@@ -295,11 +299,7 @@ describe('runSummarize', () => {
       spawnFn: mockSpawn,
     });
 
-    // The -p argument value should contain the impl file name
-    const pIndex = capturedArgs.indexOf('-p');
-    expect(pIndex).toBeGreaterThanOrEqual(0);
-    const userPrompt = capturedArgs[pIndex + 1];
-    expect(userPrompt).toContain('IMPLEMENTATION.md');
+    expect(stdinData).toContain('IMPLEMENTATION.md');
   });
 
   it('reports line count when impl file exists after completion', async () => {

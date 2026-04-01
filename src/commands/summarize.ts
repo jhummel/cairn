@@ -161,16 +161,21 @@ export async function runSummarize(opts: RunSummarizeOpts): Promise<void> {
   console.log('');
 
   const child = spawnFn('claude', [
-    '-p', userPrompt,
+    '-p',
     '--append-system-prompt', systemPrompt,
     '--output-format', 'stream-json',
+    '--verbose',
     '--model', 'sonnet',
     '--dangerously-skip-permissions',
   ], {
     cwd: projectRoot,
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'inherit'],
     env: { ...process.env, ANTHROPIC_API_KEY: '' },
   });
+
+  // Write prompt to stdin and close (matches run.ts pattern)
+  child.stdin!.write(userPrompt);
+  child.stdin!.end();
 
   let timedOut = false;
   const timer = setTimeout(() => {
