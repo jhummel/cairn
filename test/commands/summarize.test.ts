@@ -5,87 +5,37 @@ import * as os from 'os';
 import { Readable, PassThrough } from 'stream';
 import { EventEmitter } from 'events';
 import {
-  buildContext,
-  buildClaudeMdPruning,
-  buildSummarizePrompt,
+  buildUserPrompt,
   runSummarize,
 } from '../../src/commands/summarize';
 import type { SpawnFn } from '../../src/commands/summarize';
 
-describe('buildContext', () => {
+function makeTempDir(withRalphDir = false, withAgentFile = false): string {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
+  if (withRalphDir) {
+    fs.mkdirSync(path.join(tmpDir, '.ralph'));
+  }
+  if (withAgentFile) {
+    const agentsDir = path.join(tmpDir, '.claude', 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(path.join(agentsDir, 'summarizer.md'), 'You are a summarizer agent.');
+  }
+  return tmpDir;
+}
+
+describe('buildUserPrompt', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
+    tmpDir = makeTempDir();
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('returns base message when no completed tasks file', () => {
-    const ctx = buildContext(tmpDir, 'tasks.completed.json');
-    expect(ctx).toBe('Updating from the central task list.');
-  });
-
-  it('appends completed tasks reference when file exists', () => {
-    const completedPath = path.join(tmpDir, '.ralph', 'tasks.completed.json');
-    fs.mkdirSync(path.join(tmpDir, '.ralph'));
-    fs.writeFileSync(completedPath, '{}');
-    const ctx = buildContext(tmpDir, completedPath);
-    expect(ctx).toContain('Updating from the central task list.');
-    expect(ctx).toContain('tasks.completed.json');
-    expect(ctx).toContain('Completed tasks are in');
-  });
-
-  it('uses relative path in context string', () => {
-    const completedPath = path.join(tmpDir, '.ralph', 'tasks.completed.json');
-    fs.mkdirSync(path.join(tmpDir, '.ralph'));
-    fs.writeFileSync(completedPath, '{}');
-    const ctx = buildContext(tmpDir, completedPath);
-    // Should be relative, not absolute
-    expect(ctx).not.toContain(tmpDir);
-    expect(ctx).toContain('.ralph/tasks.completed.json');
-  });
-});
-
-describe('buildClaudeMdPruning', () => {
-  it('includes custom pattern when provided', () => {
-    const result = buildClaudeMdPruning('IMPLEMENTATION.md', '**/CLAUDE.md');
-    expect(result).toContain('CLAUDE.MD PRUNING:');
-    expect(result).toContain('**/CLAUDE.md');
-    expect(result).toContain('IMPLEMENTATION.md');
-  });
-
-  it('uses generic lookup when no pattern provided', () => {
-    const result = buildClaudeMdPruning('IMPLEMENTATION.md', '');
-    expect(result).toContain('CLAUDE.MD PRUNING:');
-    expect(result).toContain('look for any module-level CLAUDE.md');
-    expect(result).not.toContain('**/');
-  });
-
-  it('always includes pruning rules', () => {
-    const result = buildClaudeMdPruning('IMPLEMENTATION.md', '');
-    expect(result).toContain('Remove entries that are no longer accurate');
-    expect(result).toContain('Deduplicate entries');
-    expect(result).toContain('strictly operational');
-    expect(result).toContain('when in doubt, keep them');
-  });
-});
-
-describe('buildSummarizePrompt', () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-  });
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it('fresh project: no impl file, no completed tasks', () => {
-    const prompt = buildSummarizePrompt({
+  it('includes project name and impl file', () => {
+    const prompt = buildUserPrompt({
       projectRoot: tmpDir,
       projectName: 'my-project',
       implFile: 'IMPLEMENTATION.md',
@@ -93,20 +43,27 @@ describe('buildSummarizePrompt', () => {
       claudeMdPattern: '',
     });
 
-    expect(prompt).toContain('IMPLEMENTATION.md');
     expect(prompt).toContain('my-project');
+    expect(prompt).toContain('IMPLEMENTATION.md');
+  });
+
+  it('fresh project: no impl file, create from scratch', () => {
+    const prompt = buildUserPrompt({
+      projectRoot: tmpDir,
+      projectName: 'my-project',
+      implFile: 'IMPLEMENTATION.md',
+      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      claudeMdPattern: '',
+    });
+
     expect(prompt).toContain('No existing IMPLEMENTATION.md');
     expect(prompt).toContain('create it from scratch');
-    expect(prompt).toContain('Updating from the central task list.');
-    // Should NOT contain completed tasks reference
-    expect(prompt).not.toContain('Completed tasks are in');
   });
 
   it('existing impl file: instructs update in place', () => {
-    const implPath = path.join(tmpDir, 'IMPLEMENTATION.md');
-    fs.writeFileSync(implPath, '# Existing content\n');
+    fs.writeFileSync(path.join(tmpDir, 'IMPLEMENTATION.md'), '# Existing\n');
 
-    const prompt = buildSummarizePrompt({
+    const prompt = buildUserPrompt({
       projectRoot: tmpDir,
       projectName: 'my-project',
       implFile: 'IMPLEMENTATION.md',
@@ -116,16 +73,15 @@ describe('buildSummarizePrompt', () => {
 
     expect(prompt).toContain('An existing IMPLEMENTATION.md is present');
     expect(prompt).toContain('update it in place');
-    expect(prompt).not.toContain('create it from scratch');
   });
 
-  it('with completed tasks: includes reference', () => {
+  it('includes completed tasks reference when file exists', () => {
     const ralphDir = path.join(tmpDir, '.ralph');
     fs.mkdirSync(ralphDir);
     const completedPath = path.join(ralphDir, 'tasks.completed.json');
     fs.writeFileSync(completedPath, '{}');
 
-    const prompt = buildSummarizePrompt({
+    const prompt = buildUserPrompt({
       projectRoot: tmpDir,
       projectName: 'my-project',
       implFile: 'IMPLEMENTATION.md',
@@ -137,37 +93,20 @@ describe('buildSummarizePrompt', () => {
     expect(prompt).toContain('.ralph/tasks.completed.json');
   });
 
-  it('includes purpose description for summarize agent', () => {
-    const prompt = buildSummarizePrompt({
+  it('no completed tasks reference when file missing', () => {
+    const prompt = buildUserPrompt({
       projectRoot: tmpDir,
-      projectName: 'test-proj',
+      projectName: 'my-project',
       implFile: 'IMPLEMENTATION.md',
       completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
       claudeMdPattern: '',
     });
 
-    expect(prompt).toContain('You are updating IMPLEMENTATION.md');
-    expect(prompt).toContain('test-proj');
-    expect(prompt).toContain('PURPOSE:');
-    expect(prompt).toContain('AUDIENCE:');
-    expect(prompt).toContain('YOUR TASK:');
-    expect(prompt).toContain('RULES:');
-  });
-
-  it('includes CLAUDE.md pruning section', () => {
-    const prompt = buildSummarizePrompt({
-      projectRoot: tmpDir,
-      projectName: 'test-proj',
-      implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
-      claudeMdPattern: '',
-    });
-
-    expect(prompt).toContain('CLAUDE.MD PRUNING:');
+    expect(prompt).not.toContain('Completed tasks are in');
   });
 
   it('includes custom claudeMdPattern in pruning section', () => {
-    const prompt = buildSummarizePrompt({
+    const prompt = buildUserPrompt({
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'IMPLEMENTATION.md',
@@ -176,10 +115,38 @@ describe('buildSummarizePrompt', () => {
     });
 
     expect(prompt).toContain('src/**/CLAUDE.md');
+    expect(prompt).toContain('CLAUDE.MD PRUNING:');
+  });
+
+  it('uses generic lookup when no claudeMdPattern', () => {
+    const prompt = buildUserPrompt({
+      projectRoot: tmpDir,
+      projectName: 'test-proj',
+      implFile: 'IMPLEMENTATION.md',
+      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      claudeMdPattern: '',
+    });
+
+    expect(prompt).toContain('look for any module-level CLAUDE.md');
+  });
+
+  it('includes pruning rules', () => {
+    const prompt = buildUserPrompt({
+      projectRoot: tmpDir,
+      projectName: 'test-proj',
+      implFile: 'IMPLEMENTATION.md',
+      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      claudeMdPattern: '',
+    });
+
+    expect(prompt).toContain('Remove entries that are no longer accurate');
+    expect(prompt).toContain('Deduplicate entries');
+    expect(prompt).toContain('strictly operational');
+    expect(prompt).toContain('when in doubt, keep them');
   });
 
   it('uses custom implFile name', () => {
-    const prompt = buildSummarizePrompt({
+    const prompt = buildUserPrompt({
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'ARCHITECTURE.md',
@@ -189,20 +156,6 @@ describe('buildSummarizePrompt', () => {
 
     expect(prompt).toContain('ARCHITECTURE.md');
     expect(prompt).not.toContain('IMPLEMENTATION.md');
-  });
-
-  it('includes structural guidance', () => {
-    const prompt = buildSummarizePrompt({
-      projectRoot: tmpDir,
-      projectName: 'test-proj',
-      implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
-      claudeMdPattern: '',
-    });
-
-    expect(prompt).toContain('System Overview');
-    expect(prompt).toContain('Architecture');
-    expect(prompt).toContain('Components');
   });
 });
 
@@ -231,8 +184,7 @@ describe('runSummarize', () => {
   let logSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    fs.mkdirSync(path.join(tmpDir, '.ralph'));
+    tmpDir = makeTempDir(true, true);
     logSpy = spyOn(console, 'log').mockImplementation(() => {});
   });
 
@@ -241,7 +193,7 @@ describe('runSummarize', () => {
     logSpy.mockRestore();
   });
 
-  it('spawns claude with correct arguments', async () => {
+  it('spawns claude with --agents and --agent args', async () => {
     const fakeProc = createFakeProcess();
     let capturedCmd = '';
     let capturedArgs: string[] = [];
@@ -249,7 +201,6 @@ describe('runSummarize', () => {
     const mockSpawn: SpawnFn = (cmd, args, _opts) => {
       capturedCmd = cmd;
       capturedArgs = args as string[];
-      // Close immediately
       setTimeout(() => {
         fakeProc.stdout.end();
         fakeProc.emit('close', 0);
@@ -268,7 +219,9 @@ describe('runSummarize', () => {
 
     expect(capturedCmd).toBe('claude');
     expect(capturedArgs).toContain('-p');
-    expect(capturedArgs).toContain('--append-system-prompt');
+    expect(capturedArgs).toContain('--agents');
+    expect(capturedArgs).toContain('--agent');
+    expect(capturedArgs).toContain('summarizer');
     expect(capturedArgs).toContain('--output-format');
     expect(capturedArgs).toContain('stream-json');
     expect(capturedArgs).toContain('--model');
@@ -277,7 +230,7 @@ describe('runSummarize', () => {
     expect(capturedArgs).toContain('--dangerously-skip-permissions');
   });
 
-  it('user prompt is written to stdin and mentions the impl file', async () => {
+  it('user prompt is written to stdin with dynamic context', async () => {
     const fakeProc = createFakeProcess();
     let stdinData = '';
     fakeProc.stdin.on('data', (chunk: Buffer) => { stdinData += chunk.toString(); });
@@ -300,6 +253,8 @@ describe('runSummarize', () => {
     });
 
     expect(stdinData).toContain('IMPLEMENTATION.md');
+    expect(stdinData).toContain('test-proj');
+    expect(stdinData).toContain('CLAUDE.MD PRUNING:');
   });
 
   it('reports line count when impl file exists after completion', async () => {
@@ -307,7 +262,6 @@ describe('runSummarize', () => {
 
     const mockSpawn: SpawnFn = (_cmd, _args, _opts) => {
       setTimeout(() => {
-        // Simulate claude creating the file
         fs.writeFileSync(path.join(tmpDir, 'IMPLEMENTATION.md'), 'line1\nline2\nline3\n');
         fakeProc.stdout.end();
         fakeProc.emit('close', 0);
@@ -353,7 +307,7 @@ describe('runSummarize', () => {
     expect(output).toContain('IMPLEMENTATION.md was not created');
   });
 
-  it('prints banner header and footer', async () => {
+  it('prints banner header', async () => {
     const fakeProc = createFakeProcess();
 
     const mockSpawn: SpawnFn = (_cmd, _args, _opts) => {
@@ -384,8 +338,6 @@ describe('runSummarize', () => {
     fakeProc.kill = () => { killed = true; return true; };
 
     const mockSpawn: SpawnFn = (_cmd, _args, _opts) => {
-      // Never close — simulate a hanging process
-      // The timeout will fire and kill it
       return fakeProc as any;
     };
 
@@ -396,10 +348,9 @@ describe('runSummarize', () => {
       completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
       claudeMdPattern: '',
       spawnFn: mockSpawn,
-      timeoutMs: 50, // 50ms timeout for fast test
+      timeoutMs: 50,
     });
 
-    // Wait a bit then simulate process exit after kill
     await new Promise(r => setTimeout(r, 80));
     fakeProc.stdout.end();
     fakeProc.emit('close', 1);
@@ -441,7 +392,6 @@ describe('runSummarize', () => {
 
     const mockSpawn: SpawnFn = (_cmd, _args, _opts) => {
       setTimeout(() => {
-        // Send a stream-json line that processStream will handle
         fakeProc.stdout.write(JSON.stringify({
           type: 'system',
           subtype: 'init',
@@ -454,7 +404,6 @@ describe('runSummarize', () => {
       return fakeProc as any;
     };
 
-    // Capture process.stdout writes
     const writes: string[] = [];
     const origWrite = process.stdout.write;
     process.stdout.write = ((chunk: any) => {
@@ -476,7 +425,6 @@ describe('runSummarize', () => {
     }
 
     const allOutput = writes.join('');
-    // processStream formats init events with [init] and model name
     expect(allOutput).toContain('[init]');
     expect(allOutput).toContain('sonnet');
   });

@@ -2,34 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 9,
-      "priority": 2,
-      "title": "Update plan tests",
-      "description": "Update `test/commands/plan.test.ts` to reflect the refactored `plan.ts`.\n\n1. Remove tests for `buildPlanningPrompt()` and `PlanningPromptInput`\n2. Update tests for `runPlan()` to expect `--agents`/`--agent` args plus a short `--append-system-prompt` with dynamic context (project name, root, data dir, agents), instead of the full prompt string in `--append-system-prompt`\n3. Keep tests for display/formatting functions (`formatBanner`, `formatPlanningNotesStatus`, `formatCompletedCount`, `formatTasksSummary`, `displayPreflight`)\n4. The spawn mock may need to account for the agent file being read — either mock the file system or create a temp agent file",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-31T00:00:00Z",
-      "completedBy": "iteration-9",
-      "notes": "Tests were already updated by the previous iteration. 37 plan tests pass, 582 total. Tests cover: formatBanner, formatPlanningNotesStatus, formatCompletedCount, formatTasksSummary, displayPreflight, buildDynamicContext, and runPlan. runPlan tests use makeTempDir(true, true) to create .claude/agents/planner.md, and assert --agents/--agent args plus --append-system-prompt with dynamic context.",
-      "files": [
-        "test/commands/plan.test.ts",
-        "src/commands/plan.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        8
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 10,
       "priority": 2,
       "title": "Refactor summarize.ts to use buildAgentArgs()",
       "description": "Refactor `runSummarize()` in `src/commands/summarize.ts` to use `buildAgentArgs('summarizer', 'Technical writer / architecture documenter', projectRoot)` for the agent definition.\n\nChanges:\n1. Import `buildAgentArgs` from `../agent-prompt`\n2. Delete `buildSummarizePrompt()` (lines 59-120), `buildContext()` (lines 18-25), `buildClaudeMdPruning()` (lines 31-54), and `SummarizePromptOpts` type\n3. In `runSummarize()`, build the dynamic context as the user prompt written to stdin. Include: project name, impl file name, whether the impl file already exists, completed tasks path, and CLAUDE.md pruning instructions (with the specific glob pattern from config)\n4. The spawn args should use `...buildAgentArgs('summarizer', 'Technical writer / architecture documenter', projectRoot)` instead of `'--append-system-prompt', systemPrompt`\n5. Keep the existing `--output-format`, `--verbose`, `--model`, `--dangerously-skip-permissions` flags\n6. Update `RunSummarizeOpts` interface to remove fields only needed by deleted functions",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-31T19:45:00Z",
+      "completedBy": "iteration-10",
+      "notes": "Refactored summarize.ts to use buildAgentArgs(). Deleted buildSummarizePrompt(), buildContext(), buildClaudeMdPruning(), and SummarizePromptOpts. Created buildUserPrompt() that includes project name, impl file, existence check, completed tasks path, and CLAUDE.md pruning instructions. Updated tests to match new exports — old prompt-builder tests replaced with buildUserPrompt tests, runSummarize tests updated to assert --agents/--agent args. Tests require .claude/agents/summarizer.md via makeTempDir(true, true). Task #11 (update summarize tests) may already be covered by this work — verify before starting.",
       "files": [
         "src/commands/summarize.ts",
         "src/agent-prompt.ts"
