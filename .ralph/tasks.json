@@ -2,34 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 13,
-      "priority": 2,
-      "title": "Update init tests to cover agent installation",
-      "description": "Add tests for `installAgents()` in `test/commands/init.test.ts`. Mirror the test patterns used for `installSlashCommands()`.\n\nTest:\n1. Copies .md files from ralph's `agents/` dir to `<projectRoot>/.claude/agents/`\n2. Creates the destination directory if it doesn't exist\n3. Handles missing source directory gracefully (no error, just returns)\n4. Handles empty source directory (no .md files) gracefully\n\nUse temp directories for both ralph root and project root, same as existing init tests.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-03-31T00:00:00Z",
-      "completedBy": "iteration-13",
-      "notes": "Added 7 installAgents() tests in test/commands/init.test.ts mirroring installSlashCommands() patterns. Tests cover: directory creation, .md file copying, content integrity, log output, missing source dir (graceful), empty source dir (graceful), and end-to-end copy of real ralph agents/. All 584 tests pass.",
-      "files": [
-        "test/commands/init.test.ts",
-        "src/commands/init.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        12
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 14,
       "priority": 3,
       "title": "Verify build and full test suite",
       "description": "Run `bun test` and `bun run build` to verify everything compiles and all tests pass. Fix any remaining issues.\n\nVerification checklist:\n1. `bun test` — all tests pass\n2. `bun run build` — compiles without errors\n3. No references to deleted functions remain in source: `buildPlanningPrompt`, `buildSummarizePrompt`, `buildPostTaskReviewPrompt`, `buildContext`, `buildClaudeMdPruning`, `PlanningPromptInput`, `SummarizePromptOpts`\n4. The `agents/` directory at ralph's project root contains: `post-task-reviewer.md`, `planner.md`, `summarizer.md`\n5. Grep the codebase for any remaining `--append-system-prompt` usage that should have been converted (note: plan.ts still uses it for the short dynamic context — that's expected)",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-03-31T21:45:00Z",
+      "completedBy": "iteration-14",
+      "notes": "All 584 tests pass, build compiles cleanly. No stale references to deleted functions (buildPlanningPrompt, buildSummarizePrompt, buildPostTaskReviewPrompt, buildContext, buildClaudeMdPruning, PlanningPromptInput, SummarizePromptOpts) in src/ or test/. agents/ directory contains all 3 expected files. --append-system-prompt usage in run.ts and plan.ts is intentional and expected.",
       "files": [],
       "tests": [
         "bun test",
