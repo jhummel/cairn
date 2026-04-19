@@ -2,33 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 4,
-      "priority": 4,
-      "title": "Wire personal instructions into plan.ts dynamic context",
-      "description": "In `src/commands/plan.ts`, update `buildDynamicContext()` to accept `dataDir: string` as an additional parameter (or add it to the existing input object). Append the output of `loadPersonalInstructions(dataDir)` (imported from `../personal-instructions`) to the returned dynamic context string. Placement: after the existing project/paths/agents info, as a trailing block. Update `runPlan()` in the same file to pass `dataDir` through to `buildDynamicContext()`. The `dataDir` is already available in `runPlan`'s scope (it's passed in via `RunPlanOpts`). Do NOT change any other behavior of `buildDynamicContext` or `runPlan`.",
-      "directory": "src/commands",
-      "status": "complete",
-      "completedAt": "2026-04-18T00:00:00Z",
-      "completedBy": "iteration-3",
-      "notes": "dataDir was already present in buildDynamicContext opts — only change needed was importing loadPersonalInstructions and appending its output as a trailing block. personalInstructions returns empty string when file absent, so no behavior change for existing callers. All 37 plan tests pass.",
-      "files": [
-        "plan.ts"
-      ],
-      "dependencies": [
-        1
-      ],
-      "tests": [
-        "bun test test/commands/plan.test.ts"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 5,
       "priority": 5,
       "title": "Tests for personal instructions in plan.ts",
       "description": "Update `test/commands/plan.test.ts` with two new test cases for `buildDynamicContext()`: (a) when `<tempDataDir>/instructions.md` exists with content like '* Always use TDD', the returned dynamic context string contains 'PERSONAL INSTRUCTIONS:' and the file's content; (b) when the file does not exist, the returned string does NOT contain 'PERSONAL INSTRUCTIONS:'. Use a temp dataDir via `fs.mkdtempSync` + `os.tmpdir()`. If the existing plan tests have a shared test setup, follow that pattern. Ensure existing plan tests still pass.",
       "directory": "test/commands",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-04-18T00:00:00Z",
+      "completedBy": "iteration-4",
+      "notes": "Added two tests to buildDynamicContext describe block: one verifying PERSONAL INSTRUCTIONS block appears when instructions.md exists in dataDir, one verifying it's absent when the file doesn't exist. Followed existing makeTempDir pattern using fs.mkdtempSync + os.tmpdir(). All 39 tests pass (37 existing + 2 new).",
       "files": [
         "plan.test.ts"
       ],

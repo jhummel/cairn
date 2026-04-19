@@ -350,6 +350,38 @@ describe('buildDynamicContext', () => {
     expect(result).toContain('helper');
     expect(result).not.toContain('helper —');
   });
+
+  test('includes PERSONAL INSTRUCTIONS block when instructions.md exists in dataDir', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-plan-test-'));
+    try {
+      fs.writeFileSync(path.join(tmpDir, 'instructions.md'), '* Always use TDD');
+      const result = buildDynamicContext({
+        projectName: 'proj',
+        projectRoot: '/tmp/test',
+        dataDir: tmpDir,
+        agents: [],
+      });
+      expect(result).toContain('PERSONAL INSTRUCTIONS:');
+      expect(result).toContain('* Always use TDD');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('omits PERSONAL INSTRUCTIONS block when instructions.md does not exist', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-plan-test-'));
+    try {
+      const result = buildDynamicContext({
+        projectName: 'proj',
+        projectRoot: '/tmp/test',
+        dataDir: tmpDir,
+        agents: [],
+      });
+      expect(result).not.toContain('PERSONAL INSTRUCTIONS:');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
 });
 
 // ── runPlan tests ──────────────────────────────────────────
