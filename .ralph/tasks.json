@@ -2,25 +2,203 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 14,
-      "priority": 3,
-      "title": "Verify build and full test suite",
-      "description": "Run `bun test` and `bun run build` to verify everything compiles and all tests pass. Fix any remaining issues.\n\nVerification checklist:\n1. `bun test` — all tests pass\n2. `bun run build` — compiles without errors\n3. No references to deleted functions remain in source: `buildPlanningPrompt`, `buildSummarizePrompt`, `buildPostTaskReviewPrompt`, `buildContext`, `buildClaudeMdPruning`, `PlanningPromptInput`, `SummarizePromptOpts`\n4. The `agents/` directory at ralph's project root contains: `post-task-reviewer.md`, `planner.md`, `summarizer.md`\n5. Grep the codebase for any remaining `--append-system-prompt` usage that should have been converted (note: plan.ts still uses it for the short dynamic context — that's expected)",
-      "directory": "",
+      "id": 1,
+      "priority": 1,
+      "title": "Create loadPersonalInstructions helper",
+      "description": "Create a new file `src/personal-instructions.ts` that exports a single function `loadPersonalInstructions(dataDir: string): string`. The function reads `<dataDir>/instructions.md` if it exists; if the file exists AND its content (after trimming) is non-empty, it returns the string `\\nPERSONAL INSTRUCTIONS:\\n<content>\\n` (where `<content>` is the raw, un-trimmed file contents, matching the format currently used in `src/commands/run.ts` lines 84-92). Otherwise returns `''`. Use `fs.existsSync` and `fs.readFileSync` with `'utf-8'` encoding. Export the function as a named export. Do NOT modify any other files in this task — the wiring into callers happens in later tasks.",
+      "directory": "src",
       "status": "complete",
-      "completedAt": "2026-03-31T21:45:00Z",
-      "completedBy": "iteration-14",
-      "notes": "All 584 tests pass, build compiles cleanly. No stale references to deleted functions (buildPlanningPrompt, buildSummarizePrompt, buildPostTaskReviewPrompt, buildContext, buildClaudeMdPruning, PlanningPromptInput, SummarizePromptOpts) in src/ or test/. agents/ directory contains all 3 expected files. --append-system-prompt usage in run.ts and plan.ts is intentional and expected.",
-      "files": [],
+      "completedAt": "2026-04-18T00:00:00Z",
+      "completedBy": "iteration-1",
+      "notes": "Created src/personal-instructions.ts with loadPersonalInstructions(dataDir) named export. Logic mirrors run.ts lines 84-92 exactly. All 584 tests pass.",
+      "files": [
+        "personal-instructions.ts"
+      ],
+      "dependencies": [],
+      "tests": [
+        "bun test"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 2,
+      "priority": 2,
+      "title": "Unit tests for loadPersonalInstructions",
+      "description": "Add `test/personal-instructions.test.ts` covering the helper created in task #1. Test cases: (a) missing file → returns ''; (b) empty file → returns ''; (c) whitespace-only file (e.g., '\\n  \\n\\t') → returns ''; (d) normal content like '* Always use TDD\\n' → returns `\\nPERSONAL INSTRUCTIONS:\\n* Always use TDD\\n\\n` (note: the raw un-trimmed content is embedded, so trailing newlines from the file are preserved); (e) multi-line content with leading/trailing whitespace preserved in the embedded block. Use `fs.mkdtempSync` + `os.tmpdir()` for temp dirs. Clean up temp dirs in `afterEach`. Import from `../src/personal-instructions`.",
+      "directory": "test",
+      "status": "pending",
+      "files": [
+        "personal-instructions.test.ts"
+      ],
+      "dependencies": [1],
+      "tests": [
+        "bun test test/personal-instructions.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 3,
+      "priority": 3,
+      "title": "Refactor run.ts buildSystemPrompt to use helper",
+      "description": "In `src/commands/run.ts` `buildSystemPrompt()` (around lines 84-92), replace the inline `fs.existsSync` / `fs.readFileSync` / trim logic with a single call to `loadPersonalInstructions(dataDir)` imported from `../personal-instructions`. The returned string should be assigned to the existing `personalInstructions` variable (or inlined). CRITICAL: rendered output must be byte-identical to pre-refactor output. Verify by: (1) before changing code, capture the current prompt for a test case where `instructions.md` exists — e.g., use the existing test at `test/commands/run.test.ts:66` or run the helper against the live `.ralph/instructions.md`. (2) After refactor, run the same rendering and diff. Keep the existing `includes personal instructions from instructions.md` and `omits personal instructions when file missing` tests in `test/commands/run.test.ts` passing without modification.",
+      "directory": "src/commands",
+      "status": "pending",
+      "files": [
+        "run.ts"
+      ],
+      "dependencies": [1],
+      "tests": [
+        "bun test test/commands/run.test.ts"
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 4,
+      "priority": 4,
+      "title": "Wire personal instructions into plan.ts dynamic context",
+      "description": "In `src/commands/plan.ts`, update `buildDynamicContext()` to accept `dataDir: string` as an additional parameter (or add it to the existing input object). Append the output of `loadPersonalInstructions(dataDir)` (imported from `../personal-instructions`) to the returned dynamic context string. Placement: after the existing project/paths/agents info, as a trailing block. Update `runPlan()` in the same file to pass `dataDir` through to `buildDynamicContext()`. The `dataDir` is already available in `runPlan`'s scope (it's passed in via `RunPlanOpts`). Do NOT change any other behavior of `buildDynamicContext` or `runPlan`.",
+      "directory": "src/commands",
+      "status": "pending",
+      "files": [
+        "plan.ts"
+      ],
+      "dependencies": [1],
+      "tests": [
+        "bun test test/commands/plan.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 5,
+      "priority": 5,
+      "title": "Tests for personal instructions in plan.ts",
+      "description": "Update `test/commands/plan.test.ts` with two new test cases for `buildDynamicContext()`: (a) when `<tempDataDir>/instructions.md` exists with content like '* Always use TDD', the returned dynamic context string contains 'PERSONAL INSTRUCTIONS:' and the file's content; (b) when the file does not exist, the returned string does NOT contain 'PERSONAL INSTRUCTIONS:'. Use a temp dataDir via `fs.mkdtempSync` + `os.tmpdir()`. If the existing plan tests have a shared test setup, follow that pattern. Ensure existing plan tests still pass.",
+      "directory": "test/commands",
+      "status": "pending",
+      "files": [
+        "plan.test.ts"
+      ],
+      "dependencies": [4],
+      "tests": [
+        "bun test test/commands/plan.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 6,
+      "priority": 6,
+      "title": "Wire personal instructions into summarize.ts user prompt",
+      "description": "In `src/commands/summarize.ts`, update `buildUserPrompt()` to accept `dataDir: string` in its options object. Prepend `loadPersonalInstructions(dataDir)` (imported from `../personal-instructions`) to the returned user prompt string so the PERSONAL INSTRUCTIONS block appears at the top. Thread `dataDir` through: (1) add `dataDir` to `RunSummarizeOpts`; (2) pass `dataDir` from `runSummarize()` into `buildUserPrompt()`; (3) update the CLI call site in `src/index.ts` (around line 125 where `completedTasksPath` is passed) to also pass `dataDir` from the command context. Verify: `runSummarize` still spawns claude with the stdin user prompt containing the block when `instructions.md` exists.",
+      "directory": "src/commands",
+      "status": "pending",
+      "files": [
+        "summarize.ts"
+      ],
+      "dependencies": [1],
+      "tests": [
+        "bun test test/commands/summarize.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 7,
+      "priority": 7,
+      "title": "Tests for personal instructions in summarize.ts",
+      "description": "Update `test/commands/summarize.test.ts` with presence/absence assertions for `buildUserPrompt()`: (a) when `<tempDataDir>/instructions.md` exists, the returned prompt contains 'PERSONAL INSTRUCTIONS:' and the file's content; (b) when missing, it does not. Use `fs.mkdtempSync` + `os.tmpdir()`. Keep all existing summarize tests passing.",
+      "directory": "test/commands",
+      "status": "pending",
+      "files": [
+        "summarize.test.ts"
+      ],
+      "dependencies": [6],
+      "tests": [
+        "bun test test/commands/summarize.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 8,
+      "priority": 8,
+      "title": "Wire personal instructions into post-task-reviewer.ts",
+      "description": "In `src/post-task-reviewer.ts`, update `buildPostTaskReviewUserPrompt()` to accept `dataDir: string` in its options object. Prepend `loadPersonalInstructions(dataDir)` (imported from `./personal-instructions`) to the returned user prompt so the PERSONAL INSTRUCTIONS block appears at the top. Thread `dataDir` through: (1) add `dataDir` to `SpawnPostTaskReviewerOpts`; (2) `RunPostTaskReviewOpts` already has `dataDir` (see `src/commands/run.ts:589` which passes it in) — just pass it from `runPostTaskReview()` to `spawnPostTaskReviewer()` and then into `buildPostTaskReviewUserPrompt()`. No change needed in `src/commands/run.ts` callers since they already have `dataDir`.",
+      "directory": "src",
+      "status": "pending",
+      "files": [
+        "post-task-reviewer.ts"
+      ],
+      "dependencies": [1],
+      "tests": [
+        "bun test test/post-task-reviewer.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 9,
+      "priority": 9,
+      "title": "Tests for personal instructions in post-task-reviewer.ts",
+      "description": "Update `test/post-task-reviewer.test.ts` with presence/absence assertions for `buildPostTaskReviewUserPrompt()`: (a) when `<tempDataDir>/instructions.md` exists, the returned prompt contains 'PERSONAL INSTRUCTIONS:' and the file's content; (b) when missing, it does not. Use `fs.mkdtempSync` + `os.tmpdir()`. Keep all existing post-task-reviewer tests passing.",
+      "directory": "test",
+      "status": "pending",
+      "files": [
+        "post-task-reviewer.test.ts"
+      ],
+      "dependencies": [8],
+      "tests": [
+        "bun test test/post-task-reviewer.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 10,
+      "priority": 10,
+      "title": "Update commands/generate-tasks.md subagent prompt",
+      "description": "In `commands/generate-tasks.md`, update the subagent prompt (between the `---` delimiters, starting around line 21). Add a new FIRST step to the `YOUR WORKFLOW:` list: '1. If `.ralph/instructions.md` exists, read it first — it contains personal preferences (e.g., coding style, workflow preferences like TDD) that apply to this task. Follow them in addition to the instructions below.' Renumber the remaining workflow steps accordingly (old 1→2, 2→3, etc.). Do NOT change anything else in the file. This same file exists at `.claude/commands/generate-tasks.md` — update that copy too so the live slash command uses the new prompt (install.sh copies from commands/ to .claude/commands/ during init, but for the ralph-on-ralph development case the .claude/commands/ copy must be updated manually).",
+      "directory": "commands",
+      "status": "pending",
+      "files": [
+        "generate-tasks.md"
+      ],
+      "dependencies": [],
+      "tests": [
+        "bun test"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 11,
+      "priority": 11,
+      "title": "Update commands/review-tasks.md subagent prompt",
+      "description": "In `commands/review-tasks.md`, locate the subagent prompt section and add the same new FIRST workflow step as in task #10: 'If `.ralph/instructions.md` exists, read it first — it contains personal preferences that apply to this task.' Renumber existing steps. Also update the mirror copy at `.claude/commands/review-tasks.md`. Do NOT change anything else.",
+      "directory": "commands",
+      "status": "pending",
+      "files": [
+        "review-tasks.md"
+      ],
+      "dependencies": [],
+      "tests": [
+        "bun test"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 12,
+      "priority": 12,
+      "title": "Verify build + full test suite + scratch render",
+      "description": "Final verification pass. (1) Run `bun test` from project root — all tests must pass. (2) Run `bun run build` — must succeed. (3) Render each prompt against the live `.ralph/instructions.md` (which contains '* Always use TDD across all task execution') and confirm the PERSONAL INSTRUCTIONS block appears in each: use a scratch script (or inline `bun -e`) to call `buildSystemPrompt` (run.ts), `buildDynamicContext` (plan.ts), `buildUserPrompt` (summarize.ts), and `buildPostTaskReviewUserPrompt` (post-task-reviewer.ts), and assert each rendered string includes both 'PERSONAL INSTRUCTIONS:' and 'Always use TDD'. (4) In the commit message, include a ROLLOUT note: 'Users with existing Ralph installs must re-run `ralph init` in their projects to pick up the updated .claude/commands/*.md files.' Report which prompts got the block and any discrepancies in task notes.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/run.ts",
+        "src/commands/plan.ts",
+        "src/commands/summarize.ts",
+        "src/post-task-reviewer.ts",
+        "commands/generate-tasks.md",
+        "commands/review-tasks.md"
+      ],
+      "dependencies": [3, 4, 6, 8, 10, 11],
       "tests": [
         "bun test",
         "bun run build"
-      ],
-      "dependencies": [
-        7,
-        9,
-        11,
-        13
       ],
       "model": "opus"
     }
