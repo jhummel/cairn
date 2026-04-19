@@ -9,7 +9,7 @@
     "claudeMdPattern": ""
   },
   "narration": {
-    "enabled": true,
+    "enabled": false,
     "voice": "bf_emma",
     "ntfyTopic": "jhummel-ralph-cli-tool"
   },

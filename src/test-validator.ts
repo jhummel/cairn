@@ -1,5 +1,4 @@
 import { readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
 import { spawn } from 'child_process';
 import type { Task } from './types';
 
@@ -74,7 +73,7 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
     return { status: 'skipped' };
   }
 
-  const cwd = task.directory ? join(projectRoot, task.directory) : projectRoot;
+  const cwd = projectRoot;
 
   for (const cmd of task.tests) {
     const { exitCode, stderr } = await runCommand(cmd, cwd, timeoutMs);

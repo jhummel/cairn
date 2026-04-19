@@ -237,14 +237,14 @@ describe('validateTaskTests', () => {
       expect(result.status).toBe('passed');
     });
 
-    it('runs tests in projectRoot/directory when task has directory', async () => {
+    it('runs tests in projectRoot even when task has a directory', async () => {
       const subDir = join(tmpDir, 'sub');
       mkdirSync(subDir);
-      writeFileSync(join(subDir, 'sentinel.txt'), 'hello');
+      writeFileSync(join(tmpDir, 'root-sentinel.txt'), 'hello');
       const task: Task = {
         id: 1, priority: 1, title: 'Test', status: 'complete',
         directory: 'sub',
-        tests: ['test -f sentinel.txt'],
+        tests: ['test -f root-sentinel.txt'],
       };
       writeTasksFile(tasksFilePath, [task]);
 
