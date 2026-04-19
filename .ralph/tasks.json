@@ -2,31 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 11,
-      "priority": 11,
-      "title": "Update commands/review-tasks.md subagent prompt",
-      "description": "In `commands/review-tasks.md`, locate the subagent prompt section and add the same new FIRST workflow step as in task #10: 'If `.ralph/instructions.md` exists, read it first — it contains personal preferences that apply to this task.' Renumber existing steps. Also update the mirror copy at `.claude/commands/review-tasks.md`. Do NOT change anything else.",
-      "directory": "commands",
-      "status": "complete",
-      "completedAt": "2026-04-18T00:00:00Z",
-      "completedBy": "iteration-10",
-      "notes": "Replaced YOUR TASK + FILES TO READ sections with YOUR WORKFLOW numbered steps. Step 1 = read .ralph/instructions.md; steps 2-5 = renumbered existing content. Mirrored to .claude/commands/review-tasks.md via cp (Edit blocked on .claude/ sensitive files). All 595 tests pass.",
-      "files": [
-        "review-tasks.md"
-      ],
-      "dependencies": [],
-      "tests": [
-        "bun test"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 12,
       "priority": 12,
       "title": "Verify build + full test suite + scratch render",
       "description": "Final verification pass. (1) Run `bun test` from project root — all tests must pass. (2) Run `bun run build` — must succeed. (3) Render each prompt against the live `.ralph/instructions.md` (which contains '* Always use TDD across all task execution') and confirm the PERSONAL INSTRUCTIONS block appears in each: use a scratch script (or inline `bun -e`) to call `buildSystemPrompt` (run.ts), `buildDynamicContext` (plan.ts), `buildUserPrompt` (summarize.ts), and `buildPostTaskReviewUserPrompt` (post-task-reviewer.ts), and assert each rendered string includes both 'PERSONAL INSTRUCTIONS:' and 'Always use TDD'. (4) In the commit message, include a ROLLOUT note: 'Users with existing Ralph installs must re-run `ralph init` in their projects to pick up the updated .claude/commands/*.md files.' Report which prompts got the block and any discrepancies in task notes.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-04-18T00:00:00Z",
+      "completedBy": "iteration-11",
+      "notes": "Verification complete. (1) bun test: 595 pass / 0 fail across 23 files. (2) bun run build: dist/ralph compiled successfully in 194ms. (3) Rendered all four prompts against live .ralph/instructions.md via a scratch bun script and asserted each contained both 'PERSONAL INSTRUCTIONS:' and 'Always use TDD':\n  - buildSystemPrompt (run.ts): OK\n  - buildDynamicContext (plan.ts): OK\n  - buildUserPrompt (summarize.ts): OK\n  - buildPostTaskReviewUserPrompt (post-task-reviewer.ts): OK\nNo discrepancies. All four production prompt builders inject the personal-instructions block via the shared loadPersonalInstructions() helper from src/personal-instructions.ts. Scratch script was removed after verification. ROLLOUT note included in commit message.",
       "files": [
         "src/commands/run.ts",
         "src/commands/plan.ts",
