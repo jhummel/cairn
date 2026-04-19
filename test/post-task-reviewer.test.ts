@@ -161,6 +161,40 @@ describe("buildPostTaskReviewUserPrompt", () => {
     expect(prompt).toContain("Min task");
     expect(prompt).toContain("Minimal");
   });
+
+  test("includes personal instructions when instructions.md exists in dataDir", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "ralph-instr-test-"));
+    try {
+      writeFileSync(join(dataDir, "instructions.md"), "* Always use TDD");
+      const prompt = buildPostTaskReviewUserPrompt({
+        task: sampleTask,
+        diff: "",
+        log: "",
+        files: [],
+        dataDir,
+      });
+      expect(prompt).toContain("PERSONAL INSTRUCTIONS:");
+      expect(prompt).toContain("* Always use TDD");
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("omits personal instructions when instructions.md is missing from dataDir", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "ralph-noinstr-test-"));
+    try {
+      const prompt = buildPostTaskReviewUserPrompt({
+        task: sampleTask,
+        diff: "",
+        log: "",
+        files: [],
+        dataDir,
+      });
+      expect(prompt).not.toContain("PERSONAL INSTRUCTIONS:");
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("spawnPostTaskReviewer", () => {
