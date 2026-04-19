@@ -3,6 +3,7 @@ import * as path from 'path';
 import { spawnSync as nodeSpawnSync, type SpawnSyncReturns, type SpawnSyncOptions } from 'child_process';
 import { Task, AgentInfo } from '../types';
 import { buildAgentArgs } from '../agent-prompt';
+import { loadPersonalInstructions } from '../personal-instructions';
 
 const STATUS_ICONS: Record<string, string> = {
   complete: '✓',
@@ -86,9 +87,11 @@ export function buildDynamicContext(opts: {
     agentsSection = `\nAVAILABLE SPECIALIST AGENTS (.claude/agents/):\n${lines.join('\n')}`;
   }
 
+  const personalInstructions = loadPersonalInstructions(dataDir);
+
   return `PROJECT: ${projectName}
 PROJECT ROOT: ${projectRoot}
-DATA DIR: ${dataDir}${agentsSection}`;
+DATA DIR: ${dataDir}${agentsSection}${personalInstructions}`;
 }
 
 export function displayPreflight(projectName: string, dataDir: string): void {

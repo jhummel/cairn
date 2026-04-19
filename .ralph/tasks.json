@@ -2,33 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 3,
-      "priority": 3,
-      "title": "Refactor run.ts buildSystemPrompt to use helper",
-      "description": "In `src/commands/run.ts` `buildSystemPrompt()` (around lines 84-92), replace the inline `fs.existsSync` / `fs.readFileSync` / trim logic with a single call to `loadPersonalInstructions(dataDir)` imported from `../personal-instructions`. The returned string should be assigned to the existing `personalInstructions` variable (or inlined). CRITICAL: rendered output must be byte-identical to pre-refactor output. Verify by: (1) before changing code, capture the current prompt for a test case where `instructions.md` exists — e.g., use the existing test at `test/commands/run.test.ts:66` or run the helper against the live `.ralph/instructions.md`. (2) After refactor, run the same rendering and diff. Keep the existing `includes personal instructions from instructions.md` and `omits personal instructions when file missing` tests in `test/commands/run.test.ts` passing without modification.",
-      "directory": "src/commands",
-      "status": "complete",
-      "completedAt": "2026-04-18T00:00:00Z",
-      "completedBy": "iteration-2",
-      "notes": "Replaced inline fs logic with loadPersonalInstructions(dataDir) import from ../personal-instructions. Verified byte-identical output via before/after render diff (only tmpdir paths differed). All 88 tests in test/commands/run.test.ts pass including both personal-instructions test cases (unmodified).",
-      "files": [
-        "run.ts"
-      ],
-      "dependencies": [
-        1
-      ],
-      "tests": [
-        "bun test test/commands/run.test.ts"
-      ],
-      "model": "opus"
-    },
-    {
       "id": 4,
       "priority": 4,
       "title": "Wire personal instructions into plan.ts dynamic context",
       "description": "In `src/commands/plan.ts`, update `buildDynamicContext()` to accept `dataDir: string` as an additional parameter (or add it to the existing input object). Append the output of `loadPersonalInstructions(dataDir)` (imported from `../personal-instructions`) to the returned dynamic context string. Placement: after the existing project/paths/agents info, as a trailing block. Update `runPlan()` in the same file to pass `dataDir` through to `buildDynamicContext()`. The `dataDir` is already available in `runPlan`'s scope (it's passed in via `RunPlanOpts`). Do NOT change any other behavior of `buildDynamicContext` or `runPlan`.",
       "directory": "src/commands",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-04-18T00:00:00Z",
+      "completedBy": "iteration-3",
+      "notes": "dataDir was already present in buildDynamicContext opts — only change needed was importing loadPersonalInstructions and appending its output as a trailing block. personalInstructions returns empty string when file absent, so no behavior change for existing callers. All 37 plan tests pass.",
       "files": [
         "plan.ts"
       ],
