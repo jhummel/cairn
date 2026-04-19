@@ -2,33 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 6,
-      "priority": 6,
-      "title": "Wire personal instructions into summarize.ts user prompt",
-      "description": "In `src/commands/summarize.ts`, update `buildUserPrompt()` to accept `dataDir: string` in its options object. Prepend `loadPersonalInstructions(dataDir)` (imported from `../personal-instructions`) to the returned user prompt string so the PERSONAL INSTRUCTIONS block appears at the top. Thread `dataDir` through: (1) add `dataDir` to `RunSummarizeOpts`; (2) pass `dataDir` from `runSummarize()` into `buildUserPrompt()`; (3) update the CLI call site in `src/index.ts` (around line 125 where `completedTasksPath` is passed) to also pass `dataDir` from the command context. Verify: `runSummarize` still spawns claude with the stdin user prompt containing the block when `instructions.md` exists.",
-      "directory": "src/commands",
-      "status": "complete",
-      "completedAt": "2026-04-18T00:00:00Z",
-      "completedBy": "iteration-5",
-      "notes": "Added dataDir (optional) to RunSummarizeOpts and buildUserPrompt opts. Prepended loadPersonalInstructions(dataDir) at the top of the returned prompt. Passed dataDir through runSummarize() -> buildUserPrompt(). Updated src/index.ts summarize action to read RALPH_DATA_DIR and pass it. All 17 existing tests pass unchanged since dataDir is optional.",
-      "files": [
-        "summarize.ts"
-      ],
-      "dependencies": [
-        1
-      ],
-      "tests": [
-        "bun test test/commands/summarize.test.ts"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 7,
       "priority": 7,
       "title": "Tests for personal instructions in summarize.ts",
       "description": "Update `test/commands/summarize.test.ts` with presence/absence assertions for `buildUserPrompt()`: (a) when `<tempDataDir>/instructions.md` exists, the returned prompt contains 'PERSONAL INSTRUCTIONS:' and the file's content; (b) when missing, it does not. Use `fs.mkdtempSync` + `os.tmpdir()`. Keep all existing summarize tests passing.",
       "directory": "test/commands",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-04-18T00:00:00Z",
+      "completedBy": "iteration-6",
+      "notes": "Added two buildUserPrompt tests: presence of PERSONAL INSTRUCTIONS when instructions.md exists in dataDir, and absence when missing. Both use fs.mkdtempSync + os.tmpdir() with try/finally cleanup. All 19 tests pass (17 existing + 2 new).",
       "files": [
         "summarize.test.ts"
       ],

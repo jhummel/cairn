@@ -157,6 +157,42 @@ describe('buildUserPrompt', () => {
     expect(prompt).toContain('ARCHITECTURE.md');
     expect(prompt).not.toContain('IMPLEMENTATION.md');
   });
+
+  it('includes PERSONAL INSTRUCTIONS when instructions.md exists in dataDir', () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-data-'));
+    try {
+      fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD');
+      const prompt = buildUserPrompt({
+        projectRoot: tmpDir,
+        projectName: 'test-proj',
+        implFile: 'IMPLEMENTATION.md',
+        completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+        claudeMdPattern: '',
+        dataDir,
+      });
+      expect(prompt).toContain('PERSONAL INSTRUCTIONS:');
+      expect(prompt).toContain('* Always use TDD');
+    } finally {
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('omits PERSONAL INSTRUCTIONS when instructions.md is missing from dataDir', () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-data-'));
+    try {
+      const prompt = buildUserPrompt({
+        projectRoot: tmpDir,
+        projectName: 'test-proj',
+        implFile: 'IMPLEMENTATION.md',
+        completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+        claudeMdPattern: '',
+        dataDir,
+      });
+      expect(prompt).not.toContain('PERSONAL INSTRUCTIONS:');
+    } finally {
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // Helper: create a fake child process for testing
