@@ -12,6 +12,7 @@ import { runHealthCheck as defaultRunHealthCheck, type HealthCheckResult } from 
 import { validateTaskTests as defaultValidateTaskTests, type ValidateTaskTestsOpts, type ValidationResult } from '../test-validator';
 import { archiveCompletedTasks as defaultArchiveCompletedTasks, type ArchiveResult } from '../task-archiver';
 import { captureGitSha as defaultCaptureGitSha, runPostTaskReview as defaultRunPostTaskReview, type RunPostTaskReviewOpts } from '../post-task-reviewer';
+import { loadPersonalInstructions } from '../personal-instructions';
 
 export interface SystemPromptInput {
   taskDir: string;
@@ -82,14 +83,7 @@ ${body}
   }
 
   // --- Personal Instructions ---
-  let personalInstructions = '';
-  const instructionsFile = path.join(dataDir, 'instructions.md');
-  if (fs.existsSync(instructionsFile)) {
-    const content = fs.readFileSync(instructionsFile, 'utf-8');
-    if (content.trim()) {
-      personalInstructions = `\nPERSONAL INSTRUCTIONS:\n${content}\n`;
-    }
-  }
+  const personalInstructions = loadPersonalInstructions(dataDir);
 
   // --- Directory ---
   const dirLabel = taskDir || 'project root';

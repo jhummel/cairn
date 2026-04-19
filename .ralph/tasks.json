@@ -2,33 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 2,
-      "priority": 2,
-      "title": "Unit tests for loadPersonalInstructions",
-      "description": "Add `test/personal-instructions.test.ts` covering the helper created in task #1. Test cases: (a) missing file \u2192 returns ''; (b) empty file \u2192 returns ''; (c) whitespace-only file (e.g., '\\n  \\n\\t') \u2192 returns ''; (d) normal content like '* Always use TDD\\n' \u2192 returns `\\nPERSONAL INSTRUCTIONS:\\n* Always use TDD\\n\\n` (note: the raw un-trimmed content is embedded, so trailing newlines from the file are preserved); (e) multi-line content with leading/trailing whitespace preserved in the embedded block. Use `fs.mkdtempSync` + `os.tmpdir()` for temp dirs. Clean up temp dirs in `afterEach`. Import from `../src/personal-instructions`.",
-      "directory": "test",
-      "status": "complete",
-      "completedAt": "2026-04-18T00:00:00Z",
-      "completedBy": "iteration-1",
-      "notes": "All 5 test cases pass. Used fs.mkdtempSync + os.tmpdir for temp dirs, cleaned up in afterEach. Tests cover missing file, empty file, whitespace-only, single-line with trailing newline, and multi-line content.",
-      "files": [
-        "personal-instructions.test.ts"
-      ],
-      "dependencies": [
-        1
-      ],
-      "tests": [
-        "bun test test/personal-instructions.test.ts"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 3,
       "priority": 3,
       "title": "Refactor run.ts buildSystemPrompt to use helper",
-      "description": "In `src/commands/run.ts` `buildSystemPrompt()` (around lines 84-92), replace the inline `fs.existsSync` / `fs.readFileSync` / trim logic with a single call to `loadPersonalInstructions(dataDir)` imported from `../personal-instructions`. The returned string should be assigned to the existing `personalInstructions` variable (or inlined). CRITICAL: rendered output must be byte-identical to pre-refactor output. Verify by: (1) before changing code, capture the current prompt for a test case where `instructions.md` exists \u2014 e.g., use the existing test at `test/commands/run.test.ts:66` or run the helper against the live `.ralph/instructions.md`. (2) After refactor, run the same rendering and diff. Keep the existing `includes personal instructions from instructions.md` and `omits personal instructions when file missing` tests in `test/commands/run.test.ts` passing without modification.",
+      "description": "In `src/commands/run.ts` `buildSystemPrompt()` (around lines 84-92), replace the inline `fs.existsSync` / `fs.readFileSync` / trim logic with a single call to `loadPersonalInstructions(dataDir)` imported from `../personal-instructions`. The returned string should be assigned to the existing `personalInstructions` variable (or inlined). CRITICAL: rendered output must be byte-identical to pre-refactor output. Verify by: (1) before changing code, capture the current prompt for a test case where `instructions.md` exists — e.g., use the existing test at `test/commands/run.test.ts:66` or run the helper against the live `.ralph/instructions.md`. (2) After refactor, run the same rendering and diff. Keep the existing `includes personal instructions from instructions.md` and `omits personal instructions when file missing` tests in `test/commands/run.test.ts` passing without modification.",
       "directory": "src/commands",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-04-18T00:00:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Replaced inline fs logic with loadPersonalInstructions(dataDir) import from ../personal-instructions. Verified byte-identical output via before/after render diff (only tmpdir paths differed). All 88 tests in test/commands/run.test.ts pass including both personal-instructions test cases (unmodified).",
       "files": [
         "run.ts"
       ],
@@ -116,7 +98,7 @@
       "id": 8,
       "priority": 8,
       "title": "Wire personal instructions into post-task-reviewer.ts",
-      "description": "In `src/post-task-reviewer.ts`, update `buildPostTaskReviewUserPrompt()` to accept `dataDir: string` in its options object. Prepend `loadPersonalInstructions(dataDir)` (imported from `./personal-instructions`) to the returned user prompt so the PERSONAL INSTRUCTIONS block appears at the top. Thread `dataDir` through: (1) add `dataDir` to `SpawnPostTaskReviewerOpts`; (2) `RunPostTaskReviewOpts` already has `dataDir` (see `src/commands/run.ts:589` which passes it in) \u2014 just pass it from `runPostTaskReview()` to `spawnPostTaskReviewer()` and then into `buildPostTaskReviewUserPrompt()`. No change needed in `src/commands/run.ts` callers since they already have `dataDir`.",
+      "description": "In `src/post-task-reviewer.ts`, update `buildPostTaskReviewUserPrompt()` to accept `dataDir: string` in its options object. Prepend `loadPersonalInstructions(dataDir)` (imported from `./personal-instructions`) to the returned user prompt so the PERSONAL INSTRUCTIONS block appears at the top. Thread `dataDir` through: (1) add `dataDir` to `SpawnPostTaskReviewerOpts`; (2) `RunPostTaskReviewOpts` already has `dataDir` (see `src/commands/run.ts:589` which passes it in) — just pass it from `runPostTaskReview()` to `spawnPostTaskReviewer()` and then into `buildPostTaskReviewUserPrompt()`. No change needed in `src/commands/run.ts` callers since they already have `dataDir`.",
       "directory": "src",
       "status": "pending",
       "files": [
@@ -152,7 +134,7 @@
       "id": 10,
       "priority": 10,
       "title": "Update commands/generate-tasks.md subagent prompt",
-      "description": "In `commands/generate-tasks.md`, update the subagent prompt (between the `---` delimiters, starting around line 21). Add a new FIRST step to the `YOUR WORKFLOW:` list: '1. If `.ralph/instructions.md` exists, read it first \u2014 it contains personal preferences (e.g., coding style, workflow preferences like TDD) that apply to this task. Follow them in addition to the instructions below.' Renumber the remaining workflow steps accordingly (old 1\u21922, 2\u21923, etc.). Do NOT change anything else in the file. This same file exists at `.claude/commands/generate-tasks.md` \u2014 update that copy too so the live slash command uses the new prompt (install.sh copies from commands/ to .claude/commands/ during init, but for the ralph-on-ralph development case the .claude/commands/ copy must be updated manually).",
+      "description": "In `commands/generate-tasks.md`, update the subagent prompt (between the `---` delimiters, starting around line 21). Add a new FIRST step to the `YOUR WORKFLOW:` list: '1. If `.ralph/instructions.md` exists, read it first — it contains personal preferences (e.g., coding style, workflow preferences like TDD) that apply to this task. Follow them in addition to the instructions below.' Renumber the remaining workflow steps accordingly (old 1→2, 2→3, etc.). Do NOT change anything else in the file. This same file exists at `.claude/commands/generate-tasks.md` — update that copy too so the live slash command uses the new prompt (install.sh copies from commands/ to .claude/commands/ during init, but for the ralph-on-ralph development case the .claude/commands/ copy must be updated manually).",
       "directory": "commands",
       "status": "pending",
       "files": [
@@ -168,7 +150,7 @@
       "id": 11,
       "priority": 11,
       "title": "Update commands/review-tasks.md subagent prompt",
-      "description": "In `commands/review-tasks.md`, locate the subagent prompt section and add the same new FIRST workflow step as in task #10: 'If `.ralph/instructions.md` exists, read it first \u2014 it contains personal preferences that apply to this task.' Renumber existing steps. Also update the mirror copy at `.claude/commands/review-tasks.md`. Do NOT change anything else.",
+      "description": "In `commands/review-tasks.md`, locate the subagent prompt section and add the same new FIRST workflow step as in task #10: 'If `.ralph/instructions.md` exists, read it first — it contains personal preferences that apply to this task.' Renumber existing steps. Also update the mirror copy at `.claude/commands/review-tasks.md`. Do NOT change anything else.",
       "directory": "commands",
       "status": "pending",
       "files": [
@@ -184,7 +166,7 @@
       "id": 12,
       "priority": 12,
       "title": "Verify build + full test suite + scratch render",
-      "description": "Final verification pass. (1) Run `bun test` from project root \u2014 all tests must pass. (2) Run `bun run build` \u2014 must succeed. (3) Render each prompt against the live `.ralph/instructions.md` (which contains '* Always use TDD across all task execution') and confirm the PERSONAL INSTRUCTIONS block appears in each: use a scratch script (or inline `bun -e`) to call `buildSystemPrompt` (run.ts), `buildDynamicContext` (plan.ts), `buildUserPrompt` (summarize.ts), and `buildPostTaskReviewUserPrompt` (post-task-reviewer.ts), and assert each rendered string includes both 'PERSONAL INSTRUCTIONS:' and 'Always use TDD'. (4) In the commit message, include a ROLLOUT note: 'Users with existing Ralph installs must re-run `ralph init` in their projects to pick up the updated .claude/commands/*.md files.' Report which prompts got the block and any discrepancies in task notes.",
+      "description": "Final verification pass. (1) Run `bun test` from project root — all tests must pass. (2) Run `bun run build` — must succeed. (3) Render each prompt against the live `.ralph/instructions.md` (which contains '* Always use TDD across all task execution') and confirm the PERSONAL INSTRUCTIONS block appears in each: use a scratch script (or inline `bun -e`) to call `buildSystemPrompt` (run.ts), `buildDynamicContext` (plan.ts), `buildUserPrompt` (summarize.ts), and `buildPostTaskReviewUserPrompt` (post-task-reviewer.ts), and assert each rendered string includes both 'PERSONAL INSTRUCTIONS:' and 'Always use TDD'. (4) In the commit message, include a ROLLOUT note: 'Users with existing Ralph installs must re-run `ralph init` in their projects to pick up the updated .claude/commands/*.md files.' Report which prompts got the block and any discrepancies in task notes.",
       "directory": "",
       "status": "pending",
       "files": [
