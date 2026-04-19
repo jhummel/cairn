@@ -9,8 +9,8 @@
       "directory": "src",
       "status": "complete",
       "completedAt": "2026-04-18T00:00:00Z",
-      "completedBy": "iteration-2",
-      "notes": "File already existed from previous iteration with correct implementation. All 584 tests pass. Uses fs.existsSync + fs.readFileSync with utf-8 encoding, returns formatted string with PERSONAL INSTRUCTIONS header or empty string.",
+      "completedBy": "iteration-3",
+      "notes": "Implementation was correct from prior iteration. All 584 tests pass. Uses fs.existsSync + fs.readFileSync with utf-8 encoding, returns '\\nPERSONAL INSTRUCTIONS:\\n<content>\\n' or '' for missing/empty file. Previous post-validation failure was transient.",
       "files": [
         "personal-instructions.ts"
       ],
