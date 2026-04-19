@@ -9,8 +9,8 @@
       "directory": "src",
       "status": "complete",
       "completedAt": "2026-04-18T00:00:00Z",
-      "completedBy": "iteration-18",
-      "notes": "File src/personal-instructions.ts created with loadPersonalInstructions(dataDir). All 584 tests pass. The file previously existed but was apparently not committed — re-verified and confirmed correct.",
+      "completedBy": "iteration-19",
+      "notes": "File src/personal-instructions.ts exists and is correct. All 584 tests pass. Implementation uses fs.existsSync and fs.readFileSync with utf-8, returns formatted string only when file exists and content is non-empty after trim.",
       "files": [
         "personal-instructions.ts"
       ],
