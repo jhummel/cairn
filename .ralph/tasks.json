@@ -2,33 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 7,
-      "priority": 7,
-      "title": "Tests for personal instructions in summarize.ts",
-      "description": "Update `test/commands/summarize.test.ts` with presence/absence assertions for `buildUserPrompt()`: (a) when `<tempDataDir>/instructions.md` exists, the returned prompt contains 'PERSONAL INSTRUCTIONS:' and the file's content; (b) when missing, it does not. Use `fs.mkdtempSync` + `os.tmpdir()`. Keep all existing summarize tests passing.",
-      "directory": "test/commands",
-      "status": "complete",
-      "completedAt": "2026-04-18T00:00:00Z",
-      "completedBy": "iteration-6",
-      "notes": "Added two buildUserPrompt tests: presence of PERSONAL INSTRUCTIONS when instructions.md exists in dataDir, and absence when missing. Both use fs.mkdtempSync + os.tmpdir() with try/finally cleanup. All 19 tests pass (17 existing + 2 new).",
-      "files": [
-        "summarize.test.ts"
-      ],
-      "dependencies": [
-        6
-      ],
-      "tests": [
-        "bun test test/commands/summarize.test.ts"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 8,
       "priority": 8,
       "title": "Wire personal instructions into post-task-reviewer.ts",
       "description": "In `src/post-task-reviewer.ts`, update `buildPostTaskReviewUserPrompt()` to accept `dataDir: string` in its options object. Prepend `loadPersonalInstructions(dataDir)` (imported from `./personal-instructions`) to the returned user prompt so the PERSONAL INSTRUCTIONS block appears at the top. Thread `dataDir` through: (1) add `dataDir` to `SpawnPostTaskReviewerOpts`; (2) `RunPostTaskReviewOpts` already has `dataDir` (see `src/commands/run.ts:589` which passes it in) — just pass it from `runPostTaskReview()` to `spawnPostTaskReviewer()` and then into `buildPostTaskReviewUserPrompt()`. No change needed in `src/commands/run.ts` callers since they already have `dataDir`.",
       "directory": "src",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-04-18T00:00:00Z",
+      "completedBy": "iteration-7",
+      "notes": "Added dataDir?: string to buildPostTaskReviewUserPrompt opts, imported loadPersonalInstructions, prepended personal instructions block to the returned prompt. Updated spawnPostTaskReviewer to destructure and pass dataDir to buildPostTaskReviewUserPrompt. SpawnPostTaskReviewerOpts already had dataDir; runPostTaskReview already passed it through. All 25 tests pass.",
       "files": [
         "post-task-reviewer.ts"
       ],

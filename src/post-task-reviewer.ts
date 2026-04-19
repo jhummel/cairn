@@ -7,6 +7,7 @@ import {
 import { buildAgentArgs } from "./agent-prompt";
 import type { Task } from "./types";
 import type { RalphConfig } from "./types";
+import { loadPersonalInstructions } from "./personal-instructions";
 
 export function buildPostTaskReviewUserPrompt(opts: {
   task: {
@@ -20,13 +21,15 @@ export function buildPostTaskReviewUserPrompt(opts: {
   diff: string;
   log: string;
   files: string[];
+  dataDir?: string;
 }): string {
-  const { task, diff, log, files } = opts;
+  const { task, diff, log, files, dataDir } = opts;
+  const personalInstructions = dataDir ? loadPersonalInstructions(dataDir) : "";
   const filesList = task.files?.length ? task.files.join("\n") : "(none specified)";
   const testsList = task.tests?.length ? task.tests.join("\n") : "(none specified)";
   const changedFiles = files.length ? files.join("\n") : "(no files changed)";
 
-  return `## Task Under Review
+  return `${personalInstructions}## Task Under Review
 
 **Task #${task.id}: ${task.title}**
 ${task.directory ? `Directory: ${task.directory}` : ""}
@@ -103,7 +106,7 @@ export interface SpawnPostTaskReviewerOpts {
 export async function spawnPostTaskReviewer(
   opts: SpawnPostTaskReviewerOpts
 ): Promise<{ exitCode: number }> {
-  const { projectRoot, task, diff, log, files, streamOpts, deps } = opts;
+  const { projectRoot, dataDir, task, diff, log, files, streamOpts, deps } = opts;
 
   const doSpawn: SpawnerSpawnFn = deps?.spawn ?? (nodeSpawn as any);
   const doProcessStream: SpawnerProcessStreamFn =
@@ -111,7 +114,7 @@ export async function spawnPostTaskReviewer(
 
   const env = { ...process.env, ANTHROPIC_API_KEY: "" };
 
-  const userPrompt = buildPostTaskReviewUserPrompt({ task, diff, log, files });
+  const userPrompt = buildPostTaskReviewUserPrompt({ task, diff, log, files, dataDir });
 
   const args = [
     "-p",
