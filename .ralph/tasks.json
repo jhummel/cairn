@@ -9,8 +9,8 @@
       "directory": "src",
       "status": "complete",
       "completedAt": "2026-04-18T00:00:00Z",
-      "completedBy": "iteration-9",
-      "notes": "Implementation was already complete from a prior iteration. src/personal-instructions.ts exports loadPersonalInstructions(dataDir) using fs.existsSync + fs.readFileSync utf-8. Returns '\\nPERSONAL INSTRUCTIONS:\\n<content>\\n' or '' for missing/empty. All 584 tests pass.",
+      "completedBy": "iteration-10",
+      "notes": "src/personal-instructions.ts already existed and matched the spec exactly. All 584 tests pass. File exports loadPersonalInstructions(dataDir) using fs.existsSync + fs.readFileSync utf-8, returns '\\nPERSONAL INSTRUCTIONS:\\n<content>\\n' or '' for missing/empty files.",
       "files": [
         "personal-instructions.ts"
       ],
