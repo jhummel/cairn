@@ -9,8 +9,8 @@
       "directory": "src",
       "status": "complete",
       "completedAt": "2026-04-18T00:00:00Z",
-      "completedBy": "iteration-1",
-      "notes": "Created src/personal-instructions.ts with loadPersonalInstructions(dataDir) named export. Logic mirrors run.ts lines 84-92 exactly. All 584 tests pass.",
+      "completedBy": "iteration-2",
+      "notes": "File already existed from previous iteration with correct implementation. All 584 tests pass. Uses fs.existsSync + fs.readFileSync with utf-8 encoding, returns formatted string with PERSONAL INSTRUCTIONS header or empty string.",
       "files": [
         "personal-instructions.ts"
       ],
@@ -30,7 +30,9 @@
       "files": [
         "personal-instructions.test.ts"
       ],
-      "dependencies": [1],
+      "dependencies": [
+        1
+      ],
       "tests": [
         "bun test test/personal-instructions.test.ts"
       ],
@@ -46,7 +48,9 @@
       "files": [
         "run.ts"
       ],
-      "dependencies": [1],
+      "dependencies": [
+        1
+      ],
       "tests": [
         "bun test test/commands/run.test.ts"
       ],
@@ -62,7 +66,9 @@
       "files": [
         "plan.ts"
       ],
-      "dependencies": [1],
+      "dependencies": [
+        1
+      ],
       "tests": [
         "bun test test/commands/plan.test.ts"
       ],
@@ -78,7 +84,9 @@
       "files": [
         "plan.test.ts"
       ],
-      "dependencies": [4],
+      "dependencies": [
+        4
+      ],
       "tests": [
         "bun test test/commands/plan.test.ts"
       ],
@@ -94,7 +102,9 @@
       "files": [
         "summarize.ts"
       ],
-      "dependencies": [1],
+      "dependencies": [
+        1
+      ],
       "tests": [
         "bun test test/commands/summarize.test.ts"
       ],
@@ -110,7 +120,9 @@
       "files": [
         "summarize.test.ts"
       ],
-      "dependencies": [6],
+      "dependencies": [
+        6
+      ],
       "tests": [
         "bun test test/commands/summarize.test.ts"
       ],
@@ -126,7 +138,9 @@
       "files": [
         "post-task-reviewer.ts"
       ],
-      "dependencies": [1],
+      "dependencies": [
+        1
+      ],
       "tests": [
         "bun test test/post-task-reviewer.test.ts"
       ],
@@ -142,7 +156,9 @@
       "files": [
         "post-task-reviewer.test.ts"
       ],
-      "dependencies": [8],
+      "dependencies": [
+        8
+      ],
       "tests": [
         "bun test test/post-task-reviewer.test.ts"
       ],
@@ -195,7 +211,14 @@
         "commands/generate-tasks.md",
         "commands/review-tasks.md"
       ],
-      "dependencies": [3, 4, 6, 8, 10, 11],
+      "dependencies": [
+        3,
+        4,
+        6,
+        8,
+        10,
+        11
+      ],
       "tests": [
         "bun test",
         "bun run build"
