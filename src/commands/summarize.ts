@@ -3,6 +3,7 @@ import * as path from 'path';
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { processStream } from '../stream-filter';
 import { buildAgentArgs } from '../agent-prompt';
+import { loadPersonalInstructions } from '../personal-instructions';
 
 export type SpawnFn = (
   command: string,
@@ -16,6 +17,7 @@ export interface RunSummarizeOpts {
   implFile: string;
   completedTasksPath: string;
   claudeMdPattern: string;
+  dataDir?: string;
   spawnFn?: SpawnFn;
   timeoutMs?: number;
 }
@@ -28,8 +30,10 @@ export function buildUserPrompt(opts: {
   implFile: string;
   completedTasksPath: string;
   claudeMdPattern: string;
+  dataDir?: string;
 }): string {
-  const { projectRoot, projectName, implFile, completedTasksPath, claudeMdPattern } = opts;
+  const { projectRoot, projectName, implFile, completedTasksPath, claudeMdPattern, dataDir } = opts;
+  const personalInstructions = dataDir ? loadPersonalInstructions(dataDir) : '';
 
   const implPath = path.join(projectRoot, implFile);
   const existsNote = fs.existsSync(implPath)
@@ -56,7 +60,7 @@ For each CLAUDE.md:
 - Remove any status updates, progress notes, or task history that crept in
 Do NOT remove entries you're unsure about — when in doubt, keep them.`;
 
-  return `PROJECT: ${projectName}
+  return `${personalInstructions}PROJECT: ${projectName}
 IMPLEMENTATION FILE: ${implFile}
 ${existsNote}
 ${completedNote}
@@ -73,6 +77,7 @@ export async function runSummarize(opts: RunSummarizeOpts): Promise<void> {
     implFile,
     completedTasksPath,
     claudeMdPattern,
+    dataDir,
     spawnFn = nodeSpawn,
     timeoutMs = DEFAULT_TIMEOUT_MS,
   } = opts;
@@ -83,6 +88,7 @@ export async function runSummarize(opts: RunSummarizeOpts): Promise<void> {
     implFile,
     completedTasksPath,
     claudeMdPattern,
+    dataDir,
   });
 
   // Banner header

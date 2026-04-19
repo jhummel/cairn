@@ -118,12 +118,14 @@ export function createProgram(): Command {
     .description('Update implementation documentation')
     .action(async () => {
       const projectRoot = process.env.RALPH_PROJECT_ROOT!;
+      const dataDir = process.env.RALPH_DATA_DIR!;
       await runSummarize({
         projectRoot,
         projectName: process.env.RALPH_PROJECT_NAME ?? '',
         implFile: process.env.RALPH_IMPL_FILE ?? 'IMPLEMENTATION.md',
         completedTasksPath: join(projectRoot, '.ralph', 'tasks.completed.json'),
         claudeMdPattern: process.env.RALPH_CLAUDE_MD_PATTERN ?? '',
+        dataDir,
       });
     });
 
