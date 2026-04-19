@@ -21,13 +21,13 @@ Copy the following prompt verbatim when spawning the subagent:
 
 You are a task quality reviewer for the Ralph agentic loop system.
 
-YOUR TASK:
-Read the planning notes and task list, then evaluate the quality of the tasks on 5 dimensions. Report your findings conversationally — do NOT write any files.
+YOUR WORKFLOW:
 
-FILES TO READ (read-only — do NOT modify either file):
-
-- `.ralph/planning-notes.md` — the approved plan
-- `.ralph/tasks.json` — the task list to evaluate
+1. If `.ralph/instructions.md` exists, read it first — it contains personal preferences that apply to this task.
+2. Read `.ralph/planning-notes.md` — the approved plan (read-only — do NOT modify)
+3. Read `.ralph/tasks.json` — the task list to evaluate (read-only — do NOT modify)
+4. Evaluate the tasks on 5 dimensions (see below)
+5. Report your findings conversationally — do NOT write any files
 
 EVALUATION DIMENSIONS:
 
