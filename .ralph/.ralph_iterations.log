@@ -217,3 +217,71 @@ Iteration 10 completed: 2026-04-19T02:13:47.055Z — SUCCESS
 Iteration 11 started: 2026-04-19T02:14:33.643Z — Task #12: Verify build + full test suite + scratch render
 Iteration 11 completed: 2026-04-19T02:16:09.609Z — SUCCESS
 Iteration 12: COMPLETION FLAG FOUND
+Ralph Execution Loop Started: 2026-04-20T03:22:02.344Z
+
+Iteration 1 started: 2026-04-20T03:22:02.348Z — Task #1: Stub src/tasks-file.ts + install jsonrepair
+Iteration 1 completed: 2026-04-20T03:22:39.208Z — SUCCESS
+Iteration 2 started: 2026-04-20T03:23:24.197Z — Task #2: Unit tests for readTasksFile
+Iteration 2 completed: 2026-04-20T03:24:59.185Z — SUCCESS
+Iteration 3 started: 2026-04-20T03:24:59.321Z — Task #2: Unit tests for readTasksFile
+Iteration 3 completed: 2026-04-20T03:25:52.104Z — SUCCESS
+Iteration 4 started: 2026-04-20T03:25:52.226Z — Task #2: Unit tests for readTasksFile
+Iteration 4 completed: 2026-04-20T03:26:31.033Z — SUCCESS
+Iteration 5 started: 2026-04-20T03:26:31.148Z — Task #2: Unit tests for readTasksFile
+Iteration 5 completed: 2026-04-20T03:27:07.134Z — SUCCESS
+Iteration 6 started: 2026-04-20T03:27:07.261Z — Task #2: Unit tests for readTasksFile
+Iteration 6 completed: 2026-04-20T03:27:52.459Z — SUCCESS
+Iteration 7 started: 2026-04-20T03:27:52.578Z — Task #2: Unit tests for readTasksFile
+Iteration 7 completed: 2026-04-20T03:28:46.713Z — SUCCESS
+Iteration 8 started: 2026-04-20T03:28:46.836Z — Task #2: Unit tests for readTasksFile
+Iteration 8 completed: 2026-04-20T03:29:31.236Z — SUCCESS
+Iteration 9 started: 2026-04-20T03:29:31.383Z — Task #2: Unit tests for readTasksFile
+Iteration 9 completed: 2026-04-20T03:30:17.193Z — SUCCESS
+Iteration 10 started: 2026-04-20T03:30:17.318Z — Task #2: Unit tests for readTasksFile
+Iteration 10 completed: 2026-04-20T03:31:09.310Z — SUCCESS
+Iteration 11 started: 2026-04-20T03:31:09.434Z — Task #2: Unit tests for readTasksFile
+Iteration 11 completed: 2026-04-20T03:32:35.399Z — SUCCESS
+Iteration 12 started: 2026-04-20T03:32:35.522Z — Task #2: Unit tests for readTasksFile
+Ralph Execution Loop Started: 2026-04-20T05:14:11.109Z
+
+Iteration 1 started: 2026-04-20T05:14:11.112Z — Task #1: Revert the tddGate hack
+Iteration 1 completed: 2026-04-20T05:14:39.850Z — SUCCESS
+Iteration 2 started: 2026-04-20T05:15:41.715Z — Task #2: Tighten .ralph/instructions.md
+Iteration 2 completed: 2026-04-20T05:16:07.475Z — SUCCESS
+Iteration 3 started: 2026-04-20T05:17:06.498Z — Task #3: Update generate-tasks.md (both copies) with atomicity guidance
+Iteration 3 completed: 2026-04-20T05:17:33.344Z — SUCCESS
+Iteration 4 started: 2026-04-20T05:17:33.347Z — Task #3: Update generate-tasks.md (both copies) with atomicity guidance
+Iteration 4 completed: 2026-04-20T05:17:55.782Z — SUCCESS
+Iteration 5 started: 2026-04-20T05:17:55.786Z — Task #3: Update generate-tasks.md (both copies) with atomicity guidance
+Iteration 5 completed: 2026-04-20T05:18:20.116Z — SUCCESS
+Iteration 6 started: 2026-04-20T05:18:20.118Z — Task #3: Update generate-tasks.md (both copies) with atomicity guidance
+Iteration 6 completed: 2026-04-20T05:18:41.110Z — SUCCESS
+Iteration 7 started: 2026-04-20T05:18:41.114Z — Task #3: Update generate-tasks.md (both copies) with atomicity guidance
+Iteration 7 completed: 2026-04-20T05:23:06.262Z — SUCCESS
+Iteration 8 started: 2026-04-20T05:23:06.272Z — Task #3: Update generate-tasks.md (both copies) with atomicity guidance
+Iteration 8 completed: 2026-04-20T05:23:42.729Z — SUCCESS
+Iteration 9 started: 2026-04-20T05:23:42.738Z — Task #3: Update generate-tasks.md (both copies) with atomicity guidance
+Iteration 9 completed: 2026-04-20T05:25:39.209Z — SUCCESS
+Iteration 10 started: 2026-04-20T05:26:14.887Z — Task #4: Update review-tasks.md (both copies) to flag paired test/impl
+Iteration 10 completed: 2026-04-20T05:27:04.778Z — SUCCESS
+Iteration 11 started: 2026-04-20T05:27:36.525Z — Task #5: Implement readTasksFile + writeTasksFile + snapshotTasksFile + corruption.log
+Iteration 11 completed: 2026-04-20T05:31:15.484Z — SUCCESS
+Iteration 12 started: 2026-04-20T05:32:23.255Z — Task #6: Implement mutateTasksFile with atomicity tests
+Iteration 12 completed: 2026-04-20T05:37:12.594Z — SUCCESS
+Iteration 13 started: 2026-04-20T05:38:22.404Z — Task #7: Implement ralph task subcommand group + wire into index.ts
+Iteration 13 completed: 2026-04-20T05:43:18.842Z — SUCCESS
+Iteration 14 started: 2026-04-20T05:44:38.121Z — Task #8: Rewrite buildSystemPrompt() to use ralph task CLI
+Iteration 14 completed: 2026-04-20T05:49:13.909Z — SUCCESS
+Iteration 15 started: 2026-04-20T05:50:51.642Z — Task #9: Migrate test-validator.ts to defensive I/O
+Iteration 15 completed: 2026-04-20T05:54:36.271Z — SUCCESS
+Iteration 16 started: 2026-04-20T05:57:01.180Z — Task #10: Migrate task-archiver.ts + stop silent swallowing
+Iteration 16 completed: 2026-04-20T06:02:38.246Z — SUCCESS
+Iteration 17 started: 2026-04-20T06:04:46.603Z — Task #11: Migrate run.ts reads + snapshot + corruption counter + tempfile cleanup
+Iteration 17 completed: 2026-04-20T06:12:30.994Z — SUCCESS
+Iteration 18 started: 2026-04-20T06:13:27.914Z — Task #12: Tighten post-task-reviewer path-scoped allowlist
+Iteration 18 completed: 2026-04-20T06:14:38.487Z — SUCCESS
+Iteration 19 started: 2026-04-20T06:15:41.504Z — Task #13: Tighten post-task-reviewer prompt (belt-and-suspenders)
+Iteration 19 completed: 2026-04-20T06:16:33.298Z — SUCCESS
+Iteration 20 started: 2026-04-20T06:18:02.916Z — Task #14: Document ralph task workflow in CLAUDE.md
+Iteration 20 completed: 2026-04-20T06:18:52.089Z — SUCCESS
+Iteration 21 started: 2026-04-20T06:19:56.454Z — Task #15: Full-suite verification + build + manual corruption-recovery smoke test

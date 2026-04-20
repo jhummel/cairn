@@ -1,3 +1,159 @@
+## Task #11: Migrate run.ts reads + snapshot + corruption counter + tempfile cleanup
+Reviewed: 2026-04-20T00:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] (a) main-loop read goes through readTasksFile (with dataDir opt)
+├── [DONE] (b) post-task-review re-read goes through readTasksFile
+├── [DONE] (c) corruptionEvents counter init to 0, increments on repaired:true or restored:true
+│   ├── [DONE] increments on repaired:true
+│   ├── [DONE] increments on restored:true
+│   └── [DONE] accumulates across main-loop + post-review reads
+├── [DONE] (d) final summary emits '⚠ N corruption events recovered this run — see <dataDir>/corruption.log' only when N > 0
+│   └── [DONE] line absent when N === 0
+├── [DONE] (e) ntfy body includes corruption count when ntfyTopic is set
+│   └── [DONE] ntfy body omits corruption when N === 0
+├── [DONE] (f) snapshotTasksFile called after successful main-loop read (per-iteration snapshot)
+└── [DONE] (g) TEMP_FILES cleanup extended with readdirSync-based glob sweep for .ralph_task_<id>_notes.md
+    ├── [DONE] only matches pattern with numeric <id>
+    ├── [DONE] does not unlink non-matching files (other.md, tasks.json, .ralph_task_notes.md without id)
+    └── [DONE] does not crash when readdirSync throws
+```
+
+### Files Changed
+- `src/commands/run.ts` — replaced readFileSync dep with readTasksFile/snapshotTasksFile/readdirSync; added corruptionEvents counter; updated summary/ntfy; added per-iteration snapshot; added notes-tempfile sweep in finally block
+- `test/commands/run.test.ts` — migrated 5 existing tests from readFileSync → readTasksFile shape; added 12 new tests covering all 7 requirements
+- `.ralph/tasks.json` — task #10 archived, task #11 marked complete
+
+### Gaps
+None detected. All seven sub-requirements are explicitly tested and implemented. The cleanup sweep is placed at the end of the `finally` block rather than adjacent to the TEMP_FILES constant at line ~345, but this is functionally equivalent (both run at exit) and arguably cleaner since the notes sweep must happen after the iteration loop finishes.
+
+### Regression Risks
+- `readFileSync` was removed from `RunRunDeps`. Any caller that constructed `RunRunDeps` manually (outside the test harness) and passed a `readFileSync` field would silently lose that override — but this is a DI interface change that's fully encapsulated within run.ts and its tests. No other files import `RunRunDeps` with a `readFileSync` field based on the diff context.
+- The `summaryMsg` construction was refactored into `baseSummary + summaryMsg`; the string value is preserved exactly for the zero-corruption path, and the new path is test-covered.
+- `snapshotTasksFile` is called inside a try/catch that swallows errors silently — snapshot failures are intentionally non-fatal, which is correct per the design note in the task.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #6: Implement mutateTasksFile with atomicity tests
+Reviewed: 2026-04-19T08:45:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Tests for mutateTasksFile
+│   ├── [DONE] (a) tempfile written BEFORE rename — spies on writeFileSync + renameSync (test m-a)
+│   ├── [DONE] (b) rename happens on successful fn (test m-a verifies ordering; m-b verifies result)
+│   ├── [DONE] (c) tempfile cleaned up via unlinkSync on fn throw; original untouched (test m-c)
+│   ├── [DONE] (d) unknown/extra fields preserved across round-trip (test m-d)
+│   └── [PARTIAL] (e) snapshotTasksFile called when opts.dataDir provided — spec said "spy on it";
+│             agent used filesystem observation (snapshot file exists with new content) instead.
+│             Justified by ESM module-binding limitation making export spying ineffective;
+│             behavioural check is arguably stronger, but deviates from spec wording.
+├── [DONE] Implementation of mutateTasksFile in src/tasks-file.ts
+│   ├── [DONE] calls readTasksFile(path, opts)
+│   ├── [DONE] calls fn(data), supports both void (in-place) and returning new object
+│   ├── [DONE] calls writeTasksFile(path, result) for atomic write
+│   ├── [DONE] calls snapshotTasksFile when opts.dataDir provided
+│   ├── [DONE] try/finally ensures unlinkSync cleanup on throw
+│   └── [DONE] unknown fields preserved (readTasksFile returns raw parsed object, no projection)
+└── [DONE] Bonus tests: m-e2 (no snapshot without dataDir), m-f (in-place void mutation)
+```
+
+### Files Changed
+- `src/tasks-file.ts` — added `mutateTasksFile` export (32 lines)
+- `test/tasks-file.test.ts` — added 7 `mutateTasksFile` tests (163 lines); imported `writeTasksFile`, `mutateTasksFile`, `spyOn`
+- `.ralph/tasks.json` — task #5 archived, task #6 marked complete
+
+### Gaps
+- Test (e) deviates from spec: task asked for a spy on `snapshotTasksFile`; agent used filesystem-level assertion (checks `.ralph_tasks_snapshot.json` content) instead. The agent's rationale (ESM binding prevents intercepting internal calls) is sound, and the behavioural check is equally valid — but the spec's intent was to verify the *function call* specifically, not just its side-effect. Minor gap.
+
+### Regression Risks
+- None detected. No existing functions were modified; `mutateTasksFile` is a pure addition. The `renamed` flag guards cleanup correctly: if `fn` throws before `writeTasksFile` is called, no `.tmp` exists (ENOENT from `unlinkSync` is swallowed); if `writeTasksFile` partially succeeds (writes `.tmp` but rename fails), `renamed` stays false and the `.tmp` is cleaned. `snapshotTasksFile` runs post-`try/finally`, so a snapshot failure cannot undo a successful write. Task 5 tests unaffected (17/17 pass, full suite 612/612 green per agent notes).
+
+### Verdict
+HAS_GAPS
+
+---
+
+## Task #1: Stub src/tasks-file.ts + install jsonrepair
+Reviewed: 2026-04-19T00:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Create src/tasks-file.ts
+│   ├── [DONE] readTasksFile(path, opts?) → { data: TasksFile, repaired: boolean, restored: boolean, error?: string }
+│   │         stub throws 'Not implemented' (via new Error('Not implemented'))
+│   ├── [DONE] writeTasksFile(path, data) stub throws 'Not implemented'
+│   ├── [DONE] snapshotTasksFile(path, dataDir) stub throws 'Not implemented'
+│   ├── [DONE] TasksFileError class extending Error (with name = 'TasksFileError')
+│   └── [DONE] TasksFile interface defined as { project?: string; tasks: Task[] } and exported
+│             (Task imported from './types', re-exported via interface)
+├── [DONE] Add jsonrepair as runtime dependency (bun add jsonrepair → ^3.14.0)
+│   ├── [DONE] package.json updated
+│   └── [DONE] bun.lock updated
+└── [DONE] Verify bun run build produces dist/ralph without errors (confirmed in task notes)
+```
+
+### Files Changed
+- `src/tasks-file.ts` — new file, 28 lines; all required stubs and types exported
+- `package.json` — jsonrepair added under `dependencies`
+- `bun.lock` — jsonrepair@3.14.0 entry added
+- `.ralph/tasks.json` — full task list (tasks 1–17) populated; task #1 marked complete
+
+### Gaps
+None detected. All scaffolding requirements are fully addressed. The stubs correctly
+throw `new Error('Not implemented')` rather than the string `'Not implemented'` —
+this is the proper TypeScript idiom and behaves identically when caught.
+
+### Regression Risks
+None detected. This task is purely additive: a new source file plus a new runtime
+dependency. No existing source files were modified. The jsonrepair package is a
+runtime dep (not devDep), which is correct since it will be used in production
+readTasksFile logic in task #3.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #12: Tighten post-task-reviewer path-scoped allowlist
+Reviewed: 2026-04-20T00:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Step 1: Add failing test assertion to test/post-task-reviewer.test.ts
+│   ├── [DONE] Used existing mock-spawn pattern
+│   ├── [DONE] Found the 'spawns claude with correct args' test
+│   └── [DONE] Asserted args[indexOf('--allowedTools') + 1] === exact scoped string
+├── [DONE] Step 2: Change --allowedTools in src/post-task-reviewer.ts
+│   └── [DONE] 'Read,Glob,Grep,Edit,Write' → 'Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)'
+├── [DONE] No other changes to src/post-task-reviewer.ts
+└── [DONE] No regressions in other post-task-reviewer tests (658 tests green)
+```
+
+### Files Changed
+- `src/post-task-reviewer.ts` — `--allowedTools` value updated at line 123
+- `test/post-task-reviewer.test.ts` — assertion updated to expect path-scoped string
+- `.ralph/tasks.json` — task #11 archived, task #12 marked complete
+
+### Gaps
+None detected. The diff is minimal and precisely targeted: one line changed in production code, one string updated in the corresponding test assertion. The TDD sequence (write failing test → verify failure → fix production code → verify pass) is confirmed by the agent notes ("confirmed it failed against the old value before the fix").
+
+### Regression Risks
+None detected. The change is a string substitution in a single argument position within an existing args array. The path-scoped syntax `Edit(.ralph/review-post.md)` is a strict superset restriction — it reduces what the reviewer agent can write, not what the orchestration code does. No callers of `spawnPostTaskReviewer` were modified, and the function signature is unchanged.
+
+### Verdict
+CLEAN
+
+---
+
 ## Task #12: Verify build + full test suite + scratch render
 Reviewed: 2026-04-18T07:00:00Z
 
@@ -1157,5 +1313,440 @@ Task Requirements
 
 ### Verdict
 HAS_GAPS
+
+---
+
+## Task #3: Update generate-tasks.md (both copies) with atomicity guidance
+Reviewed: 2026-04-19T06:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Add atomicity rule to commands/generate-tasks.md
+│         → ATOMICITY RULE section inserted after task-structure fields, before
+│           TEST COMMAND GUIDELINES (lines 124-126 in the updated file)
+├── [DONE] Add atomicity rule to .claude/commands/generate-tasks.md (mirror copy)
+│         → Identical insertion; both files share the same git object (49d9000→742deff)
+├── [DONE] Rule content: atomic unit, no paired write-tests/implement tasks,
+│         TDD within one task (write, fail, pass)
+├── [DONE] Rule placed under task-structure section
+└── [DONE] diff confirms files are identical (noted in task notes; git object IDs match)
+```
+
+### Files Changed
+- `commands/generate-tasks.md` — ATOMICITY RULE block added (4 lines)
+- `.claude/commands/generate-tasks.md` — identical ATOMICITY RULE block added
+- `.ralph/tasks.json` — task #2 archived, task #3 marked complete with notes
+
+### Gaps
+None detected. Both files received the same change (confirmed by matching pre/post git object hashes `49d9000..742deff` in the diff), and the inserted rule text faithfully captures all three required elements: atomic unit, no paired tasks, TDD-within-task workflow.
+
+### Regression Risks
+None detected. This is a documentation-only change to markdown slash command files. No source code, tests, or configuration was modified. The change is purely additive — inserting a new guidance section into an existing document. Existing generate-tasks behavior is unaffected.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #2: Tighten .ralph/instructions.md
+Reviewed: 2026-04-19T05:15:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Replace single line in .ralph/instructions.md with the specified wording
+│         File now contains exactly:
+│         '* Use TDD within each task — write the test, see it fail, then make it
+│          pass. Do not split a single unit of work into separate test-writing and
+│          implementation tasks.'
+├── [DONE] Preserve leading '* ' bullet marker
+└── [DONE] Mark task complete in tasks.json with explanatory notes
+```
+
+### Files Changed
+- `.ralph/tasks.json` — task #2 marked complete with notes; task #1 archived
+- `.ralph/instructions.md` — updated with new wording (untracked/gitignored; not in diff)
+
+### Gaps
+None detected. `.ralph/instructions.md` is not tracked by git (confirmed via
+`git ls-files`), so the file change is invisible in the diff. The file was read
+directly and contains exactly the required line verbatim, including the `* ` prefix.
+The agent's notes ("Single-line replacement applied") are consistent with this outcome.
+
+### Regression Risks
+None detected. This is a content-only change to an untracked data file. No source
+code, tests, or configuration was modified. The new wording is strictly more precise
+than the old wording — it explicitly forbids splitting TDD across separate tasks,
+which is the structural defense against the infinite-loop pattern from the prior run.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #4: Update review-tasks.md (both copies) to flag paired test/impl
+Reviewed: 2026-04-19T00:10:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Update commands/review-tasks.md
+│         → FAIL (automatic) bullet added under Atomicity check section,
+│           after the existing FAIL bullet for poorly-scoped tasks
+├── [DONE] Update .claude/commands/review-tasks.md (mirror copy)
+│         → Identical insertion confirmed; both diffs are byte-for-byte identical
+├── [DONE] Content: paired test/impl tasks = FAIL finding, reject the plan
+│         → "Flag every such split as a FAIL finding and reject the plan" present
+└── [DONE] diff confirms files are identical (noted in task notes)
+```
+
+### Files Changed
+- `commands/review-tasks.md` — one line added under Atomicity FAIL bullet
+- `.claude/commands/review-tasks.md` — same line added (mirror)
+- `.ralph/tasks.json` — task #3 archived, task #4 marked complete with notes
+
+### Gaps
+None detected. Both copies received the identical insertion. The added text covers all three required elements: (1) paired test/impl tasks as a FAIL finding, (2) each task must be atomic, and (3) the reviewer should reject plans that split work this way.
+
+### Regression Risks
+None detected. This is a documentation-only change to markdown slash command files. No source code, tests, or configuration was modified. The change is purely additive — inserting a new `FAIL (automatic)` bullet into the existing Atomicity dimension of the review rubric.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #5: Implement readTasksFile + writeTasksFile + snapshotTasksFile + corruption.log
+Reviewed: 2026-04-19T01:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Confirm TDD red: tests fail against stubs before implementation
+│         (noted in task description; stubs threw 'Not implemented')
+├── [DONE] readTasksFile(path, opts?) implementation
+│   ├── [DONE] Path 1: JSON.parse → { data, repaired: false, restored: false }
+│   ├── [DONE] Path 2: jsonrepair on failure → { data, repaired: true, restored: false }
+│   │         └── [DONE] trimTrailingGarbage() helper for trailing-garbage fixtures
+│   │         └── [DONE] isTasksFileShape() guard to reject over-lenient jsonrepair results
+│   ├── [DONE] Path 3: snapshot recovery → { data, repaired: false, restored: true }
+│   ├── [DONE] Throw TasksFileError if all three paths fail
+│   └── [DONE] corruption.log JSONL entries on every failure path
+│       ├── [DONE] stage: 'parse' on JSON.parse failure
+│       ├── [DONE] stage: 'jsonrepair' on jsonrepair failure
+│       ├── [DONE] stage: 'snapshot' on snapshot failure (and when snapshot absent)
+│       ├── [DONE] ts: ISO8601 timestamp
+│       ├── [DONE] error: string message
+│       ├── [DONE] sha256: hex via crypto.createHash('sha256')
+│       └── [DONE] preview: bytes.slice(0,500).toString('utf-8')
+├── [DONE] writeTasksFile(path, data) — writes to .tmp then renames atomically
+├── [DONE] snapshotTasksFile(path, dataDir) — copies to <dataDir>/.ralph_tasks_snapshot.json
+├── [DONE] All 10 tasks-file.test.ts tests pass
+├── [DONE] Full suite (605 tests) still green — no regressions
+└── [DONE] mutateTasksFile NOT implemented (correctly deferred to task #6)
+```
+
+### Files Changed
+- `src/tasks-file.ts` — stubs replaced with full implementations; added helpers `trimTrailingGarbage()`, `isTasksFileShape()`, `logCorruption()`
+- `.ralph/tasks.json` — task #4 archived, task #5 marked complete with detailed notes
+
+### Gaps
+None detected. All specified behavior is implemented and covered by the pre-existing test suite. The agent added two notable defensive helpers beyond the spec minimum — `trimTrailingGarbage()` to handle the trailing-garbage fixture (which jsonrepair alone cannot parse), and `isTasksFileShape()` to reject over-lenient repair results that pass jsonrepair but aren't valid TasksFile shapes (e.g., bare strings repaired to quoted strings). Both are well-motivated by the test cases.
+
+### Regression Risks
+None detected. The implementation fills in previously-throwing stubs — no existing functionality was altered. The `logCorruption()` helper is wrapped in a try/catch ("best-effort") so disk errors on the log file never surface as observable failures to callers. The snapshot-missing case logs a synthetic error entry and falls through to `TasksFileError`, matching test #5 expectations.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #7: Implement ralph task subcommand group + wire into index.ts
+Reviewed: 2026-04-20T06:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Step 1: test/commands/task.test.ts with failing tests for all subcommands
+│   ├── [DONE] (1) task start <id> --iteration N — sets in-progress, idempotent (tests 1a, 1b, 1c)
+│   ├── [DONE] (2) task complete --notes "..." — sets status/completedAt/completedBy/notes (test 2)
+│   ├── [DONE] (3) task complete --notes-file PATH — reads from file (test 3)
+│   ├── [DONE] (4) task complete --notes-file - — reads from stdin via readStdin injection (test 4)
+│   ├── [DONE] (5) task complete with no notes flag — leaves notes untouched (tests 5, 5b)
+│   ├── [DONE] (6) task note <id> "x" — appends via ' | '; --replace overwrites (tests 6a, 6b, 6c)
+│   ├── [DONE] (7) task set-status — accepts all 4 valid statuses; rejects invalid with exit 1 (tests)
+│   ├── [DONE] (8) task add --file PATH — validates via ajv; refuses with exit 1 + exact stderr
+│   │             contract; leaves tasks.json untouched on failure (tests 8a, 8b, 8c)
+│   └── [DONE] (9) task show <id> — prints formatted JSON; read-only (tests 9a, 9b, 9c)
+│         └── [DONE] tmp tasks.json per test (beforeEach/afterEach with mkdtempSync)
+├── [DONE] Step 2: bun add ajv — package.json + bun.lock updated (ajv@8.18.0)
+├── [DONE] Step 3: src/commands/task.ts — Commander subcommand group
+│   ├── [DONE] Mirrors style of run.ts/plan.ts (Writer injection, Commander actions)
+│   ├── [DONE] All mutating subcommands go through mutateTasksFile
+│   └── [DONE] Refuse-to-merge contract: exit 1, correct stderr format, tasks.json untouched
+├── [DONE] Step 4: wire registerTaskCommands into src/index.ts
+├── [DONE] Step 5: bun run build confirms binary compiles (105 modules, dist/ralph produced)
+└── [DONE] src/tasks-schema.json — already existed from task #5; used correctly for ajv validation
+```
+
+### Files Changed
+- `src/commands/task.ts` — new file, 380 lines; 6 exported functions + `registerTaskCommands()`
+- `src/index.ts` — added `registerTaskCommands` import and call in `createProgram()`
+- `test/commands/task.test.ts` — new file, 354 lines; 22 tests across 5 describe blocks
+- `package.json` — ajv added under `dependencies`
+- `bun.lock` — ajv@8.18.0 + 4 transitive deps added
+- `.ralph/tasks.json` — task #6 archived, task #7 marked complete
+
+### Gaps
+None detected. All 9 subcommand behaviors are covered by tests and implemented. The `src/tasks-schema.json` listed as an Expected File already existed from task #5; it was correctly imported and used for per-task validation. The 22 new tests pass and the full suite is 634/634 green.
+
+### Regression Risks
+- `registerTaskCommands` uses `process.env.RALPH_DATA_DIR!` with a non-null assertion for both `tasksPath()` and `dataDir()`. If `RALPH_DATA_DIR` is unset at runtime, the functions return `undefined` typed as `string`, leading to an ENOENT at the `mutateTasksFile` call. This is consistent with how other commands use env vars in ralph (no unique regression).
+- `taskItemSchema` is extracted from the full schema via a type cast (`schema as { properties: { tasks: { items: object } } }`). If `tasks-schema.json` changes its shape (e.g. renaming the `tasks` key), the cast silently passes while `taskItemSchema` becomes `undefined`, and all `task add` calls would accept any payload. Moderate risk if schema evolves.
+- `{strict: false, logger: false}` passed to `new Ajv()` silences the `date-time` format warning from the schema. If future schema additions require format validation (uri, email, etc.), the `strict: false` flag will suppress those errors too. Low risk given current usage.
+- No existing exports were removed, no existing tests were deleted.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #1: Revert the tddGate hack
+Reviewed: 2026-04-19T05:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Remove the tddGate guard block from src/test-validator.ts
+├── [DONE] Remove preceding comment line about intentionally failing tests
+├── [DONE] Do not add any replacement logic
+├── [DONE] Do not add tddGate to any schema
+└── [DONE] Run existing test-validator tests (17 pass, per task notes)
+```
+
+### Files Changed
+- `src/test-validator.ts` — removed 4-line tddGate block (comment + guard + blank line)
+- `.ralph/tasks.json` — task renumbering, removed tddGate field from prior entry, restructured plan
+
+### Gaps
+None detected
+
+### Regression Risks
+None detected. The removal is surgical: exactly the lines called out in the task description were deleted with no surrounding logic altered. The status check guard immediately above the removed block is intact, and the for loop that follows is unchanged. Task notes confirm all 17 pre-existing test-validator tests passed after the change.
+
+### Verdict
+CLEAN
+
+---
+## Task #10: Migrate task-archiver.ts + stop silent swallowing
+Reviewed: 2026-04-20T07:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Step 1 – TDD: write failing tests first
+│   ├── [DONE] (a) archiver uses readTasksFile so corrupted tasks.json can be
+│   │         repaired and archival proceeds normally — malformed JSON (missing comma)
+│   │         recovered via jsonrepair; archival completes; snapshot written
+│   ├── [DONE] (b) when readTasksFile throws TasksFileError, archiver returns
+│   │         { archivedCount: 0, prevNotes: null, warnings: [<string>] } AND
+│   │         appends entry to corruption.log AND appends line to iteration log
+│   └── [DONE] Guard test: omitting iterationLogPath does not crash
+├── [DONE] Step 2 – migrate src/task-archiver.ts
+│   ├── [DONE] Add 'warnings: string[]' to ArchiveResult type
+│   ├── [DONE] Add optional 'iterationLogPath?' to archiveCompletedTasks opts
+│   ├── [DONE] Replace try/catch at lines 27-31 with tasksFileModule.readTasksFile call
+│   ├── [DONE] On TasksFileError: push descriptive message to warnings
+│   ├── [DONE] On TasksFileError: appendFileSync to iterationLogPath (if provided)
+│   ├── [DONE] On TasksFileError: return { archivedCount: 0, prevNotes: null, warnings }
+│   ├── [PARTIAL] Replace every JSON.stringify+writeFileSync pair with writeTasksFile
+│   │         + snapshotTasksFile — only the tasks.json write was migrated.
+│   │         .ralph_completed_ids (line 78) and tasks.completed.json (line 101)
+│   │         still use raw JSON.stringify+writeFileSync.
+│   │         Agent's justification: those are not TasksFile-shape data, so
+│   │         writeTasksFile/snapshotTasksFile are semantically inappropriate.
+│   │         Justification is sound but the task wording said "every" pair.
+│   └── [DONE] Document choice of warnings[] over onError callback (in task notes)
+├── [DONE] Update src/commands/run.ts to add iterationLogPath? to interface and
+│         pass iterationLogPath at call site (run.ts:594)
+└── [DONE] Make new tests pass without regressing existing archiver tests
+          (643 → 646 tests, 3 added, 0 regressed)
+```
+
+### Files Changed
+- `src/task-archiver.ts` — replaced try/catch with readTasksFile, added warnings field, atomic write+snapshot for tasks.json only
+- `test/task-archiver.test.ts` — added `defensive I/O` describe block with 3 new tests; existing `toEqual` assertions refactored to `expectEmptyResult()` helper
+- `src/commands/run.ts` — `archiveCompletedTasks` dep interface updated; `iterationLogPath` passed at call site
+- `.ralph/tasks.json` — task #9 archived, task #10 marked complete
+
+### Gaps
+- **"replace every JSON.stringify+writeFileSync pair"** — the task says to replace all such pairs with `writeTasksFile + snapshotTasksFile`, but two pairs remain: `.ralph_completed_ids` (line 78) and `tasks.completed.json` (line 101). The agent's rationale (non-TasksFile shapes; snapshotTasksFile would clobber the tasks.json snapshot) is architecturally sound, but this is a deviation from the literal task spec.
+- **archiveResult.warnings not surfaced in run.ts** — the warnings returned from `archiveCompletedTasks` are silently discarded at the call site (`run.ts:600`). The task required warnings to be "surfaced" as part of stopping silent swallowing. Agent deferred this to task #11. Whether the task intended run.ts to display warnings is implicit — the archiver contract is correct; the caller plumbing is incomplete.
+- **test/commands/run.test.ts mocks missing warnings field** — four mock return values for `archiveCompletedTasks` in `test/commands/run.test.ts` (lines 666, 818, 911, 1503) now violate the `ArchiveResult` type contract (missing required `warnings: string[]`). Bun transpiles without type-checking so tests still pass at runtime, but TypeScript compilation would flag these.
+
+### Regression Risks
+- `test/commands/run.test.ts` mock objects return `{ archivedCount, prevNotes }` without `warnings`. If a `bun run build` with strict type checking or a `tsc --noEmit` pass is added to CI, these four mocks will produce type errors. No runtime regression since `run.ts` never reads `archiveResult.warnings`.
+- The `existsSync` short-circuit (lines 26-28) preserves the prior "missing file = silent zero" behavior. This is documented in task notes as intentional (missing ≠ corruption), but it means a race condition where tasks.json is deleted between iterations will silently return zero rather than surfacing a warning. Low risk, consistent with prior behavior.
+- Tasks.completed.json and .ralph_completed_ids still use raw `writeFileSync` — these remain vulnerable to mid-write crashes, consistent with pre-migration state. No new regression introduced.
+
+### Verdict
+HAS_GAPS
+
+---
+
+## Task #9: Migrate test-validator.ts to defensive I/O
+Reviewed: 2026-04-19T12:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Step 1 – TDD: write failing tests first
+│   ├── [DONE] (a) malformed tasks.json (missing comma) recovered via readTasksFile;
+│   │         validateTaskTests runs the test command and still writes back via writeTasksFile
+│   ├── [DONE] (b) when readTasksFile throws TasksFileError, validateTaskTests returns
+│   │         { status: 'error', message } rather than crashing — ValidationResult shape preserved
+│   └── [DONE] (c) snapshotTasksFile called after each write — spy verified on
+│             tasksFileModule.snapshotTasksFile; filePathArg and dataDirArg asserted
+├── [DONE] Step 2 – migrate src/test-validator.ts
+│   ├── [DONE] Replace JSON.parse(readFileSync(...)) with tasksFileModule.readTasksFile(tasksFilePath, { dataDir })
+│   │         wrapped in try/catch; TasksFileError → { status: 'error', message }; non-TasksFileError rethrows
+│   ├── [DONE] Replace all three writeFileSync calls (timeout / cant-run / revert paths)
+│   │         with writeAndSnapshot() helper calling writeTasksFile + snapshotTasksFile
+│   ├── [DONE] appendNote semantics preserved exactly (' | ' separator unchanged)
+│   ├── [DONE] ValidationResult enum unchanged
+│   └── [DONE] CANT_RUN_PATTERNS list unchanged
+└── [DONE] Full suite: 640 → 643 (3 added, 0 regressed)
+```
+
+### Files Changed
+- `src/test-validator.ts` — removed bare `readFileSync`/`writeFileSync` imports; added `path`, `* as tasksFileModule`, `TasksFileError`, `TasksFile` imports; added `writeAndSnapshot()` helper; wrapped readTasksFile in try/catch; replaced all three write sites
+- `test/test-validator.test.ts` — added `spyOn` import; added `import * as tasksFileModule`; added 3-test `defensive I/O` describe block
+- `.ralph/tasks.json` — task #8 archived, task #9 marked complete
+
+### Gaps
+None detected.
+
+Notes on implementation choices that are correct:
+- `writeTasksFile(tasksFilePath, [task])` in test (c) is the local helper (not `tasksFileModule`), which is appropriate for test fixture setup — it's not part of the code under test.
+- `tasksFileModule.readTasksFile(tasksFilePath, { dataDir })` correctly matches the API signature `readTasksFile(filePath: string, opts?: { dataDir?: string })`.
+- `path.dirname(tasksFilePath)` as `dataDir` is consistent with the convention in `run.ts` (tasks.json and snapshot live in the same directory).
+- Namespace-style `import * as tasksFileModule` enables `spyOn(tasksFileModule, 'snapshotTasksFile')` to intercept the call from `writeAndSnapshot()` — the same spy pattern used elsewhere in the test suite.
+
+### Regression Risks
+None detected. The `readFileSync`/`writeFileSync` imports were removed along with their usage — no other code in `test-validator.ts` depended on them. The `writeAndSnapshot` helper de-duplicates the three write sites and guarantees snapshot-after-write ordering. All 643 tests pass (`bun test` verified).
+
+### Verdict
+CLEAN
+
+---
+
+## Task #8: Rewrite buildSystemPrompt() to use ralph task CLI
+Reviewed: 2026-04-19T00:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Add failing tests: 'ralph task start' with iteration placeholder
+├── [DONE] Add failing tests: 'ralph task complete' with '--iteration' and '--notes-file'
+├── [DONE] Add failing tests: notes-tempfile path '<dataDir>/.ralph_task_<id>_notes.md'
+├── [DONE] Add failing tests: 'ralph task add --file' in DISCOVER-AND-DOCUMENT block
+├── [DONE] Add failing tests: explicit ban 'Do NOT use Edit or Write on' + 'tasks.json'
+├── [DONE] Add failing test: NOT contain 'Use Edit to set these fields'
+├── [DONE] Keep existing assertions intact (2 updated to match new phrasing)
+├── [DONE] Replace step 1 with 'ralph task start <id> --iteration <N>'
+├── [DONE] Replace step 5 with (a) Write notes file + (b) ralph task complete --notes-file
+├── [DONE] Add explicit ban in CRITICAL RULES block
+└── [DONE] Update DISCOVER-AND-DOCUMENT to use 'ralph task add --file <path>'
+```
+
+### Files Changed
+- `.ralph/tasks.json` — Task #7 archived (removed from active list), Task #8 marked complete
+- `src/commands/run.ts` — `buildSystemPrompt()` rewritten per spec
+- `test/commands/run.test.ts` — 6 new tests added, 2 existing tests updated to match new phrasing
+
+### Gaps
+None detected. All six new assertions are present and verify the correct substrings/patterns. The two existing tests that checked old step-1/step-5 phrasing were appropriately updated since those strings are now gone from the implementation.
+
+### Regression Risks
+Minor: The CRITICAL RULES section still contains two stale-feeling lines that were explicitly preserved per "Keep all other prompt structure unchanged":
+1. `"Set status to 'in-progress' BEFORE starting implementation"` — now the mechanism is `ralph task start`, not direct editing; vague enough not to be wrong, but slightly misleading.
+2. `"Mark the task complete in ${tasksFile} BEFORE creating ${completeFlag}"` — still references `tasksFile` directly, even though direct editing is now banned by the new line immediately below. Creates a mildly contradictory signal for the executing agent.
+
+Neither causes a test failure (640/640 pass) and the task description explicitly instructed these lines be left unchanged, so this is an accepted trade-off rather than a defect. A future task could tighten these rule lines.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #13: Tighten post-task-reviewer prompt (belt-and-suspenders)
+Reviewed: 2026-04-20T00:00:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] Add explicit rule near top of agents/post-task-reviewer.md
+├── [DONE] Rule states 'You may only write to .ralph/review-post.md — never modify .ralph/tasks.json.'
+├── [DONE] Placed near top (line 5, immediately after job description sentence)
+├── [DONE] Preserve '## Coverage Diagram' section verbatim
+├── [DONE] Preserve '## Output Format' section verbatim
+└── [DONE] Smoke-read confirms coherent prompt (no orphaned fragments, no broken headers)
+
+### Files Changed
+- `agents/post-task-reviewer.md` — two lines inserted (blank line + rule) after the job description sentence
+- `.ralph/tasks.json` — task #12 archived, task #13 marked complete
+
+### Gaps
+None detected.
+
+### Regression Risks
+None detected. The change is purely additive — two lines inserted, no existing content modified. All sections (Coverage Diagram, Gap Detection, Regression Checks, Output Format) are byte-for-byte identical to the pre-change state. No source code or tests were touched.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #14: Document ralph task workflow in CLAUDE.md
+Reviewed: 2026-04-20T00:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Add section to CLAUDE.md (new 'Agent workflow' subsection — the cleaner option)
+├── [DONE] List all required subcommands: start, complete, note, set-status, add, show
+├── [DONE] State that direct Edit/Write on .ralph/tasks.json is forbidden
+├── [DONE] Explain enforcement mechanisms:
+│   ├── [DONE] Per-agent system prompt ban ("the per-agent system prompt explicitly bans it")
+│   └── [DONE] Path-scoped allowlist on post-task reviewer ("post-task reviewer runs with a
+│             path-scoped allowlist that excludes .ralph/tasks.json")
+├── [DONE] Explain atomic writes + JSON validity guarantee ("writeTasksFile()... atomic
+│         temp-file replacement and validates JSON on every write — making corruption
+│         structurally impossible via this path")
+└── [DONE] Did NOT rewrite Architecture or Key design patterns sections
+```
+
+### Files Changed
+- `CLAUDE.md` — new `## Agent workflow` section appended after the Conventions section
+- `.ralph/tasks.json` — task #13 removed (archived), task #14 marked complete
+
+### Gaps
+None detected. All five substantive requirements are covered. The section is placed as a new
+top-level `## Agent workflow` heading rather than literally "under Conventions," which is
+explicitly sanctioned by the task description's "or a new 'Agent workflow' subsection if
+cleaner" clause. The prose portion is slightly longer than the 4-6 line guidance due to
+the inclusion of a 6-line code block showing subcommand syntax, but the code block makes
+the guidance actionable and is the right call. No Architecture or Key design patterns
+sections were touched.
+
+### Regression Risks
+None detected. This is a purely additive, documentation-only change to CLAUDE.md. No source
+code, tests, or configuration was modified. The section accurately reflects the enforced
+behavior established by tasks #8 (buildSystemPrompt CLI rewrite), #12 (path-scoped
+allowlist), and #13 (post-task-reviewer prompt belt-and-suspenders). There is no test for
+CLAUDE.md content itself, which is appropriate for documentation.
+
+### Verdict
+CLEAN
 
 ---
