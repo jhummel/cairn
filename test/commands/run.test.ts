@@ -144,7 +144,7 @@ You are a database expert. Focus on migrations and schema design.`);
     const prompt = buildSystemPrompt(makeInput({
       dataDir: '/projects/myapp/.ralph',
     }));
-    expect(prompt).toContain("1. IMMEDIATELY set the task's status to 'in-progress'");
+    expect(prompt).toContain('ralph task start');
     expect(prompt).toContain('/projects/myapp/.ralph/tasks.json');
   });
 
@@ -163,7 +163,7 @@ You are a database expert. Focus on migrations and schema design.`);
 
   test('includes iteration number in workflow', () => {
     const prompt = buildSystemPrompt(makeInput({ iteration: 5 }));
-    expect(prompt).toContain('iteration-N');
+    expect(prompt).toContain('--iteration 5');
   });
 
   test('includes complete flag path', () => {
@@ -264,6 +264,48 @@ Agent body here.`);
     const discoveryIdx = prompt.indexOf('DISCOVER AND DOCUMENT:');
     const criticalIdx = prompt.indexOf('CRITICAL RULES:');
     expect(discoveryIdx).toBeLessThan(criticalIdx);
+  });
+
+  // --- ralph task CLI integration ---
+
+  test('uses ralph task start with iteration in step 1', () => {
+    const prompt = buildSystemPrompt(makeInput({ iteration: 7 }));
+    expect(prompt).toContain('ralph task start');
+    expect(prompt).toMatch(/ralph task start[^\n]*--iteration\s+7/);
+  });
+
+  test('uses ralph task complete with --iteration and --notes-file', () => {
+    const prompt = buildSystemPrompt(makeInput({ iteration: 3 }));
+    expect(prompt).toContain('ralph task complete');
+    expect(prompt).toMatch(/ralph task complete[^\n]*--iteration\s+3/);
+    expect(prompt).toMatch(/ralph task complete[^\n]*--notes-file/);
+  });
+
+  test('references notes tempfile path under dataDir with id placeholder', () => {
+    const dataDir = '/projects/myapp/.ralph';
+    const prompt = buildSystemPrompt(makeInput({ dataDir }));
+    expect(prompt).toContain(`${dataDir}/.ralph_task_<id>_notes.md`);
+  });
+
+  test('mentions ralph task add --file in DISCOVER AND DOCUMENT block', () => {
+    const prompt = buildSystemPrompt(makeInput());
+    const discoverIdx = prompt.indexOf('DISCOVER AND DOCUMENT:');
+    const addIdx = prompt.indexOf('ralph task add --file');
+    expect(discoverIdx).toBeGreaterThanOrEqual(0);
+    expect(addIdx).toBeGreaterThan(discoverIdx);
+    const criticalIdx = prompt.indexOf('CRITICAL RULES:');
+    expect(addIdx).toBeLessThan(criticalIdx);
+  });
+
+  test('includes explicit ban on direct edits to tasks.json', () => {
+    const prompt = buildSystemPrompt(makeInput());
+    expect(prompt).toContain('Do NOT use Edit or Write on');
+    expect(prompt).toContain('tasks.json');
+  });
+
+  test('does NOT contain old "Use Edit to set these fields" phrasing', () => {
+    const prompt = buildSystemPrompt(makeInput());
+    expect(prompt).not.toContain('Use Edit to set these fields');
   });
 });
 

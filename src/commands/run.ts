@@ -44,6 +44,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
 
   const tasksFile = path.join(dataDir, 'tasks.json');
   const completeFlag = path.join(dataDir, '.ralph_complete');
+  const notesFile = path.join(dataDir, '.ralph_task_<id>_notes.md');
 
   // Derive commit prefix
   let commitPrefix: string;
@@ -112,20 +113,18 @@ SUBAGENT STRATEGY:
 
 YOUR WORKFLOW:
 Your assigned task is provided in the user prompt. Do NOT read tasks.json to find your task — it's already been extracted for you.
-1. IMMEDIATELY set the task's status to 'in-progress' in '${tasksFile}' before doing any implementation work
+1. Run: ralph task start <id> --iteration ${iteration}
 2. If the task has files listed, focus on those files. Otherwise explore the codebase to understand it.
 3. Implement the task COMPLETELY. No placeholders, no stubs, no TODOs. Incomplete implementations waste an entire future iteration redoing the same work.
 ${testInstruction}
-5. Update '${tasksFile}' to mark the task complete. Use Edit to set these fields on the task object:
-   - status: 'complete'
-   - completedAt: Current ISO 8601 timestamp (e.g., '2025-01-25T14:32:15Z')
-   - completedBy: 'iteration-N' where N is the iteration number from the prompt
-   - notes: Observations, warnings, or suggestions for future iterations
+5. Mark the task complete:
+   (a) Write your completion notes to ${notesFile} using the Write tool (substitute <id> with the task ID)
+   (b) Run: ralph task complete <id> --iteration ${iteration} --notes-file ${notesFile}
 6. If '${tasksFile}' has no remaining pending/in-progress tasks, create the file '${completeFlag}'
 7. Make a focused git commit with message format: '[${commitPrefix}] Task #<id>: <title>'
 
 DISCOVER AND DOCUMENT:
-- If you discover bugs or missing functionality UNRELATED to your task, add them as new pending tasks in '${tasksFile}' (next available ID, low priority). Include a 'directory' field indicating where the work should happen. Max 3 discovered tasks per iteration.
+- If you discover bugs or missing functionality UNRELATED to your task, use ralph task add --file <path> to append a new task (the CLI validates the payload before merging). Include a 'directory' field indicating where the work should happen. Max 3 discovered tasks per iteration.
 - New tasks need at minimum: id, priority, title, description, directory, status ('pending'), files (array), dependencies (array), tests (array).
 - If you learn something operational about a module (config quirk, undocumented dependency), add a brief note to the directory-level CLAUDE.md.
 - Keep CLAUDE.md strictly operational (build commands, config quirks, gotchas). No status updates, no progress notes, no task history.
@@ -134,6 +133,7 @@ CRITICAL RULES:
 - Work on EXACTLY ONE task per iteration — the one assigned in the prompt
 - Set status to 'in-progress' BEFORE starting implementation
 - Mark the task complete in ${tasksFile} BEFORE creating ${completeFlag}
+- Do NOT use Edit or Write on .ralph/tasks.json directly — the ralph task subcommands are the only supported path.
 - Be thorough with notes — help the next agent understand what you did
 - Keep responses concise. Use Edit for surgical changes — do NOT Write entire large files in one shot.`;
 
