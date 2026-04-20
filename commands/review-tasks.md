@@ -40,6 +40,7 @@ EVALUATION DIMENSIONS:
    - PASS: All tasks are appropriately sized.
    - WARN: A few tasks are too large or too small.
    - FAIL: Many tasks are poorly scoped.
+   - FAIL (automatic): Any pair of tasks where one writes tests and another implements the same feature against the same files — tests and implementation must ship together as a single atomic task. Flag every such split as a FAIL finding and reject the plan.
 
 3. **Dependencies** — Are dependency relationships correct and complete? No circular dependencies. Tasks that logically require prior work should declare it.
    - PASS: Dependencies are correct and complete.
