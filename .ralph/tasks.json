@@ -2,35 +2,11 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 6,
-      "priority": 6,
-      "title": "Implement mutateTasksFile with atomicity tests",
-      "description": "TDD in one task. Step 1: extend test/tasks-file.test.ts with failing tests for a new mutateTasksFile(path: string, fn: (data: TasksFile) => void | TasksFile, opts?: { dataDir?: string }) helper. Tests must cover: (a) tempfile <path>.tmp is written BEFORE rename — spy on fs.writeFileSync and fs.renameSync to verify ordering; (b) rename happens on successful fn; (c) tempfile is cleaned up (via fs.unlinkSync) when fn throws AND the original tasks.json is left untouched; (d) unknown/extra fields on task objects are preserved across the round-trip (e.g., a 'customField' on a task survives); (e) after successful mutation and when opts.dataDir is provided, snapshotTasksFile has been called (spy on it). Step 2: implement mutateTasksFile in src/tasks-file.ts: call readTasksFile(path, opts); call fn(data) — support both in-place mutation AND returning a new object; call writeTasksFile(path, result); call snapshotTasksFile(path, opts.dataDir) when opts.dataDir is provided. Use try/finally to ensure tempfile cleanup on throw. Preserve unknown fields by round-tripping the raw parsed object (don't project into a narrower type). Make new tests pass without regressing task 5's tests.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-04-19T00:00:00Z",
-      "completedBy": "iteration-12",
-      "notes": "Implemented mutateTasksFile(filePath, fn, opts?) in src/tasks-file.ts. Design choices and non-obvious wrinkles for the next agent: (1) For test (m-e), I deliberately chose filesystem-observation (check that <dataDir>/.ralph_tasks_snapshot.json exists with the new content) instead of spyOn(module, 'snapshotTasksFile'). Reason: in Bun/ESM, the call mutateTasksFile→snapshotTasksFile is bound at module-load time, so spying on the export doesn't intercept the internal call. Snapshot-file verification is a stronger behavioural test anyway and avoids brittleness. (2) Tempfile cleanup: the try/finally wraps BOTH fn() and writeTasksFile(), with a `renamed` flag set true only after writeTasksFile returns. If fn throws before writeTasksFile runs, no tempfile exists — I swallow the resulting ENOENT inside a try/catch so the unlinkSync CALL still happens (verifiable via spy) without masking the original error. (3) For fn return-value semantics, I treat `undefined` specifically (`result === undefined ? data : result`) rather than nullish-coalesce — this is consistent with the declared return type `void | TasksFile`. (4) Unknown-field preservation falls out for free: readTasksFile returns the raw parsed object cast as TasksFile (no projection), fn mutates/returns the same shape, JSON.stringify serialises all own-enumerable properties. Verified with nested objects, arrays, and top-level extras in test (m-d). (5) Added a bonus test (m-e2) verifying no snapshot is written when dataDir is absent — guards against accidental snapshot side-effects in the ralph task CLI path where dataDir is optional. (6) Added test (m-f) covering the in-place mutation path explicitly (fn returning void). 17 tests in tasks-file.test.ts all pass; full suite 612/612 green.",
-      "files": [
-        "src/tasks-file.ts",
-        "test/tasks-file.test.ts"
-      ],
-      "dependencies": [
-        5
-      ],
-      "tests": [
-        "bun test test/tasks-file.test.ts",
-        "bun test"
-      ],
-      "model": "opus"
-    },
-    {
       "id": 7,
       "priority": 7,
       "title": "Implement ralph task subcommand group + wire into index.ts",
       "description": "TDD in one task. Step 1: create test/commands/task.test.ts with failing tests covering every subcommand: (1) 'task start <id> --iteration N' sets status to 'in-progress' and is idempotent on re-run; (2) 'task complete <id> --iteration N --notes \"...\"' sets status:'complete', completedAt to fresh ISO 8601, completedBy to 'iteration-N', and notes to the provided string; (3) 'task complete <id> --iteration N --notes-file PATH' reads notes from the file; (4) 'task complete <id> --iteration N --notes-file -' reads notes from stdin; (5) 'task complete <id> --iteration N' with no notes flag leaves notes untouched; (6) 'task note <id> \"x\"' appends via ' | ' separator (matching src/test-validator.ts appendNote semantics); 'task note <id> --replace \"x\"' overwrites; (7) 'task set-status <id> <status>' accepts only pending|in-progress|complete|blocked and rejects others with non-zero exit; (8) 'task add --file PATH' validates the payload against src/tasks-schema.json via ajv and REFUSES on validation failure with exit code 1 and stderr 'ralph task add: validation failed — <field>: <reason>'; on success the new task is appended to tasks.tasks[]; (9) 'task show <id>' prints formatted JSON, read-only (does not call writeTasksFile). Use a tmp tasks.json per test to isolate. Step 2: run 'bun add ajv' to install the validator. Step 3: implement src/commands/task.ts using Commander subcommands (mirror the style of src/commands/run.ts and src/commands/plan.ts). Every mutating subcommand goes through mutateTasksFile from src/tasks-file.ts. Refuse-to-merge contract for 'add': exit 1, print to stderr 'ralph task add: validation failed — <field>: <reason>', leave tasks.json untouched. Step 4: wire the command group into src/index.ts Commander dispatch alongside the other subcommands. Step 5: run 'bun run build' at the end to confirm the binary still compiles.",
       "directory": "",
-      "status": "pending",
       "files": [
         "src/commands/task.ts",
         "src/index.ts",
@@ -46,7 +22,11 @@
         "bun test",
         "bun run build"
       ],
-      "model": "opus"
+      "model": "opus",
+      "status": "complete",
+      "completedAt": "2026-04-20T05:42:20Z",
+      "completedBy": "iteration-13",
+      "notes": "Implemented src/commands/task.ts with 6 exported functions (taskStart/Complete/Note/SetStatus/Add/Show) plus registerTaskCommands(program) for Commander wiring. Test hooks inject stdout/stderr/stdin via Writer objects ({write: fn}) and readStdin:()=>string — this lets tests capture output without spying on process.*. Commander action handlers translate return codes via process.exit(code). Wrinkles for next agent: (1) ajv v8 is strict-by-default and throws on the 'date-time' format in tasks-schema.json's completedAt field; passed {strict:false, logger:false} to quiet both the throw and the warning noise. If schema evolves to add other formats (uri, email, etc.) consider ajv-formats package instead. (2) JSON schema is imported via `import schema from '../tasks-schema.json' with { type: 'json' }` — Bun's native JSON import works under both test and --compile build. Confirmed by running dist/ralph task --help after build. (3) Used schema.properties.tasks.items (the per-task subschema) for validation rather than the whole-file schema, since task add validates a single task payload, not a full TasksFile. (4) validation-failed error format exactly matches the contract 'ralph task add: validation failed — <field>: <reason>' — for missing-required errors field is the missingProperty name, for type/enum errors field is instancePath with leading slash stripped and slashes converted to dots. (5) Every mutating subcommand goes through mutateTasksFile so atomicity + snapshot behavior from task #6 is preserved for free. (6) task show uses a plain readFileSync+JSON.parse (not readTasksFile) because the task description specifies 'read-only (does not call writeTasksFile)' — no jsonrepair/snapshot side effects desired. 22 new tests pass, full suite 634/634 green, build succeeds."
     },
     {
       "id": 8,

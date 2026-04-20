@@ -11,6 +11,7 @@ import { runSummarize } from './commands/summarize';
 import { runPlan } from './commands/plan';
 import { runRun } from './commands/run';
 import { runNarrate } from './commands/narrate';
+import { registerTaskCommands } from './commands/task';
 import type { AgentInfo } from './types';
 
 const RALPH_VERSION = '0.1.0';
@@ -176,6 +177,9 @@ export function createProgram(): Command {
     .action(async (action: string) => {
       await runNarrate(action);
     });
+
+  // --- Task subcommand group ---
+  registerTaskCommands(program);
 
   return program;
 }

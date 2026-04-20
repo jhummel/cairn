@@ -6,6 +6,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "ajv": "^8.18.0",
     "commander": "latest",
     "jsonrepair": "^3.14.0"
   },
