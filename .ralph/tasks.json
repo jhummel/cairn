@@ -2,33 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 1,
-      "priority": 1,
-      "title": "Stub src/tasks-file.ts + install jsonrepair",
-      "description": "Create src/tasks-file.ts exporting typed stubs that throw 'Not implemented' for: readTasksFile(path: string, opts?: { dataDir?: string }) returning { data: TasksFile, repaired: boolean, restored: boolean, error?: string }; writeTasksFile(path: string, data: TasksFile); snapshotTasksFile(path: string, dataDir: string); and a TasksFileError class extending Error. Import the TasksFile type (define it in src/tasks-file.ts as { project?: string; tasks: Task[] } — same shape used in src/task-archiver.ts — and re-export). Add jsonrepair as a runtime dependency: run 'bun add jsonrepair'. Verify 'bun run build' still produces dist/ralph without errors. Do not implement the bodies — this is scaffolding only. Later tasks' tests will fail against these stubs, which is expected. TDD: this is the stub step, tests follow in task 2.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-04-19T00:00:00Z",
-      "completedBy": "iteration-1",
-      "notes": "Created src/tasks-file.ts with TasksFile interface, TasksFileError class, and three stub functions (readTasksFile, writeTasksFile, snapshotTasksFile) all throwing 'Not implemented'. Installed jsonrepair@3.14.0. Build produces dist/ralph cleanly.",
-      "files": [
-        "src/tasks-file.ts",
-        "package.json",
-        "bun.lock"
-      ],
-      "dependencies": [],
-      "tests": [
-        "bun run build"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 2,
       "priority": 2,
       "title": "Unit tests for readTasksFile",
       "description": "Create test/tasks-file.test.ts with failing tests for readTasksFile covering every branch: (1) valid tasks.json round-trips untouched (repaired:false, restored:false); (2) missing-comma JSON is repaired via jsonrepair (repaired:true); (3) unescaped-quote JSON is repaired (repaired:true); (4) trailing-garbage JSON is repaired; (5) empty file triggers the error path; (6) missing file triggers the error path; (7) snapshot-present-and-valid recovers (restored:true, data from snapshot); (8) snapshot-present-and-also-corrupted throws TasksFileError. Also assert that every repair/restore/throw appends a structured entry to <dataDir>/corruption.log containing ISO timestamp, stage (parse|jsonrepair|snapshot), error message, sha256 of corrupted bytes, and first 500 bytes of corrupted content. Create fixtures under test/fixtures/: tasks-valid.json, tasks-missing-comma.json, tasks-unescaped-quote.json, tasks-trailing-garbage.json. Use a tmp dir for each test so corruption.log writes don't collide. Tests MUST fail against the stub from task 1 — that is the TDD verification this step is wired correctly.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-04-19T00:00:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Created 10 failing tests covering all 8 branches plus 2 corruption.log structure assertions. All fail with 'Not implemented' from the stub (or wrong error type for test 5). Fixtures created: tasks-valid.json, tasks-missing-comma.json (missing comma after project key), tasks-unescaped-quote.json (literal unescaped quotes in title), tasks-trailing-garbage.json (trailing GARBAGE_DATA_HERE after closing brace). Tests use os.tmpdir() mkdtemp so corruption.log writes are isolated. TDD gate confirmed: 0 pass / 10 fail against stub.",
       "files": [
         "test/tasks-file.test.ts",
         "test/fixtures/tasks-valid.json",
@@ -36,7 +18,9 @@
         "test/fixtures/tasks-unescaped-quote.json",
         "test/fixtures/tasks-trailing-garbage.json"
       ],
-      "dependencies": [1],
+      "dependencies": [
+        1
+      ],
       "tests": [
         "bun test test/tasks-file.test.ts"
       ],
@@ -52,7 +36,9 @@
       "files": [
         "src/tasks-file.ts"
       ],
-      "dependencies": [2],
+      "dependencies": [
+        2
+      ],
       "tests": [
         "bun test test/tasks-file.test.ts",
         "bun test"
@@ -69,7 +55,9 @@
       "files": [
         "test/tasks-file.test.ts"
       ],
-      "dependencies": [3],
+      "dependencies": [
+        3
+      ],
       "tests": [
         "bun test test/tasks-file.test.ts"
       ],
@@ -85,7 +73,9 @@
       "files": [
         "src/tasks-file.ts"
       ],
-      "dependencies": [4],
+      "dependencies": [
+        4
+      ],
       "tests": [
         "bun test test/tasks-file.test.ts",
         "bun test"
@@ -102,7 +92,9 @@
       "files": [
         "test/commands/task.test.ts"
       ],
-      "dependencies": [5],
+      "dependencies": [
+        5
+      ],
       "tests": [
         "bun test test/commands/task.test.ts"
       ],
@@ -121,7 +113,9 @@
         "src/tasks-schema.json",
         "package.json"
       ],
-      "dependencies": [6],
+      "dependencies": [
+        6
+      ],
       "tests": [
         "bun test test/commands/task.test.ts",
         "bun test",
@@ -139,7 +133,9 @@
       "files": [
         "test/commands/run.test.ts"
       ],
-      "dependencies": [7],
+      "dependencies": [
+        7
+      ],
       "tests": [
         "bun test test/commands/run.test.ts"
       ],
@@ -155,7 +151,9 @@
       "files": [
         "src/commands/run.ts"
       ],
-      "dependencies": [8],
+      "dependencies": [
+        8
+      ],
       "tests": [
         "bun test test/commands/run.test.ts",
         "bun test"
@@ -173,7 +171,9 @@
         "src/test-validator.ts",
         "test/test-validator.test.ts"
       ],
-      "dependencies": [9],
+      "dependencies": [
+        9
+      ],
       "tests": [
         "bun test test/test-validator.test.ts",
         "bun test"
@@ -191,7 +191,9 @@
         "src/task-archiver.ts",
         "test/task-archiver.test.ts"
       ],
-      "dependencies": [10],
+      "dependencies": [
+        10
+      ],
       "tests": [
         "bun test test/task-archiver.test.ts",
         "bun test"
@@ -209,7 +211,9 @@
         "src/commands/run.ts",
         "test/commands/run.test.ts"
       ],
-      "dependencies": [11],
+      "dependencies": [
+        11
+      ],
       "tests": [
         "bun test test/commands/run.test.ts",
         "bun test"
@@ -226,7 +230,9 @@
       "files": [
         "test/post-task-reviewer.test.ts"
       ],
-      "dependencies": [12],
+      "dependencies": [
+        12
+      ],
       "tests": [
         "bun test test/post-task-reviewer.test.ts"
       ],
@@ -242,7 +248,9 @@
       "files": [
         "src/post-task-reviewer.ts"
       ],
-      "dependencies": [13],
+      "dependencies": [
+        13
+      ],
       "tests": [
         "bun test test/post-task-reviewer.test.ts",
         "bun test"
@@ -259,7 +267,9 @@
       "files": [
         "agents/post-task-reviewer.md"
       ],
-      "dependencies": [14],
+      "dependencies": [
+        14
+      ],
       "tests": [
         "bun test"
       ],
@@ -275,7 +285,9 @@
       "files": [
         "CLAUDE.md"
       ],
-      "dependencies": [15],
+      "dependencies": [
+        15
+      ],
       "tests": [
         "bun test"
       ],
@@ -289,7 +301,9 @@
       "directory": "",
       "status": "pending",
       "files": [],
-      "dependencies": [16],
+      "dependencies": [
+        16
+      ],
       "tests": [
         "bun test",
         "bun run build"

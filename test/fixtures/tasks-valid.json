@@ -1,0 +1,14 @@
+{
+  "project": "test-project",
+  "tasks": [
+    {
+      "id": 1,
+      "priority": 1,
+      "title": "Test task",
+      "status": "pending",
+      "files": [],
+      "tests": [],
+      "dependencies": []
+    }
+  ]
+}
