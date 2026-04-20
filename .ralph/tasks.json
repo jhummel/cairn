@@ -2,31 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 1,
-      "priority": 1,
-      "title": "Revert the tddGate hack",
-      "description": "Remove the `if ((fileTask as any).tddGate) return { status: 'skipped' };` block from src/test-validator.ts (around lines 75-78, including the preceding comment line '// TDD gate tasks have intentionally failing tests — don't revert them'). The tddGate field was a mid-run hack added when task #2 got stuck in an infinite loop — it didn't even take effect because the running dist/ralph binary was built before the patch. With the new plan structure (no test/impl splits), tasks always end with passing tests, so no gate is needed. Do not add any replacement logic. Do not add tddGate to any schema. Run the existing test-validator tests to confirm no regressions.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-04-19T00:00:00Z",
-      "completedBy": "iteration-1",
-      "notes": "Removed tddGate hack (4 lines including comment). All 17 existing test-validator tests pass with no regressions.",
-      "files": [
-        "src/test-validator.ts"
-      ],
-      "dependencies": [],
-      "tests": [
-        "bun test test/test-validator.test.ts"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 2,
       "priority": 2,
       "title": "Tighten .ralph/instructions.md",
       "description": "Replace the single line in .ralph/instructions.md with exactly: '* Use TDD within each task — write the test, see it fail, then make it pass. Do not split a single unit of work into separate test-writing and implementation tasks.' This is defense-in-depth against future planner/task-generator subagents misreading the previous wording ('Always use TDD across all task execution') and baking TDD structure into the plan shape — which is what caused the infinite loop on task #2 in the prior run. Preserve the leading '* ' bullet marker so the markdown formatting matches the existing convention.",
       "directory": ".ralph",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-04-19T00:00:00Z",
+      "completedBy": "iteration-2",
+      "notes": "Single-line replacement applied. The new wording explicitly forbids splitting TDD across tasks, which is the structural defense against the infinite-loop pattern from the prior run.",
       "files": [
         "instructions.md"
       ],
@@ -79,7 +63,10 @@
         "test/fixtures/tasks-unescaped-quote.json",
         "test/fixtures/tasks-trailing-garbage.json"
       ],
-      "dependencies": [1, 2],
+      "dependencies": [
+        1,
+        2
+      ],
       "tests": [
         "bun test test/tasks-file.test.ts",
         "bun test"
@@ -97,7 +84,9 @@
         "src/tasks-file.ts",
         "test/tasks-file.test.ts"
       ],
-      "dependencies": [5],
+      "dependencies": [
+        5
+      ],
       "tests": [
         "bun test test/tasks-file.test.ts",
         "bun test"
@@ -118,7 +107,9 @@
         "package.json",
         "test/commands/task.test.ts"
       ],
-      "dependencies": [6],
+      "dependencies": [
+        6
+      ],
       "tests": [
         "bun test test/commands/task.test.ts",
         "bun test",
@@ -137,7 +128,9 @@
         "src/commands/run.ts",
         "test/commands/run.test.ts"
       ],
-      "dependencies": [7],
+      "dependencies": [
+        7
+      ],
       "tests": [
         "bun test test/commands/run.test.ts",
         "bun test"
@@ -155,7 +148,9 @@
         "src/test-validator.ts",
         "test/test-validator.test.ts"
       ],
-      "dependencies": [8],
+      "dependencies": [
+        8
+      ],
       "tests": [
         "bun test test/test-validator.test.ts",
         "bun test"
@@ -173,7 +168,9 @@
         "src/task-archiver.ts",
         "test/task-archiver.test.ts"
       ],
-      "dependencies": [9],
+      "dependencies": [
+        9
+      ],
       "tests": [
         "bun test test/task-archiver.test.ts",
         "bun test"
@@ -191,7 +188,9 @@
         "src/commands/run.ts",
         "test/commands/run.test.ts"
       ],
-      "dependencies": [10],
+      "dependencies": [
+        10
+      ],
       "tests": [
         "bun test test/commands/run.test.ts",
         "bun test"
@@ -209,7 +208,9 @@
         "src/post-task-reviewer.ts",
         "test/post-task-reviewer.test.ts"
       ],
-      "dependencies": [11],
+      "dependencies": [
+        11
+      ],
       "tests": [
         "bun test test/post-task-reviewer.test.ts",
         "bun test"
@@ -226,7 +227,9 @@
       "files": [
         "agents/post-task-reviewer.md"
       ],
-      "dependencies": [12],
+      "dependencies": [
+        12
+      ],
       "tests": [
         "bun test"
       ],
@@ -242,7 +245,9 @@
       "files": [
         "CLAUDE.md"
       ],
-      "dependencies": [13],
+      "dependencies": [
+        13
+      ],
       "tests": [
         "bun test"
       ],
@@ -256,7 +261,9 @@
       "directory": "",
       "status": "pending",
       "files": [],
-      "dependencies": [14],
+      "dependencies": [
+        14
+      ],
       "tests": [
         "bun test",
         "bun run build"
