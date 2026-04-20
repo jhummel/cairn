@@ -6,7 +6,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "commander": "latest"
+    "commander": "latest",
+    "jsonrepair": "^3.14.0"
   },
   "devDependencies": {
     "@types/bun": "latest"

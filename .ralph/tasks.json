@@ -1,4 +1,300 @@
 {
   "project": "ralph-cli-tool",
-  "tasks": []
+  "tasks": [
+    {
+      "id": 1,
+      "priority": 1,
+      "title": "Stub src/tasks-file.ts + install jsonrepair",
+      "description": "Create src/tasks-file.ts exporting typed stubs that throw 'Not implemented' for: readTasksFile(path: string, opts?: { dataDir?: string }) returning { data: TasksFile, repaired: boolean, restored: boolean, error?: string }; writeTasksFile(path: string, data: TasksFile); snapshotTasksFile(path: string, dataDir: string); and a TasksFileError class extending Error. Import the TasksFile type (define it in src/tasks-file.ts as { project?: string; tasks: Task[] } — same shape used in src/task-archiver.ts — and re-export). Add jsonrepair as a runtime dependency: run 'bun add jsonrepair'. Verify 'bun run build' still produces dist/ralph without errors. Do not implement the bodies — this is scaffolding only. Later tasks' tests will fail against these stubs, which is expected. TDD: this is the stub step, tests follow in task 2.",
+      "directory": "",
+      "status": "complete",
+      "completedAt": "2026-04-19T00:00:00Z",
+      "completedBy": "iteration-1",
+      "notes": "Created src/tasks-file.ts with TasksFile interface, TasksFileError class, and three stub functions (readTasksFile, writeTasksFile, snapshotTasksFile) all throwing 'Not implemented'. Installed jsonrepair@3.14.0. Build produces dist/ralph cleanly.",
+      "files": [
+        "src/tasks-file.ts",
+        "package.json",
+        "bun.lock"
+      ],
+      "dependencies": [],
+      "tests": [
+        "bun run build"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 2,
+      "priority": 2,
+      "title": "Unit tests for readTasksFile",
+      "description": "Create test/tasks-file.test.ts with failing tests for readTasksFile covering every branch: (1) valid tasks.json round-trips untouched (repaired:false, restored:false); (2) missing-comma JSON is repaired via jsonrepair (repaired:true); (3) unescaped-quote JSON is repaired (repaired:true); (4) trailing-garbage JSON is repaired; (5) empty file triggers the error path; (6) missing file triggers the error path; (7) snapshot-present-and-valid recovers (restored:true, data from snapshot); (8) snapshot-present-and-also-corrupted throws TasksFileError. Also assert that every repair/restore/throw appends a structured entry to <dataDir>/corruption.log containing ISO timestamp, stage (parse|jsonrepair|snapshot), error message, sha256 of corrupted bytes, and first 500 bytes of corrupted content. Create fixtures under test/fixtures/: tasks-valid.json, tasks-missing-comma.json, tasks-unescaped-quote.json, tasks-trailing-garbage.json. Use a tmp dir for each test so corruption.log writes don't collide. Tests MUST fail against the stub from task 1 — that is the TDD verification this step is wired correctly.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "test/tasks-file.test.ts",
+        "test/fixtures/tasks-valid.json",
+        "test/fixtures/tasks-missing-comma.json",
+        "test/fixtures/tasks-unescaped-quote.json",
+        "test/fixtures/tasks-trailing-garbage.json"
+      ],
+      "dependencies": [1],
+      "tests": [
+        "bun test test/tasks-file.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 3,
+      "priority": 3,
+      "title": "Implement readTasksFile, writeTasksFile, snapshotTasksFile, corruption.log",
+      "description": "Implement the three helpers in src/tasks-file.ts. readTasksFile: try JSON.parse first; on failure try jsonrepair (returns { data, repaired:true } on success); on failure read <dataDir>/.ralph_tasks_snapshot.json and parse it (returns { data, restored:true } on success); if all three fail throw TasksFileError. Every failure path must appendFileSync a structured JSONL entry to <dataDir>/corruption.log with { ts: ISO8601, stage, error: string, sha256: hex(sha256(bytes)), preview: bytes.slice(0,500).toString('utf-8') }. writeTasksFile: JSON.stringify(data, null, 2) to <path>.tmp then rename to <path> — atomic write semantics. snapshotTasksFile: copy the current tasks.json to <dataDir>/.ralph_tasks_snapshot.json (single overwriting file, not rotated). Make the full suite from task 2 pass. Do NOT add mutateTasksFile yet — that's task 5.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/tasks-file.ts"
+      ],
+      "dependencies": [2],
+      "tests": [
+        "bun test test/tasks-file.test.ts",
+        "bun test"
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 4,
+      "priority": 4,
+      "title": "Unit tests for mutateTasksFile atomicity",
+      "description": "Extend test/tasks-file.test.ts with failing tests for a new mutateTasksFile(path: string, fn: (data: TasksFile) => void, opts?: { dataDir?: string }) helper. Tests must cover: (a) tempfile <path>.tmp exists during the write window — spy on fs.writeFileSync and fs.renameSync to verify the tempfile is written BEFORE the rename; (b) rename happens on successful fn; (c) tempfile is removed (via unlinkSync) when fn throws — and the original tasks.json is left untouched; (d) unknown/extra fields on task objects are preserved across the round-trip (e.g., a 'customField' on a task survives); (e) after successful mutation, snapshotTasksFile has been called (spy on it). Tests must fail because mutateTasksFile does not exist yet.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "test/tasks-file.test.ts"
+      ],
+      "dependencies": [3],
+      "tests": [
+        "bun test test/tasks-file.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 5,
+      "priority": 5,
+      "title": "Implement mutateTasksFile",
+      "description": "Add mutateTasksFile(path, fn, opts?) to src/tasks-file.ts. Implementation: call readTasksFile(path, opts); call fn(data) (which may mutate in place or return a new object — support both, but document the 'mutate in place' convention); call writeTasksFile(path, data) (which handles tempfile + rename); call snapshotTasksFile(path, dataDir) when opts.dataDir is provided. On any throw from fn, the helper must ensure the tempfile is cleaned up if it was created — put the tempfile cleanup in a try/finally. Preserve unknown fields by round-tripping the raw parsed object rather than projecting into a narrower type. Make task 4's tests pass without regressing task 2/3's tests.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/tasks-file.ts"
+      ],
+      "dependencies": [4],
+      "tests": [
+        "bun test test/tasks-file.test.ts",
+        "bun test"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 6,
+      "priority": 6,
+      "title": "Unit tests for src/commands/task.ts subcommands",
+      "description": "Create test/commands/task.test.ts with failing tests for the ralph task subcommand group. Invoke via the exported command handler(s) from src/commands/task.ts. Tests to write: (1) 'task start <id> --iteration N' sets status to 'in-progress' and is idempotent when run twice. (2) 'task complete <id> --iteration N --notes \"...\"' sets status:'complete', completedAt to a fresh ISO 8601 timestamp, completedBy to 'iteration-N', and notes to the provided string. (3) 'task complete <id> --iteration N --notes-file PATH' reads notes from the file. (4) 'task complete <id> --iteration N --notes-file -' reads notes from stdin. (5) 'task complete <id> --iteration N' with no notes flag leaves notes untouched. (6) 'task note <id> \"x\"' appends via ' | ' separator (matching src/test-validator.ts appendNote semantics); 'task note <id> --replace \"x\"' overwrites. (7) 'task set-status <id> <status>' accepts only the four enum values and rejects others with non-zero exit. (8) 'task add --file PATH' validates the payload against src/tasks-schema.json and REFUSES on validation failure with non-zero exit and stderr explaining which field failed; on success the new task is appended to tasks.tasks[]. (9) 'task show <id>' prints the task as formatted JSON, read-only — does not call writeTasksFile. Use a tmp tasks.json per test. Tests must fail — no src/commands/task.ts exists yet.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "test/commands/task.test.ts"
+      ],
+      "dependencies": [5],
+      "tests": [
+        "bun test test/commands/task.test.ts"
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 7,
+      "priority": 7,
+      "title": "Implement src/commands/task.ts + wire into src/index.ts",
+      "description": "Implement the 'ralph task' subcommand group in src/commands/task.ts using Commander subcommands (mirror the style of src/commands/run.ts / src/commands/plan.ts). Every mutating subcommand goes through mutateTasksFile from src/tasks-file.ts. Subcommands: start, complete (both --notes and --notes-file, with '-' meaning stdin), note (default append, --replace overwrites), set-status, add (--file PATH), show. For 'add', validate the task object against src/tasks-schema.json before merging. The codebase does not currently use ajv (no such dep in package.json) — implement a minimal hand-rolled validator that walks the schema's required + type checks, or add ajv via 'bun add ajv'. Prefer ajv for correctness. Refuse to merge on validation failure: exit code 1, print 'ralph task add: validation failed — <field>: <reason>' to stderr, leave tasks.json untouched. Wire the command group into src/index.ts Commander dispatch alongside the other subcommands. Make task 6's tests pass. Run 'bun run build' at the end to confirm the binary still compiles.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/task.ts",
+        "src/index.ts",
+        "src/tasks-schema.json",
+        "package.json"
+      ],
+      "dependencies": [6],
+      "tests": [
+        "bun test test/commands/task.test.ts",
+        "bun test",
+        "bun run build"
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 8,
+      "priority": 8,
+      "title": "Update run.ts prompt tests for new CLI + Edit ban",
+      "description": "Add failing assertions to test/commands/run.test.ts against buildSystemPrompt(). Assert the rendered prompt string CONTAINS: 'ralph task start' with an iteration placeholder pattern; 'ralph task complete' with '--iteration' and '--notes-file'; the notes-tempfile path pattern '<dataDir>/.ralph_task_<id>_notes.md' (compare against the resolved dataDir in the test harness); 'ralph task add --file' in the DISCOVER-AND-DOCUMENT block; and an explicit ban substring like 'Do NOT use Edit or Write on' paired with tasks.json. Also assert the prompt does NOT contain the old phrasing — no 'Use Edit to set these fields' substring. Keep existing assertions intact. Tests must fail against the current buildSystemPrompt implementation.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "test/commands/run.test.ts"
+      ],
+      "dependencies": [7],
+      "tests": [
+        "bun test test/commands/run.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 9,
+      "priority": 9,
+      "title": "Rewrite buildSystemPrompt() to use ralph task CLI",
+      "description": "Update buildSystemPrompt() in src/commands/run.ts. Replace step 1 ('set status to in-progress') with: 'Run: ralph task start <id> --iteration <N>' where N comes from the input.iteration field. Replace step 5 (the multi-line 'Use Edit to set these fields' block) with: (a) 'Write your completion notes to <dataDir>/.ralph_task_<id>_notes.md using Write' — supply the absolute path; (b) 'Run: ralph task complete <id> --iteration <N> --notes-file <dataDir>/.ralph_task_<id>_notes.md'. Add an explicit ban near the CRITICAL RULES block: 'Do NOT use Edit or Write on .ralph/tasks.json directly — the ralph task subcommands are the only supported path.' Update the DISCOVER-AND-DOCUMENT block: replace the 'add them as new pending tasks in tasks.json' line with 'Use ralph task add --file <path> to append a new task (the CLI validates the payload before merging).' Keep all other prompt structure unchanged. Make task 8's tests pass.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/run.ts"
+      ],
+      "dependencies": [8],
+      "tests": [
+        "bun test test/commands/run.test.ts",
+        "bun test"
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 10,
+      "priority": 10,
+      "title": "Migrate test-validator.ts to defensive I/O + tests",
+      "description": "TDD step 1 — extend test/test-validator.test.ts with failing tests: (a) malformed tasks.json (missing comma) is recovered via readTasksFile; validateTaskTests runs the test command and still writes back via writeTasksFile; (b) when readTasksFile throws TasksFileError (both parse and snapshot fail), validateTaskTests returns a { status: 'error', message } result rather than crashing (preserve the existing return-shape contract); (c) snapshot is taken after each write (spy on snapshotTasksFile). Step 2 — migrate src/test-validator.ts: replace the bare 'JSON.parse(readFileSync(...))' at line ~70 with readTasksFile from src/tasks-file.ts; replace the two writeFileSync calls (lines ~86, ~93, ~102) with writeTasksFile plus snapshotTasksFile; preserve the appendNote semantics exactly. Do NOT change the ValidationResult enum or the CANT_RUN_PATTERNS list. Make the new tests pass without regressing the existing validator tests.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/test-validator.ts",
+        "test/test-validator.test.ts"
+      ],
+      "dependencies": [9],
+      "tests": [
+        "bun test test/test-validator.test.ts",
+        "bun test"
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 11,
+      "priority": 11,
+      "title": "Migrate task-archiver.ts + stop swallowing parse errors + tests",
+      "description": "TDD step 1 — extend test/task-archiver.test.ts with failing tests: (a) archiver uses readTasksFile so corrupted tasks.json can be repaired and archival proceeds normally; (b) when readTasksFile throws TasksFileError, the archiver returns { archivedCount: 0, prevNotes: null } AND appends an entry to <dataDir>/corruption.log AND appends a line to the iteration log (pass the iterationLogPath into archiveCompletedTasks opts, or surface the error via a new logger field on ArchiveResult — pick whichever is simpler for the test harness). Current behavior silently swallows parse errors (src/task-archiver.ts:27-31) — the new test must catch that. Step 2 — migrate src/task-archiver.ts: replace the try/catch at lines 27-31 with a readTasksFile call; on TasksFileError, log to the iteration log (extend ArchiveResult with a warnings: string[] field or accept an onError callback — pick one and justify in notes); replace every JSON.stringify+writeFileSync pair with writeTasksFile + snapshotTasksFile. Make the new tests pass without regressing the existing archiver tests.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/task-archiver.ts",
+        "test/task-archiver.test.ts"
+      ],
+      "dependencies": [10],
+      "tests": [
+        "bun test test/task-archiver.test.ts",
+        "bun test"
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 12,
+      "priority": 12,
+      "title": "Migrate run.ts reads + snapshot + corruption counter + tempfile cleanup",
+      "description": "TDD step 1 — extend test/commands/run.test.ts with failing tests covering: (a) main-loop read at src/commands/run.ts:445 goes through readTasksFile; (b) post-task-review status re-read at src/commands/run.ts:571 goes through readTasksFile; (c) a corruptionEvents counter initialised to 0 increments by 1 whenever readTasksFile returns repaired:true or restored:true (wherever it's called in runRun); (d) the final summary (src/commands/run.ts:610-619 block) emits a new line exactly: '⚠ N corruption events recovered this run — see <dataDir>/corruption.log' ONLY when N > 0; when N === 0 the line is absent; (e) the ntfy notification body includes the corruption count when config.narration.ntfyTopic is set; (f) after the main-loop read succeeds, snapshotTasksFile is called (per-iteration snapshot); (g) the TEMP_FILES cleanup at src/commands/run.ts:345 is extended to glob-sweep files matching .ralph_task_*_notes.md under dataDir at run end. Step 2 — implement all of the above in src/commands/run.ts. For the glob sweep, use fs.readdirSync(dataDir).filter(f => /^\\.ralph_task_\\d+_notes\\.md$/.test(f)) rather than importing a glob library. Make all new tests pass.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/run.ts",
+        "test/commands/run.test.ts"
+      ],
+      "dependencies": [11],
+      "tests": [
+        "bun test test/commands/run.test.ts",
+        "bun test"
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 13,
+      "priority": 13,
+      "title": "Test for post-task-reviewer path-scoped allowlist",
+      "description": "Add a failing assertion to test/post-task-reviewer.test.ts using the existing mock-spawn pattern. Find the test that captures the args array passed to spawn by spawnPostTaskReviewer. Add a new assertion (or new test case) that the args array contains '--allowedTools' immediately followed by the EXACT string 'Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)'. The current production value at src/post-task-reviewer.ts:124 is 'Read,Glob,Grep,Edit,Write', so the test must fail — that failure is the TDD verification the test is wired correctly. Do NOT change src/post-task-reviewer.ts in this task.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "test/post-task-reviewer.test.ts"
+      ],
+      "dependencies": [12],
+      "tests": [
+        "bun test test/post-task-reviewer.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 14,
+      "priority": 14,
+      "title": "Tighten post-task-reviewer allowlist",
+      "description": "Change the --allowedTools value in src/post-task-reviewer.ts:119-129 from 'Read,Glob,Grep,Edit,Write' to 'Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)'. This activates Claude Code's path-scoped allowlist enforcement (verified April 2026 — https://code.claude.com/docs/en/permissions.md): Edit and Write outside .ralph/review-post.md will be denied before hitting disk. No other changes to the file. Make task 13's failing test pass without regressing any other post-task-reviewer tests.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/post-task-reviewer.ts"
+      ],
+      "dependencies": [13],
+      "tests": [
+        "bun test test/post-task-reviewer.test.ts",
+        "bun test"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 15,
+      "priority": 15,
+      "title": "Tighten post-task-reviewer prompt (belt-and-suspenders)",
+      "description": "Add an explicit rule to agents/post-task-reviewer.md: a new line near the top of the file stating 'You may only write to .ralph/review-post.md — never modify .ralph/tasks.json.' This is defense-in-depth alongside the path-scoped allowlist from task 14 (the allowlist is the authoritative enforcement; the prompt keeps the agent from even trying). Preserve the existing '## Output Format' and '## Coverage Diagram' sections verbatim. Smoke-read the file after editing to confirm it still renders as a coherent agent prompt.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "agents/post-task-reviewer.md"
+      ],
+      "dependencies": [14],
+      "tests": [
+        "bun test"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 16,
+      "priority": 16,
+      "title": "Document ralph task workflow in CLAUDE.md",
+      "description": "Add a short section to CLAUDE.md under 'Conventions' (or a new 'Agent workflow' subsection if cleaner) explaining: agents must use the ralph task subcommand group (start, complete, note, set-status, add, show) for every mutation of .ralph/tasks.json; direct Edit/Write on .ralph/tasks.json is forbidden and will be caught by the per-agent prompt ban plus the path-scoped allowlist on the post-task reviewer; the CLI ensures atomic writes and JSON validity so corruption becomes structurally impossible via this path. Keep the addition tight — 4–6 lines. Do not rewrite the existing 'Architecture' or 'Key design patterns' sections; only add the new guidance.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "CLAUDE.md"
+      ],
+      "dependencies": [15],
+      "tests": [
+        "bun test"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 17,
+      "priority": 17,
+      "title": "Full suite + build + manual corruption-recovery smoke test",
+      "description": "Final verification task. Step 1: run 'bun test' — full suite must pass green. Step 2: run 'bun run build' — must produce a fresh dist/ralph without errors. Step 3: manual checks on a scratch project (create a throwaway dir with a hand-written tasks.json): (3a) run 'ralph task start 1 --iteration 1' then 'ralph task complete 1 --iteration 1 --notes \"manual smoke\"' then 'ralph task note 1 \"appended\"' then 'ralph task note 1 --replace \"replaced\"' — after each command, cat tasks.json and verify it parses as valid JSON. (3b) Deliberately break tasks.json (delete a comma after a notes field in any task); run 'ralph run' on the scratch project for one iteration; verify readTasksFile recovered via jsonrepair (look for the success path continuing) and that <dataDir>/corruption.log contains a new entry with stage:'jsonrepair'. (3c) Delete BOTH tasks.json and .ralph/.ralph_tasks_snapshot.json; run 'ralph run' — verify TasksFileError is surfaced (not a silent failure) and the corruption.log entry records the complete fail. (3d) In a separate scratch repo with review.postTask enabled, trigger a post-task review and verify the reviewer cannot Edit .ralph/tasks.json (the Edit call should be denied by Claude Code's path-scoped allowlist — confirm by reading the stream-json output for a permission_denied event). Record all four results in the task's notes on completion. If any step fails, leave the task in-progress and document the failure in notes for the next iteration.",
+      "directory": "",
+      "status": "pending",
+      "files": [],
+      "dependencies": [16],
+      "tests": [
+        "bun test",
+        "bun run build"
+      ],
+      "model": "opus"
+    }
+  ]
 }
