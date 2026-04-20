@@ -2,35 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 12,
-      "priority": 12,
-      "title": "Tighten post-task-reviewer path-scoped allowlist",
-      "description": "TDD in one task. Step 1: add a failing assertion to test/post-task-reviewer.test.ts using the existing mock-spawn pattern. Find the test that captures the args array passed to spawn by spawnPostTaskReviewer. Add an assertion that the args array contains '--allowedTools' immediately followed by the EXACT string 'Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)'. The current production value at src/post-task-reviewer.ts:124 is 'Read,Glob,Grep,Edit,Write' — confirm the test fails against the current value (that's the TDD verification). Step 2: change the --allowedTools value in src/post-task-reviewer.ts:119-129 from 'Read,Glob,Grep,Edit,Write' to 'Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)'. This activates Claude Code's path-scoped allowlist enforcement (verified April 2026 — https://code.claude.com/docs/en/permissions.md): Edit and Write outside .ralph/review-post.md will be denied before hitting disk. No other changes to the file. Make the new test pass without regressing any other post-task-reviewer tests.",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-04-20T00:00:00Z",
-      "completedBy": "iteration-18",
-      "notes": "Updated --allowedTools from 'Read,Glob,Grep,Edit,Write' to 'Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)' in src/post-task-reviewer.ts:123. Added a TDD assertion to the existing 'spawns claude with correct args' test — confirmed it failed against the old value before the fix, passes after. All 658 tests green.",
-      "files": [
-        "src/post-task-reviewer.ts",
-        "test/post-task-reviewer.test.ts"
-      ],
-      "dependencies": [
-        11
-      ],
-      "tests": [
-        "bun test test/post-task-reviewer.test.ts",
-        "bun test"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 13,
       "priority": 13,
       "title": "Tighten post-task-reviewer prompt (belt-and-suspenders)",
       "description": "Add an explicit rule near the top of agents/post-task-reviewer.md: a new line stating 'You may only write to .ralph/review-post.md — never modify .ralph/tasks.json.' This is defense-in-depth alongside the path-scoped allowlist from task 12 (the allowlist is the authoritative enforcement; the prompt keeps the agent from even trying). Preserve the existing '## Output Format' and '## Coverage Diagram' sections verbatim — do not reword or restructure them. Smoke-read the file after editing to confirm it still reads as a coherent agent prompt (no orphaned fragments, no broken section headers).",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-04-20T00:00:00Z",
+      "completedBy": "iteration-19",
+      "notes": "Added explicit write restriction rule on line 5 of agents/post-task-reviewer.md, immediately after the job description sentence. All existing sections (Coverage Diagram, Gap Detection, Regression Checks, Output Format) are verbatim-preserved. Smoke-read confirmed coherent prompt with no orphaned fragments. 658 tests green.",
       "files": [
         "agents/post-task-reviewer.md"
       ],
