@@ -120,7 +120,7 @@ export async function spawnPostTaskReviewer(
     "-p",
     ...buildAgentArgs("post-task-reviewer", "Sr. Dev code reviewer", projectRoot),
     "--allowedTools",
-    "Read,Glob,Grep,Edit,Write",
+    "Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)",
     "--output-format",
     "stream-json",
     "--model",
