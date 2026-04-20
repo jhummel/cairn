@@ -13,6 +13,7 @@ import { validateTaskTests as defaultValidateTaskTests, type ValidateTaskTestsOp
 import { archiveCompletedTasks as defaultArchiveCompletedTasks, type ArchiveResult } from '../task-archiver';
 import { captureGitSha as defaultCaptureGitSha, runPostTaskReview as defaultRunPostTaskReview, type RunPostTaskReviewOpts } from '../post-task-reviewer';
 import { loadPersonalInstructions } from '../personal-instructions';
+import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnapshotTasksFile, TasksFileError, type TasksFile } from '../tasks-file';
 
 export interface SystemPromptInput {
   taskDir: string;
@@ -279,7 +280,9 @@ export interface RunRunDeps {
   createProcessManager: (opts?: ProcessManagerOptions) => ProcessManager;
   prompt: (question: string) => Promise<string>;
   existsSync: (p: string) => boolean;
-  readFileSync: (p: string, encoding: string) => string;
+  readTasksFile: (filePath: string, opts?: { dataDir?: string }) => { data: TasksFile; repaired: boolean; restored: boolean; error?: string };
+  snapshotTasksFile: (filePath: string, dataDir: string) => void;
+  readdirSync: (p: string) => string[];
   mkdirSync: (p: string, opts?: { recursive: boolean }) => void;
   unlinkSync: (p: string) => void;
   appendFileSync: (p: string, content: string) => void;
@@ -322,7 +325,9 @@ function defaultDeps(): RunRunDeps {
       });
     },
     existsSync: fs.existsSync,
-    readFileSync: fs.readFileSync as (p: string, encoding: string) => string,
+    readTasksFile: defaultReadTasksFile,
+    snapshotTasksFile: defaultSnapshotTasksFile,
+    readdirSync: fs.readdirSync as (p: string) => string[],
     mkdirSync: fs.mkdirSync as (p: string, opts?: { recursive: boolean }) => void,
     unlinkSync: fs.unlinkSync,
     appendFileSync: fs.appendFileSync as (p: string, content: string) => void,
@@ -402,6 +407,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   let iterationsCompleted = 0;
   let totalArchived = 0;
   let completedByFlag = false;
+  let corruptionEvents = 0;
 
   try {
     // 6. Main iteration loop
@@ -439,13 +445,24 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       // c. Load completed IDs
       const completedIds = deps.loadCompletedIds(dataDir);
 
-      // Read tasks from file
+      // Read tasks from file (defensive: jsonrepair + snapshot recovery inside readTasksFile)
       let tasks: Task[];
       try {
-        const data = JSON.parse(deps.readFileSync(tasksFilePath, 'utf-8'));
-        tasks = data.tasks ?? [];
-      } catch {
-        deps.log('ERROR: Failed to parse tasks.json');
+        const result = deps.readTasksFile(tasksFilePath, { dataDir });
+        if (result.repaired || result.restored) corruptionEvents++;
+        tasks = result.data.tasks ?? [];
+        // Per-iteration snapshot — captures a known-good copy before the agent touches tasks.json
+        try {
+          deps.snapshotTasksFile(tasksFilePath, dataDir);
+        } catch {
+          // snapshot failures are non-fatal
+        }
+      } catch (err) {
+        if (err instanceof TasksFileError) {
+          deps.log(`ERROR: ${err.message}`);
+        } else {
+          deps.log('ERROR: Failed to parse tasks.json');
+        }
         break;
       }
 
@@ -568,8 +585,9 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         // Re-read task status from tasks.json (agent may have updated it)
         let updatedTaskStatus = 'unknown';
         try {
-          const updatedData = JSON.parse(deps.readFileSync(tasksFilePath, 'utf-8'));
-          const updatedTask = (updatedData.tasks ?? []).find((t: Task) => t.id === task.id);
+          const result = deps.readTasksFile(tasksFilePath, { dataDir });
+          if (result.repaired || result.restored) corruptionEvents++;
+          const updatedTask = (result.data.tasks ?? []).find((t: Task) => t.id === task.id);
           if (updatedTask) {
             updatedTaskStatus = updatedTask.status;
           }
@@ -617,11 +635,17 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     if (completedByFlag) {
       deps.log('Status: ALL TASKS COMPLETE');
     }
+    if (corruptionEvents > 0) {
+      deps.log(`\u26a0 ${corruptionEvents} corruption events recovered this run \u2014 see ${path.join(dataDir, 'corruption.log')}`);
+    }
     deps.log('=========================================');
 
-    const summaryMsg = completedByFlag
+    const baseSummary = completedByFlag
       ? `All tasks complete after ${iterationsCompleted} iterations`
       : `Loop stopped after ${iterationsCompleted} iterations — tasks may remain`;
+    const summaryMsg = corruptionEvents > 0
+      ? `${baseSummary} (${corruptionEvents} corruption events recovered)`
+      : baseSummary;
 
     // Send ntfy notification
     if (config.narration.ntfyTopic) {
@@ -652,6 +676,22 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
           // ignore cleanup errors
         }
       }
+    }
+
+    // Sweep per-task notes tempfiles (e.g. .ralph_task_42_notes.md) from dataDir
+    try {
+      const entries = deps.readdirSync(dataDir);
+      for (const name of entries) {
+        if (/^\.ralph_task_\d+_notes\.md$/.test(name)) {
+          try {
+            deps.unlinkSync(path.join(dataDir, name));
+          } catch {
+            // ignore cleanup errors
+          }
+        }
+      }
+    } catch {
+      // dataDir may be gone mid-run — best-effort
     }
   }
 }

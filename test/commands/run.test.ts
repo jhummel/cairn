@@ -674,7 +674,13 @@ function makeRunDeps(overrides: Partial<RunRunDeps> = {}): RunRunDeps {
       if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
       return false;
     }),
-    readFileSync: overrides.readFileSync ?? mock(() => JSON.stringify({ tasks: [makeTask()] })),
+    readTasksFile: overrides.readTasksFile ?? mock(() => ({
+      data: { tasks: [makeTask()] },
+      repaired: false,
+      restored: false,
+    })),
+    snapshotTasksFile: overrides.snapshotTasksFile ?? mock(() => undefined),
+    readdirSync: overrides.readdirSync ?? mock(() => []),
     mkdirSync: overrides.mkdirSync ?? mock(() => undefined),
     unlinkSync: overrides.unlinkSync ?? mock(() => undefined),
     appendFileSync: overrides.appendFileSync ?? mock(() => undefined),
@@ -1093,13 +1099,13 @@ describe('runRun', () => {
   test('reads tasks.json to get task list for selectNextTask', async () => {
     const tasks = [makeTask({ id: 1 }), makeTask({ id: 2, status: 'complete' })];
     const deps = makeRunDeps({
-      readFileSync: mock(() => JSON.stringify({ tasks })),
+      readTasksFile: mock(() => ({ data: { tasks }, repaired: false, restored: false })),
       selectNextTask: mock(() => null),
     });
 
     await runRun(makeRunOpts(), deps);
 
-    expect(deps.readFileSync).toHaveBeenCalled();
+    expect(deps.readTasksFile).toHaveBeenCalled();
     const selectCall = (deps.selectNextTask as ReturnType<typeof mock>).mock.calls[0];
     expect(selectCall[0]).toHaveLength(2);
   });
@@ -1235,7 +1241,7 @@ describe('runRun', () => {
 
     let callCount = 0;
     const deps = makeRunDeps({
-      readFileSync: mock(() => JSON.stringify({ tasks })),
+      readTasksFile: mock(() => ({ data: { tasks }, repaired: false, restored: false })),
       selectNextTask: mock(() => {
         callCount++;
         return callCount <= 1 ? tasks[0] : null;
@@ -1625,8 +1631,10 @@ describe('runRun', () => {
         return callCount <= 1 ? task : null;
       }),
       captureGitSha: mock(() => 'sha-before'),
-      readFileSync: mock(() => JSON.stringify({
-        tasks: [{ ...task, status: 'complete' }],
+      readTasksFile: mock(() => ({
+        data: { tasks: [{ ...task, status: 'complete' as const }] },
+        repaired: false,
+        restored: false,
       })),
       runPostTaskReview: mock(async () => {}),
     });
@@ -1652,8 +1660,10 @@ describe('runRun', () => {
         return callCount <= 1 ? task : null;
       }),
       captureGitSha: mock(() => 'sha-before'),
-      readFileSync: mock(() => JSON.stringify({
-        tasks: [{ ...task, status: 'complete' }],
+      readTasksFile: mock(() => ({
+        data: { tasks: [{ ...task, status: 'complete' as const }] },
+        repaired: false,
+        restored: false,
       })),
       runPostTaskReview: mock(async () => {}),
     });
@@ -1674,8 +1684,10 @@ describe('runRun', () => {
         return callCount <= 1 ? task : null;
       }),
       captureGitSha: mock(() => 'sha-before'),
-      readFileSync: mock(() => JSON.stringify({
-        tasks: [{ ...task, status: 'in-progress' }],
+      readTasksFile: mock(() => ({
+        data: { tasks: [{ ...task, status: 'in-progress' as const }] },
+        repaired: false,
+        restored: false,
       })),
       runPostTaskReview: mock(async () => {}),
     });
@@ -1684,5 +1696,251 @@ describe('runRun', () => {
     await runRun(makeRunOpts({ config }), deps);
 
     expect(deps.runPostTaskReview).not.toHaveBeenCalled();
+  });
+
+  // --- Defensive I/O: readTasksFile + snapshot + corruption counter + notes tempfile sweep ---
+
+  test('main-loop read goes through readTasksFile with dataDir option', async () => {
+    let callCount = 0;
+    const readTasksFile = mock(() => ({
+      data: { tasks: [makeTask()] },
+      repaired: false,
+      restored: false,
+    }));
+    const deps = makeRunDeps({
+      readTasksFile,
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? makeTask() : null;
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(readTasksFile).toHaveBeenCalled();
+    const call = (readTasksFile as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0]).toContain('tasks.json');
+    expect(call[1]).toEqual({ dataDir: '/projects/myapp/.ralph' });
+  });
+
+  test('post-task-review re-read goes through readTasksFile (not readFileSync)', async () => {
+    const task = makeTask({ id: 1, title: 'Test task' });
+    let selectCalls = 0;
+    let readCalls = 0;
+    const readTasksFile = mock(() => {
+      readCalls++;
+      return {
+        data: { tasks: [{ ...task, status: 'complete' as const }] },
+        repaired: false,
+        restored: false,
+      };
+    });
+
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        selectCalls++;
+        return selectCalls <= 1 ? task : null;
+      }),
+      readTasksFile,
+      captureGitSha: mock(() => 'sha'),
+      runPostTaskReview: mock(async () => {}),
+    });
+
+    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    await runRun(makeRunOpts({ config }), deps);
+
+    // Main-loop read (iter 1) + post-review re-read (iter 1) + main-loop read (iter 2, returns null)
+    expect(readCalls).toBeGreaterThanOrEqual(2);
+    expect(deps.runPostTaskReview).toHaveBeenCalledTimes(1);
+  });
+
+  test('corruptionEvents increments by 1 when readTasksFile returns repaired:true', async () => {
+    const logs: string[] = [];
+    const readTasksFile = mock(() => ({
+      data: { tasks: [makeTask()] },
+      repaired: true,
+      restored: false,
+    }));
+    const deps = makeRunDeps({
+      readTasksFile,
+      selectNextTask: mock(() => null),
+      log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    const line = logs.find(l => l.includes('corruption events recovered'));
+    expect(line).toBeDefined();
+    expect(line).toContain('1 corruption events recovered');
+  });
+
+  test('corruptionEvents increments by 1 when readTasksFile returns restored:true', async () => {
+    const logs: string[] = [];
+    const readTasksFile = mock(() => ({
+      data: { tasks: [makeTask()] },
+      repaired: false,
+      restored: true,
+    }));
+    const deps = makeRunDeps({
+      readTasksFile,
+      selectNextTask: mock(() => null),
+      log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    const line = logs.find(l => l.includes('corruption events recovered'));
+    expect(line).toBeDefined();
+    expect(line).toContain('1 corruption events recovered');
+  });
+
+  test('corruptionEvents accumulates across multiple calls (main + post-review)', async () => {
+    const task = makeTask({ id: 1 });
+    let selectCalls = 0;
+    const readTasksFile = mock(() => ({
+      data: { tasks: [{ ...task, status: 'complete' as const }] },
+      repaired: true,
+      restored: false,
+    }));
+    const logs: string[] = [];
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => {
+        selectCalls++;
+        return selectCalls <= 1 ? task : null;
+      }),
+      readTasksFile,
+      captureGitSha: mock(() => 'sha'),
+      runPostTaskReview: mock(async () => {}),
+      log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
+    });
+
+    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    await runRun(makeRunOpts({ config }), deps);
+
+    // 3 reads: main-iter1 + post-review + main-iter2 — all repaired
+    const line = logs.find(l => l.includes('corruption events recovered'));
+    expect(line).toBeDefined();
+    expect(line).toContain('3 corruption events recovered');
+  });
+
+  test('final summary emits exact corruption-events line when N > 0', async () => {
+    const readTasksFile = mock(() => ({
+      data: { tasks: [makeTask()] },
+      repaired: true,
+      restored: false,
+    }));
+    const logs: string[] = [];
+    const deps = makeRunDeps({
+      readTasksFile,
+      selectNextTask: mock(() => null),
+      log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    const line = logs.find(l => l.includes('corruption events recovered'));
+    expect(line).toBe('\u26a0 1 corruption events recovered this run \u2014 see /projects/myapp/.ralph/corruption.log');
+  });
+
+  test('final summary omits corruption-events line when N === 0', async () => {
+    const logs: string[] = [];
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => null),
+      log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    const line = logs.find(l => l.includes('corruption events recovered'));
+    expect(line).toBeUndefined();
+  });
+
+  test('ntfy body includes corruption count when ntfyTopic is set and corruption occurred', async () => {
+    const config = makeTestConfig({ narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
+    const readTasksFile = mock(() => ({
+      data: { tasks: [makeTask()] },
+      repaired: true,
+      restored: false,
+    }));
+    const deps = makeRunDeps({
+      readTasksFile,
+      selectNextTask: mock(() => null),
+    });
+
+    await runRun(makeRunOpts({ config }), deps);
+
+    expect(deps.sendNtfy).toHaveBeenCalled();
+    const ntfyCall = (deps.sendNtfy as ReturnType<typeof mock>).mock.calls[0];
+    const body = ntfyCall[0];
+    expect(body).toContain('1 corruption');
+  });
+
+  test('ntfy body does NOT mention corruption when zero corruption events', async () => {
+    const config = makeTestConfig({ narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => null),
+    });
+
+    await runRun(makeRunOpts({ config }), deps);
+
+    const ntfyCall = (deps.sendNtfy as ReturnType<typeof mock>).mock.calls[0];
+    expect(ntfyCall[0]).not.toContain('corruption');
+  });
+
+  test('snapshotTasksFile is called after successful main-loop read', async () => {
+    let callCount = 0;
+    const snapshotTasksFile = mock(() => undefined);
+    const deps = makeRunDeps({
+      snapshotTasksFile,
+      selectNextTask: mock(() => {
+        callCount++;
+        return callCount <= 1 ? makeTask() : null;
+      }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(snapshotTasksFile).toHaveBeenCalled();
+    const call = (snapshotTasksFile as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0]).toContain('tasks.json');
+    expect(call[1]).toBe('/projects/myapp/.ralph');
+  });
+
+  test('cleanup sweeps .ralph_task_<id>_notes.md files from dataDir at run end', async () => {
+    const readdirSync = mock(() => [
+      '.ralph_task_1_notes.md',
+      '.ralph_task_42_notes.md',
+      '.ralph_task_999_notes.md',
+      'other.md',
+      'tasks.json',
+      '.ralph_task_notes.md', // missing <id> — should NOT match
+    ]);
+    const unlinked: string[] = [];
+    const deps = makeRunDeps({
+      readdirSync,
+      selectNextTask: mock(() => null),
+      unlinkSync: mock((p: string) => { unlinked.push(p); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(readdirSync).toHaveBeenCalledWith('/projects/myapp/.ralph');
+    expect(unlinked.some(p => p.endsWith('.ralph_task_1_notes.md'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('.ralph_task_42_notes.md'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('.ralph_task_999_notes.md'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('other.md'))).toBe(false);
+    expect(unlinked.some(p => p === '/projects/myapp/.ralph/tasks.json')).toBe(false);
+    expect(unlinked.some(p => p.endsWith('.ralph_task_notes.md') && !/_\d+_/.test(p))).toBe(false);
+  });
+
+  test('notes-tempfile sweep does not crash when readdirSync throws', async () => {
+    const readdirSync = mock(() => { throw new Error('ENOENT'); });
+    const deps = makeRunDeps({
+      readdirSync,
+      selectNextTask: mock(() => null),
+    });
+
+    // Should not throw — readdirSync failure must be swallowed
+    await runRun(makeRunOpts(), deps);
   });
 });
