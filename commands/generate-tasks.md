@@ -121,6 +121,10 @@ Each task needs:
 - **model**: `opus` or `sonnet` (optional, defaults to `opus`)
 - **agent**: (optional) name of a specialist agent from `.claude/agents/`
 
+ATOMICITY RULE:
+
+Each task is one atomic unit of work. Do NOT create paired "write tests for X" / "implement X" tasks. If TDD is desired, the executor agent practices it within a single task: write the test, see it fail, make it pass — all in one task.
+
 TEST COMMAND GUIDELINES:
 
 - ALWAYS prefer the project's own test scripts (e.g., `npm run test`, `npm test`, `bun test`, `cargo test`) over direct tool invocations (e.g., `npx vitest run Foo`, `npx jest Foo`)
