@@ -61,3 +61,18 @@ target-project/
 - Task selection logic lives in `src/task-selector.ts`, prompt building and loop control in `src/commands/run.ts`, test validation in `src/test-validator.ts`.
 - Paths are kept absolute internally; task `directory` fields in `tasks.json` are relative to the project root.
 - No external runtime dependencies beyond Bun and the `claude` CLI.
+
+## Agent workflow
+
+Agents **must** use the `ralph task` subcommand group for every mutation of `.ralph/tasks.json`:
+
+```
+ralph task start <id> --iteration <n>
+ralph task complete <id> --iteration <n> [--notes "..."]
+ralph task note <id> "message"
+ralph task set-status <id> <status>
+ralph task add --title "..." --description "..." [...]
+ralph task show <id>
+```
+
+Direct `Edit` or `Write` on `.ralph/tasks.json` is **forbidden**. This is enforced two ways: the per-agent system prompt explicitly bans it, and the post-task reviewer runs with a path-scoped allowlist that excludes `.ralph/tasks.json`. The CLI routes all writes through `writeTasksFile()`, which performs atomic temp-file replacement and validates JSON on every write — making corruption structurally impossible via this path.

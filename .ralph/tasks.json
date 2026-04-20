@@ -2,33 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 13,
-      "priority": 13,
-      "title": "Tighten post-task-reviewer prompt (belt-and-suspenders)",
-      "description": "Add an explicit rule near the top of agents/post-task-reviewer.md: a new line stating 'You may only write to .ralph/review-post.md — never modify .ralph/tasks.json.' This is defense-in-depth alongside the path-scoped allowlist from task 12 (the allowlist is the authoritative enforcement; the prompt keeps the agent from even trying). Preserve the existing '## Output Format' and '## Coverage Diagram' sections verbatim — do not reword or restructure them. Smoke-read the file after editing to confirm it still reads as a coherent agent prompt (no orphaned fragments, no broken section headers).",
-      "directory": "",
-      "status": "complete",
-      "completedAt": "2026-04-20T00:00:00Z",
-      "completedBy": "iteration-19",
-      "notes": "Added explicit write restriction rule on line 5 of agents/post-task-reviewer.md, immediately after the job description sentence. All existing sections (Coverage Diagram, Gap Detection, Regression Checks, Output Format) are verbatim-preserved. Smoke-read confirmed coherent prompt with no orphaned fragments. 658 tests green.",
-      "files": [
-        "agents/post-task-reviewer.md"
-      ],
-      "dependencies": [
-        12
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 14,
       "priority": 14,
       "title": "Document ralph task workflow in CLAUDE.md",
       "description": "Add a short 4-6 line section to CLAUDE.md under the 'Conventions' section (or a new 'Agent workflow' subsection if cleaner) explaining: agents must use the ralph task subcommand group (start, complete, note, set-status, add, show) for every mutation of .ralph/tasks.json; direct Edit/Write on .ralph/tasks.json is forbidden and is caught by the per-agent prompt ban plus the path-scoped allowlist on the post-task reviewer; the CLI ensures atomic writes and JSON validity so corruption becomes structurally impossible via this path. Keep the addition tight — do not rewrite the existing 'Architecture' or 'Key design patterns' sections; only add the new guidance.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-04-20T00:00:00Z",
+      "completedBy": "iteration-20",
+      "notes": "Added 'Agent workflow' section at end of CLAUDE.md with ralph task subcommand usage, the two enforcement mechanisms (system prompt ban + path-scoped allowlist), and the atomic-write guarantee. 658 tests green.",
       "files": [
         "CLAUDE.md"
       ],
