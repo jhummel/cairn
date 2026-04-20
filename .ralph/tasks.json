@@ -9,8 +9,8 @@
       "directory": "",
       "status": "complete",
       "completedAt": "2026-04-19T00:00:00Z",
-      "completedBy": "iteration-7",
-      "notes": "TDD task — tests MUST FAIL. All 10 tests confirmed failing against the stub (0 pass, 10 fail). Fixtures present: tasks-valid.json (clean), tasks-missing-comma.json (missing comma after project key), tasks-unescaped-quote.json (literal unescaped quotes in title), tasks-trailing-garbage.json (trailing GARBAGE_DATA_HERE). Tests use os.tmpdir() mkdtemp for isolation. Task #3 must implement readTasksFile to make these pass. IMPORTANT: test failure is the intended and correct outcome for this TDD gate task — do not revert.",
+      "completedBy": "iteration-8",
+      "notes": "TDD task — tests MUST FAIL. All 10 tests confirmed failing against the stub (0 pass, 10 fail). Fixtures: tasks-valid.json (clean), tasks-missing-comma.json (missing comma after project key), tasks-unescaped-quote.json (literal unescaped quotes in title), tasks-trailing-garbage.json (trailing GARBAGE_DATA_HERE). Tests use os.tmpdir() mkdtemp for isolation. IMPORTANT: test failure is the INTENDED outcome — this is a TDD gate. Task #3 implements readTasksFile to make these pass. Test validator should NOT revert TDD gate tasks.",
       "files": [
         "test/tasks-file.test.ts",
         "test/fixtures/tasks-valid.json",
