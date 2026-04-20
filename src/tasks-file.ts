@@ -170,3 +170,32 @@ export function snapshotTasksFile(filePath: string, dataDir: string): void {
   const dest = path.join(dataDir, '.ralph_tasks_snapshot.json');
   fs.copyFileSync(filePath, dest);
 }
+
+export function mutateTasksFile(
+  filePath: string,
+  fn: (data: TasksFile) => void | TasksFile,
+  opts?: { dataDir?: string }
+): void {
+  const { data } = readTasksFile(filePath, opts);
+  const tmpPath = `${filePath}.tmp`;
+  let renamed = false;
+
+  try {
+    const result = fn(data);
+    const next = result === undefined ? data : result;
+    writeTasksFile(filePath, next);
+    renamed = true;
+  } finally {
+    if (!renamed) {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {
+        // Tempfile may not exist if writeTasksFile never got that far; swallow ENOENT.
+      }
+    }
+  }
+
+  if (opts?.dataDir) {
+    snapshotTasksFile(filePath, opts.dataDir);
+  }
+}

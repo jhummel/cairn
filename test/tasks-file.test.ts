@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { readTasksFile, TasksFileError } from '../src/tasks-file';
+import { readTasksFile, writeTasksFile, mutateTasksFile, TasksFileError } from '../src/tasks-file';
 
 const VALID_FIXTURE = path.resolve(__dirname, 'fixtures/tasks-valid.json');
 const MISSING_COMMA_FIXTURE = path.resolve(__dirname, 'fixtures/tasks-missing-comma.json');
@@ -140,6 +140,163 @@ describe('readTasksFile', () => {
     expect(stages).toContain('parse');
     expect(stages).toContain('jsonrepair');
     expect(stages).toContain('snapshot');
+  });
+
+  describe('mutateTasksFile', () => {
+    it('(m-a) writes tempfile BEFORE rename, then renames on success', () => {
+      const filePath = copyFixture(VALID_FIXTURE);
+      const tmpPath = `${filePath}.tmp`;
+      const order: string[] = [];
+
+      const origWrite = fs.writeFileSync.bind(fs);
+      const origRename = fs.renameSync.bind(fs);
+
+      const writeSpy = spyOn(fs, 'writeFileSync').mockImplementation(
+        ((p: any, c: any, o?: any) => {
+          if (String(p) === tmpPath) order.push('write');
+          return origWrite(p, c, o);
+        }) as typeof fs.writeFileSync
+      );
+      const renameSpy = spyOn(fs, 'renameSync').mockImplementation(
+        ((from: any, to: any) => {
+          if (String(from) === tmpPath) order.push('rename');
+          return origRename(from, to);
+        }) as typeof fs.renameSync
+      );
+
+      try {
+        mutateTasksFile(filePath, (data) => {
+          data.tasks[0].title = 'mutated';
+        });
+
+        expect(order).toEqual(['write', 'rename']);
+        expect(writeSpy).toHaveBeenCalled();
+        expect(renameSpy).toHaveBeenCalled();
+
+        const result = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        expect(result.tasks[0].title).toBe('mutated');
+      } finally {
+        writeSpy.mockRestore();
+        renameSpy.mockRestore();
+      }
+    });
+
+    it('(m-b) rename produces the final file on successful fn return-value style', () => {
+      const filePath = copyFixture(VALID_FIXTURE);
+
+      mutateTasksFile(filePath, (data) => {
+        return {
+          project: data.project,
+          tasks: [...data.tasks, { id: 2, priority: 2, title: 'added', status: 'pending' } as any],
+        };
+      });
+
+      const result = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      expect(result.tasks).toHaveLength(2);
+      expect(result.tasks[1].id).toBe(2);
+      expect(result.tasks[1].title).toBe('added');
+      expect(fs.existsSync(`${filePath}.tmp`)).toBe(false);
+    });
+
+    it('(m-c) cleans up tempfile via fs.unlinkSync when fn throws AND leaves tasks.json untouched', () => {
+      const filePath = copyFixture(VALID_FIXTURE);
+      const originalBytes = fs.readFileSync(filePath);
+
+      const unlinkSpy = spyOn(fs, 'unlinkSync');
+
+      try {
+        expect(() =>
+          mutateTasksFile(filePath, () => {
+            throw new Error('boom from fn');
+          })
+        ).toThrow('boom from fn');
+
+        // unlinkSync must have been called on the tempfile path
+        const unlinkCalls = unlinkSpy.mock.calls.filter(
+          (c) => String(c[0]) === `${filePath}.tmp`
+        );
+        expect(unlinkCalls.length).toBeGreaterThanOrEqual(1);
+
+        // Original tasks.json is byte-for-byte untouched
+        const afterBytes = fs.readFileSync(filePath);
+        expect(afterBytes.equals(originalBytes)).toBe(true);
+
+        // Tempfile must not be left on disk
+        expect(fs.existsSync(`${filePath}.tmp`)).toBe(false);
+      } finally {
+        unlinkSpy.mockRestore();
+      }
+    });
+
+    it('(m-d) preserves unknown/extra fields on task objects across the round-trip', () => {
+      const filePath = path.join(tmpDir, 'tasks.json');
+      const initial = {
+        project: 'extra-fields-test',
+        tasks: [
+          {
+            id: 1,
+            priority: 1,
+            title: 'has extras',
+            status: 'pending',
+            customField: 'survives',
+            nested: { deeply: { value: 42 } },
+            arrayField: [1, 2, 3],
+          },
+        ],
+        topLevelExtra: 'also-survives',
+      };
+      fs.writeFileSync(filePath, JSON.stringify(initial, null, 2));
+
+      mutateTasksFile(filePath, (data) => {
+        data.tasks[0].title = 'title changed';
+      });
+
+      const after = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      expect(after.tasks[0].title).toBe('title changed');
+      expect(after.tasks[0].customField).toBe('survives');
+      expect(after.tasks[0].nested.deeply.value).toBe(42);
+      expect(after.tasks[0].arrayField).toEqual([1, 2, 3]);
+      expect(after.topLevelExtra).toBe('also-survives');
+    });
+
+    it('(m-e) writes a snapshot when opts.dataDir is provided', () => {
+      const filePath = copyFixture(VALID_FIXTURE);
+      const snapPath = path.join(tmpDir, '.ralph_tasks_snapshot.json');
+      expect(fs.existsSync(snapPath)).toBe(false);
+
+      mutateTasksFile(
+        filePath,
+        (data) => {
+          data.tasks[0].title = 'snap-me';
+        },
+        { dataDir: tmpDir }
+      );
+
+      expect(fs.existsSync(snapPath)).toBe(true);
+      const snapped = JSON.parse(fs.readFileSync(snapPath, 'utf-8'));
+      expect(snapped.tasks[0].title).toBe('snap-me');
+    });
+
+    it('(m-e2) does NOT write a snapshot when opts.dataDir is absent', () => {
+      const filePath = copyFixture(VALID_FIXTURE);
+
+      mutateTasksFile(filePath, (data) => {
+        data.tasks[0].title = 'no-snap';
+      });
+
+      // No snapshot file anywhere in tmpDir
+      expect(fs.existsSync(path.join(tmpDir, '.ralph_tasks_snapshot.json'))).toBe(false);
+    });
+
+    it('(m-f) supports in-place mutation (fn returns void)', () => {
+      const filePath = copyFixture(VALID_FIXTURE);
+      mutateTasksFile(filePath, (data) => {
+        data.tasks[0].title = 'in-place';
+        // no return
+      });
+      const after = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      expect(after.tasks[0].title).toBe('in-place');
+    });
   });
 
   describe('corruption.log entry structure', () => {

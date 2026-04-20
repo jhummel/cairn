@@ -2,40 +2,15 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 5,
-      "priority": 5,
-      "title": "Implement readTasksFile + writeTasksFile + snapshotTasksFile + corruption.log",
-      "description": "The stub at src/tasks-file.ts currently exports TasksFile interface, TasksFileError class, and three throwing stubs (readTasksFile/writeTasksFile/snapshotTasksFile). The failing test suite already exists at test/tasks-file.test.ts (10 tests) with fixtures under test/fixtures/ (tasks-valid.json, tasks-missing-comma.json, tasks-unescaped-quote.json, tasks-trailing-garbage.json) — this was work product from a prior (incorrectly-split) task; reuse it as-is. Step 1: confirm the tests currently fail against the stubs (that's the TDD red). Step 2: implement the three functions. (a) readTasksFile(path, opts?: { dataDir?: string }) → { data: TasksFile, repaired: boolean, restored: boolean, error?: string } — try JSON.parse first; on failure try jsonrepair (already installed via prior task, imports as `import { jsonrepair } from 'jsonrepair'`) returning { data, repaired: true }; on still-failure read <dataDir>/.ralph_tasks_snapshot.json and parse it, returning { data, restored: true }; if all three paths fail throw TasksFileError with a descriptive message. Every failure path (parse fail, jsonrepair fail, snapshot fail) must appendFileSync a JSONL entry to <dataDir>/corruption.log with { ts: ISO8601, stage: 'parse'|'jsonrepair'|'snapshot', error: string, sha256: hex(sha256(bytes)), preview: bytes.slice(0,500).toString('utf-8') }. Use crypto.createHash('sha256') for the sha256. (b) writeTasksFile(path, data) — JSON.stringify(data, null, 2) to <path>.tmp then fs.renameSync to <path> for atomic semantics. (c) snapshotTasksFile(path, dataDir) — copy the current tasks.json to <dataDir>/.ralph_tasks_snapshot.json (single overwriting file, not rotated). Do NOT implement mutateTasksFile here — that is task 6. Make all 10 existing tests pass without regressing other tests.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "src/tasks-file.ts",
-        "test/tasks-file.test.ts",
-        "test/fixtures/tasks-valid.json",
-        "test/fixtures/tasks-missing-comma.json",
-        "test/fixtures/tasks-unescaped-quote.json",
-        "test/fixtures/tasks-trailing-garbage.json"
-      ],
-      "dependencies": [
-        1,
-        2
-      ],
-      "tests": [
-        "bun test test/tasks-file.test.ts",
-        "bun test"
-      ],
-      "model": "opus",
-      "completedAt": "2026-04-19T00:00:00Z",
-      "completedBy": "iteration-11",
-      "notes": "Implemented readTasksFile/writeTasksFile/snapshotTasksFile. Two non-obvious wrinkles for the next agent: (1) jsonrepair is overly lenient — it 'repairs' bare strings like 'CORRUPT' into '\"CORRUPT\"', which would falsely satisfy tests 7/8. Added isTasksFileShape() guard requiring a non-null object with an Array tasks property; if the repaired result fails the shape check we treat it as a repair failure and fall through to snapshot recovery. (2) jsonrepair cannot handle trailing-garbage fixtures (it errors on 'Unexpected character G'). Added trimTrailingGarbage() — a quote-aware brace/bracket counter that returns the prefix ending at the first balanced top-level close. The jsonrepair path tries the original text first then the trimmed prefix. Logging is best-effort wrapped in try/catch so disk errors on corruption.log never mask the real parse error. snapshot stage is logged even when no snapshot file exists (logged with empty bytes and 'snapshot not found at <path>' error). All 10 tasks-file tests pass; full 605-test suite still green."
-    },
-    {
       "id": 6,
       "priority": 6,
       "title": "Implement mutateTasksFile with atomicity tests",
       "description": "TDD in one task. Step 1: extend test/tasks-file.test.ts with failing tests for a new mutateTasksFile(path: string, fn: (data: TasksFile) => void | TasksFile, opts?: { dataDir?: string }) helper. Tests must cover: (a) tempfile <path>.tmp is written BEFORE rename — spy on fs.writeFileSync and fs.renameSync to verify ordering; (b) rename happens on successful fn; (c) tempfile is cleaned up (via fs.unlinkSync) when fn throws AND the original tasks.json is left untouched; (d) unknown/extra fields on task objects are preserved across the round-trip (e.g., a 'customField' on a task survives); (e) after successful mutation and when opts.dataDir is provided, snapshotTasksFile has been called (spy on it). Step 2: implement mutateTasksFile in src/tasks-file.ts: call readTasksFile(path, opts); call fn(data) — support both in-place mutation AND returning a new object; call writeTasksFile(path, result); call snapshotTasksFile(path, opts.dataDir) when opts.dataDir is provided. Use try/finally to ensure tempfile cleanup on throw. Preserve unknown fields by round-tripping the raw parsed object (don't project into a narrower type). Make new tests pass without regressing task 5's tests.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-04-19T00:00:00Z",
+      "completedBy": "iteration-12",
+      "notes": "Implemented mutateTasksFile(filePath, fn, opts?) in src/tasks-file.ts. Design choices and non-obvious wrinkles for the next agent: (1) For test (m-e), I deliberately chose filesystem-observation (check that <dataDir>/.ralph_tasks_snapshot.json exists with the new content) instead of spyOn(module, 'snapshotTasksFile'). Reason: in Bun/ESM, the call mutateTasksFile→snapshotTasksFile is bound at module-load time, so spying on the export doesn't intercept the internal call. Snapshot-file verification is a stronger behavioural test anyway and avoids brittleness. (2) Tempfile cleanup: the try/finally wraps BOTH fn() and writeTasksFile(), with a `renamed` flag set true only after writeTasksFile returns. If fn throws before writeTasksFile runs, no tempfile exists — I swallow the resulting ENOENT inside a try/catch so the unlinkSync CALL still happens (verifiable via spy) without masking the original error. (3) For fn return-value semantics, I treat `undefined` specifically (`result === undefined ? data : result`) rather than nullish-coalesce — this is consistent with the declared return type `void | TasksFile`. (4) Unknown-field preservation falls out for free: readTasksFile returns the raw parsed object cast as TasksFile (no projection), fn mutates/returns the same shape, JSON.stringify serialises all own-enumerable properties. Verified with nested objects, arrays, and top-level extras in test (m-d). (5) Added a bonus test (m-e2) verifying no snapshot is written when dataDir is absent — guards against accidental snapshot side-effects in the ralph task CLI path where dataDir is optional. (6) Added test (m-f) covering the in-place mutation path explicitly (fn returning void). 17 tests in tasks-file.test.ts all pass; full suite 612/612 green.",
       "files": [
         "src/tasks-file.ts",
         "test/tasks-file.test.ts"
