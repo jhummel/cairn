@@ -1,5 +1,7 @@
-import { readFileSync, writeFileSync } from 'fs';
 import { spawn } from 'child_process';
+import * as path from 'path';
+import * as tasksFileModule from './tasks-file';
+import { TasksFileError, type TasksFile } from './tasks-file';
 import type { Task } from './types';
 
 export interface ValidateTaskTestsOpts {
@@ -58,6 +60,11 @@ function isCantRunError(stderr: string, exitCode: number): boolean {
   return CANT_RUN_PATTERNS.some((p) => lower.includes(p));
 }
 
+function writeAndSnapshot(tasksFilePath: string, dataDir: string, data: TasksFile): void {
+  tasksFileModule.writeTasksFile(tasksFilePath, data);
+  tasksFileModule.snapshotTasksFile(tasksFilePath, dataDir);
+}
+
 export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<ValidationResult> {
   const { task, tasksFilePath, projectRoot, timeoutMs = 120_000 } = opts;
 
@@ -66,8 +73,19 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
     return { status: 'skipped' };
   }
 
-  // Re-read tasks.json to get current status
-  const data = JSON.parse(readFileSync(tasksFilePath, 'utf-8'));
+  const dataDir = path.dirname(tasksFilePath);
+
+  // Re-read tasks.json to get current status (defensive read with jsonrepair + snapshot recovery)
+  let data: TasksFile;
+  try {
+    ({ data } = tasksFileModule.readTasksFile(tasksFilePath, { dataDir }));
+  } catch (err) {
+    if (err instanceof TasksFileError) {
+      return { status: 'error', message: err.message };
+    }
+    throw err;
+  }
+
   const fileTask = data.tasks.find((t: Task) => t.id === task.id);
   if (!fileTask || fileTask.status !== 'complete') {
     return { status: 'skipped' };
@@ -82,14 +100,14 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
     if (stderr.includes('timeout after')) {
       // Timeout → infrastructure error, don't revert
       appendNote(data, fileTask, 'Post-iteration: test commands could not execute (missing deps/scripts).');
-      writeFileSync(tasksFilePath, JSON.stringify(data, null, 2));
+      writeAndSnapshot(tasksFilePath, dataDir, data);
       return { status: 'error', message: `timeout: ${cmd}` };
     }
 
     if (isCantRunError(stderr, exitCode)) {
       // Infrastructure error → note but don't revert
       appendNote(data, fileTask, 'Post-iteration: test commands could not execute (missing deps/scripts).');
-      writeFileSync(tasksFilePath, JSON.stringify(data, null, 2));
+      writeAndSnapshot(tasksFilePath, dataDir, data);
       return { status: 'error', message: `can't run: ${cmd}` };
     }
 
@@ -98,7 +116,7 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
     delete fileTask.completedAt;
     delete fileTask.completedBy;
     appendNote(data, fileTask, 'Post-iteration test validation failed — reverted to in-progress.');
-    writeFileSync(tasksFilePath, JSON.stringify(data, null, 2));
+    writeAndSnapshot(tasksFilePath, dataDir, data);
     return { status: 'failed', message: `${cmd}: ${stderr.slice(-200)}` };
   }
 

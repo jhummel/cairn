@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { validateTaskTests } from '../src/test-validator';
+import * as tasksFileModule from '../src/tasks-file';
 import type { Task } from '../src/types';
 
 function makeTmpDir(): string {
@@ -265,6 +266,75 @@ describe('validateTaskTests', () => {
 
       const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
       expect(result).toEqual({ status: 'skipped' });
+    });
+  });
+
+  describe('defensive I/O', () => {
+    it('(a) recovers malformed tasks.json via readTasksFile and writes back via writeTasksFile', async () => {
+      // Missing comma after "project" — triggers JSON.parse failure but jsonrepair can fix it.
+      const malformed = `{
+  "project": "test"
+  "tasks": [
+    {
+      "id": 1,
+      "priority": 1,
+      "title": "Test",
+      "status": "complete",
+      "completedAt": "2025-01-01T00:00:00Z",
+      "completedBy": "iteration-1",
+      "tests": ["echo FAIL >&2 && exit 1"]
+    }
+  ]
+}`;
+      writeFileSync(tasksFilePath, malformed);
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        tests: ['echo FAIL >&2 && exit 1'],
+      };
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+
+      // The malformed JSON was recovered via readTasksFile → the test ran to failure
+      expect(result.status).toBe('failed');
+      // writeTasksFile rewrote the file as valid JSON with reverted status
+      const parsed = JSON.parse(readFileSync(tasksFilePath, 'utf-8'));
+      expect(parsed.tasks[0].status).toBe('in-progress');
+      expect(parsed.tasks[0].notes).toContain('Post-iteration test validation failed');
+    });
+
+    it('(b) returns { status: error, message } when readTasksFile throws TasksFileError', async () => {
+      // tasksFilePath does not exist and no snapshot → TasksFileError from readTasksFile.
+      // validateTaskTests must surface this as ValidationResult rather than crash.
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        tests: ['echo ok'],
+      };
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+
+      expect(result.status).toBe('error');
+      expect(typeof result.message).toBe('string');
+      expect(result.message!.length).toBeGreaterThan(0);
+    });
+
+    it('(c) calls snapshotTasksFile after each write', async () => {
+      const snapshotSpy = spyOn(tasksFileModule, 'snapshotTasksFile');
+      try {
+        const task: Task = {
+          id: 1, priority: 1, title: 'Test', status: 'complete',
+          tests: ['echo FAIL >&2 && exit 1'],
+        };
+        writeTasksFile(tasksFilePath, [task]);
+
+        await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+
+        expect(snapshotSpy).toHaveBeenCalled();
+        const [filePathArg, dataDirArg] = snapshotSpy.mock.calls[0] as [string, string];
+        expect(filePathArg).toBe(tasksFilePath);
+        expect(dataDirArg).toBe(tmpDir);
+      } finally {
+        snapshotSpy.mockRestore();
+      }
     });
   });
 });
