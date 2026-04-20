@@ -72,11 +72,6 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
   if (!fileTask || fileTask.status !== 'complete') {
     return { status: 'skipped' };
   }
-  // TDD gate tasks have intentionally failing tests — don't revert them
-  if ((fileTask as any).tddGate) {
-    return { status: 'skipped' };
-  }
-
   const cwd = projectRoot;
 
   for (const cmd of task.tests) {
