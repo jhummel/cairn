@@ -272,7 +272,7 @@ export interface RunRunDeps {
   runHealthCheck: (opts: { healthCheck: string; taskDir: string; projectRoot: string }) => Promise<HealthCheckResult>;
   spawnClaude: (opts: SpawnClaudeOpts) => Promise<{ exitCode: number }>;
   validateTaskTests: (opts: ValidateTaskTestsOpts) => Promise<ValidationResult>;
-  archiveCompletedTasks: (opts: { tasksFilePath: string; dataDir: string }) => Promise<ArchiveResult>;
+  archiveCompletedTasks: (opts: { tasksFilePath: string; dataDir: string; iterationLogPath?: string }) => Promise<ArchiveResult>;
   captureGitSha: (projectRoot: string) => string | null;
   runPostTaskReview: (opts: RunPostTaskReviewOpts) => Promise<void>;
   runPlan: (opts: any) => Promise<void>;
@@ -594,6 +594,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       const archiveResult = await deps.archiveCompletedTasks({
         tasksFilePath,
         dataDir,
+        iterationLogPath,
       });
 
       totalArchived += archiveResult.archivedCount;

@@ -5,6 +5,12 @@ import { tmpdir } from 'os';
 import { archiveCompletedTasks } from '../src/task-archiver';
 import type { Task } from '../src/types';
 
+function expectEmptyResult(result: { archivedCount: number; prevNotes: string | null; warnings?: string[] }) {
+  expect(result.archivedCount).toBe(0);
+  expect(result.prevNotes).toBeNull();
+  expect(result.warnings ?? []).toEqual([]);
+}
+
 function makeTmpDir(): string {
   const dir = join(tmpdir(), `ralph-ta-test-${Math.random().toString(36).slice(2)}`);
   mkdirSync(dir, { recursive: true });
@@ -43,7 +49,7 @@ describe('archiveCompletedTasks', () => {
   describe('no-op cases', () => {
     it('returns zero when tasks.json is missing', async () => {
       const result = await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
-      expect(result).toEqual({ archivedCount: 0, prevNotes: null });
+      expectEmptyResult(result);
     });
 
     it('returns zero when no tasks are complete', async () => {
@@ -53,7 +59,7 @@ describe('archiveCompletedTasks', () => {
       ];
       writeTasks(tasksFilePath, tasks);
       const result = await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
-      expect(result).toEqual({ archivedCount: 0, prevNotes: null });
+      expectEmptyResult(result);
     });
 
     it('does not modify tasks.json when nothing to archive', async () => {
@@ -297,7 +303,83 @@ describe('archiveCompletedTasks', () => {
     it('handles empty tasks array in tasks.json', async () => {
       writeFileSync(tasksFilePath, JSON.stringify({ project: 'test', tasks: [] }));
       const result = await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
-      expect(result).toEqual({ archivedCount: 0, prevNotes: null });
+      expectEmptyResult(result);
+    });
+  });
+
+  describe('defensive I/O', () => {
+    it('(a) recovers malformed tasks.json via readTasksFile and archives normally', async () => {
+      // Missing comma after "project" — JSON.parse fails but jsonrepair fixes it.
+      const malformed = `{
+  "project": "test"
+  "tasks": [
+    { "id": 1, "priority": 1, "title": "Done", "status": "complete", "notes": "n1" },
+    { "id": 2, "priority": 2, "title": "Pending", "status": "pending" }
+  ]
+}`;
+      writeFileSync(tasksFilePath, malformed);
+
+      const result = await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
+
+      expect(result.archivedCount).toBe(1);
+      expect(result.prevNotes).toBe('n1');
+      expect(result.warnings).toEqual([]);
+
+      // Archive happened
+      const archive = readCompleted(join(tmpDir, 'tasks.completed.json'));
+      expect(archive.tasks).toHaveLength(1);
+      expect(archive.tasks[0].id).toBe(1);
+
+      // tasks.json now valid JSON with only the pending task
+      const after = readTasks(tasksFilePath);
+      expect(after.tasks).toHaveLength(1);
+      expect(after.tasks[0].id).toBe(2);
+
+      // Snapshot was written (writeTasksFile + snapshotTasksFile path)
+      expect(existsSync(join(tmpDir, '.ralph_tasks_snapshot.json'))).toBe(true);
+    });
+
+    it('(b) returns warnings + writes corruption.log + appends iteration log when readTasksFile throws TasksFileError', async () => {
+      // Garbage that jsonrepair cannot turn into a TasksFile shape, AND no snapshot.
+      writeFileSync(tasksFilePath, '\x00\x01\x02 not json @#$%^&*()');
+      const iterationLogPath = join(tmpDir, '.ralph_iterations.log');
+      writeFileSync(iterationLogPath, 'pre-existing line\n');
+
+      const result = await archiveCompletedTasks({
+        tasksFilePath,
+        dataDir: tmpDir,
+        iterationLogPath,
+      });
+
+      // Returned shape: archivedCount: 0, prevNotes: null, warnings: [<string>]
+      expect(result.archivedCount).toBe(0);
+      expect(result.prevNotes).toBeNull();
+      expect(Array.isArray(result.warnings)).toBe(true);
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(typeof result.warnings[0]).toBe('string');
+      expect(result.warnings[0].length).toBeGreaterThan(0);
+
+      // corruption.log exists with at least one entry (written by readTasksFile)
+      const corruptionLogPath = join(tmpDir, 'corruption.log');
+      expect(existsSync(corruptionLogPath)).toBe(true);
+      const corruptionLogContent = readFileSync(corruptionLogPath, 'utf-8');
+      expect(corruptionLogContent.length).toBeGreaterThan(0);
+      expect(corruptionLogContent).toContain('"stage"');
+
+      // Iteration log was appended (still has the pre-existing content + new line)
+      const iterLogContent = readFileSync(iterationLogPath, 'utf-8');
+      expect(iterLogContent).toContain('pre-existing line');
+      expect(iterLogContent.length).toBeGreaterThan('pre-existing line\n'.length);
+    });
+
+    it('(b) does not throw if iterationLogPath is omitted', async () => {
+      writeFileSync(tasksFilePath, '\x00\x01\x02 not json @#$%^&*()');
+
+      const result = await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
+
+      expect(result.archivedCount).toBe(0);
+      expect(result.prevNotes).toBeNull();
+      expect(result.warnings.length).toBeGreaterThan(0);
     });
   });
 });

@@ -1,11 +1,8 @@
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, appendFileSync } from 'fs';
 import { join } from 'path';
+import * as tasksFileModule from './tasks-file';
+import { TasksFileError } from './tasks-file';
 import type { Task } from './types';
-
-interface TasksFile {
-  project?: string;
-  tasks: Task[];
-}
 
 interface CompletedFile {
   tasks: Task[];
@@ -14,27 +11,52 @@ interface CompletedFile {
 export interface ArchiveResult {
   archivedCount: number;
   prevNotes: string | null;
+  warnings: string[];
 }
 
 export async function archiveCompletedTasks(opts: {
   tasksFilePath: string;
   dataDir: string;
+  iterationLogPath?: string;
 }): Promise<ArchiveResult> {
-  const { tasksFilePath, dataDir } = opts;
+  const { tasksFilePath, dataDir, iterationLogPath } = opts;
+  const warnings: string[] = [];
 
-  // Read tasks.json
-  let data: TasksFile;
+  // Missing file → nothing to archive (not a corruption event)
+  if (!existsSync(tasksFilePath)) {
+    return { archivedCount: 0, prevNotes: null, warnings };
+  }
+
+  // Defensive read: jsonrepair + snapshot recovery handled inside readTasksFile.
+  // On TasksFileError, surface the failure as a warning + iteration-log line
+  // instead of silently returning zero (the previous bug at lines 27-31).
+  let data: tasksFileModule.TasksFile;
   try {
-    data = JSON.parse(readFileSync(tasksFilePath, 'utf-8')) as TasksFile;
-  } catch {
-    return { archivedCount: 0, prevNotes: null };
+    ({ data } = tasksFileModule.readTasksFile(tasksFilePath, { dataDir }));
+  } catch (err) {
+    if (err instanceof TasksFileError) {
+      const msg = `archiveCompletedTasks: ${err.message}`;
+      warnings.push(msg);
+      if (iterationLogPath) {
+        try {
+          appendFileSync(
+            iterationLogPath,
+            `${new Date().toISOString()} — archive aborted: ${err.message}\n`
+          );
+        } catch {
+          // Best-effort; never let logging failures mask the real failure.
+        }
+      }
+      return { archivedCount: 0, prevNotes: null, warnings };
+    }
+    throw err;
   }
 
   const completed = data.tasks.filter((t) => t.status === 'complete');
   const remaining = data.tasks.filter((t) => t.status !== 'complete');
 
   if (completed.length === 0) {
-    return { archivedCount: 0, prevNotes: null };
+    return { archivedCount: 0, prevNotes: null, warnings };
   }
 
   // Append completed IDs to .ralph_completed_ids (JSON array)
@@ -78,12 +100,14 @@ export async function archiveCompletedTasks(opts: {
   archive.tasks.push(...completed);
   writeFileSync(archivePath, JSON.stringify(archive, null, 2));
 
-  // Remove completed tasks from tasks.json
+  // Remove completed tasks from tasks.json — atomic write + snapshot
   data.tasks = remaining;
-  writeFileSync(tasksFilePath, JSON.stringify(data, null, 2));
+  tasksFileModule.writeTasksFile(tasksFilePath, data);
+  tasksFileModule.snapshotTasksFile(tasksFilePath, dataDir);
 
   return {
     archivedCount: completed.length,
     prevNotes: completed[completed.length - 1].notes ?? null,
+    warnings,
   };
 }
