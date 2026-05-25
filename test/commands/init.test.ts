@@ -906,9 +906,9 @@ describe('installSlashCommands', () => {
   test('copies .md files from ralph commands/ to target .claude/commands/', () => {
     installSlashCommands(tmpDir);
     const destDir = path.join(tmpDir, '.claude', 'commands');
-    // Should have copied generate-tasks.md and review-tasks.md
     expect(fs.existsSync(path.join(destDir, 'generate-tasks.md'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'review-tasks.md'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'codebase-audit.md'))).toBe(true);
   });
 
   test('copied files have the same content as source', () => {
@@ -941,6 +941,7 @@ describe('installSlashCommands', () => {
     const output = stdoutLines.join('\n');
     expect(output).toContain('generate-tasks.md');
     expect(output).toContain('review-tasks.md');
+    expect(output).toContain('codebase-audit.md');
   });
 
   test('handles missing commands/ dir gracefully', () => {

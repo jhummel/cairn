@@ -7,7 +7,7 @@
       "title": "Create commands/codebase-audit.md — the slash command wrapper",
       "description": "Create the slash command at `commands/codebase-audit.md`, following the pattern established by `commands/generate-tasks.md`. This slash command instructs the planner agent to: (1) spawn the `audit-planner` agent via the Agent tool, (2) receive the structured findings report, (3) present a concise summary to the user organized by severity and lens — not the full raw output, but a digestible overview, (4) invite the user to discuss (\"anything surprising? anything you know is already handled? anything to add?\"), (5) when the conversation feels complete, write `planning-notes.md` incorporating the audit findings into the standard format (Context, Goals, Approach, Rejected Alternatives, Rough Task Outline, Open Questions). The user must be able to course-correct before anything gets generated. Reference `commands/generate-tasks.md` for structural patterns (how the slash command wraps a subagent invocation).",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "commands/codebase-audit.md",
         "commands/generate-tasks.md"
@@ -18,7 +18,10 @@
       "dependencies": [
         1
       ],
-      "model": "opus"
+      "model": "opus",
+      "completedAt": "2026-05-25T05:09:20.653Z",
+      "completedBy": "iteration-3",
+      "notes": "# Task #2 Completion Notes\n\n## What was done\n\nCreated `commands/codebase-audit.md` — the slash command that wraps the `audit-planner` agent.\n\n### Slash command design\n\nThe command follows the pattern from `commands/generate-tasks.md`:\n1. Spawns the `audit-planner` agent via the Agent tool (reads `agents/audit-planner.md` and passes its contents as the prompt)\n2. Receives the structured findings report\n3. Presents a concise summary organized by severity (security) and impact (structural) — not the raw output\n4. Invites the user to discuss findings, dismiss false positives, add context\n5. When discussion is complete, writes `.ralph/planning-notes.md` in the standard format (Context, Goals, Approach, Rejected Alternatives, Rough Task Outline, Open Questions)\n6. Suggests running `/generate-tasks` next\n\n### Key design decisions\n\n- The command instructs the planner to read `agents/audit-planner.md` and pass it verbatim rather than embedding the full audit prompt inline. This keeps the slash command maintainable and ensures changes to the audit-planner agent are automatically picked up.\n- Discussion mode is explicit: the command tells the agent not to rush to writing planning notes, staying in conversation until the user signals readiness.\n- The summary format groups security findings by severity and structural findings by impact, with clean areas called out so the user knows what doesn't need attention.\n\n### Tests updated\n\nUpdated `test/commands/init.test.ts`:\n- \"copies .md files\" test: added assertion for `codebase-audit.md` existence\n- \"logs installed/updated\" test: added assertion that `codebase-audit.md` appears in install output\n\nFull suite: 660 pass, 0 fail.\n"
     },
     {
       "id": 3,
@@ -39,25 +42,6 @@
         2
       ],
       "model": "sonnet"
-    },
-    {
-      "id": 4,
-      "priority": 1,
-      "title": "Investigate --allowedTools and the Agent tool",
-      "description": "The planner is spawned with `--allowedTools Read,Glob,Grep,Write,Edit` (in `src/commands/plan.ts` line 162). The `/generate-tasks` and `/codebase-audit` slash commands instruct the planner to use the `Agent` tool, which is not in that allowlist. The open question is whether `--allowedTools` restricts the `Agent` tool or whether `Agent` is always available. Investigate this by: (1) reading the Claude CLI documentation or help output (`claude --help`, `claude man` or similar) to understand `--allowedTools` behavior with respect to the Agent tool, (2) if `Agent` IS restricted by `--allowedTools`, add `Agent` to the allowlist in `src/commands/plan.ts` (change the `--allowedTools` value from `'Read,Glob,Grep,Write,Edit'` to `'Read,Glob,Grep,Write,Edit,Agent'`), (3) if `Agent` is NOT restricted (i.e., it's always available regardless of `--allowedTools`), document this finding in the task notes and leave the code unchanged. This affects both the existing `/generate-tasks` command and the new `/codebase-audit` command.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "src/commands/plan.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [],
-      "model": "sonnet",
-      "completedAt": "2026-05-25T05:03:51.449Z",
-      "completedBy": "iteration-2",
-      "notes": "# Task #4 Completion Notes\n\n## Finding: `--allowedTools` DOES restrict the `Agent` tool\n\n### How `--allowedTools` works\n\nThe Claude CLI has two distinct flags:\n- `--tools <tools...>` — controls which built-in tools are **available at all**\n- `--allowedTools <tools...>` — controls which tools are **auto-approved** (no permission prompt)\n\nIn **interactive mode** (no `-p`), `--allowedTools` means:\n- Listed tools: auto-approved, no user prompt required\n- Unlisted tools: user sees a permission prompt before each use\n\nIn **non-interactive mode** (`-p`), `--allowedTools` acts as a true whitelist: unlisted tools are **blocked entirely**.\n\nThe planner is spawned in interactive mode (`stdio: 'inherit'`, no `-p`), so with the old allowlist `Read,Glob,Grep,Write,Edit`, the `Agent` tool was NOT blocked — but it would have prompted the user for permission every time a slash command like `/generate-tasks` or `/codebase-audit` invoked it.\n\n### What was changed\n\n`src/commands/plan.ts` line 162:\n```\nBefore: '--allowedTools', 'Read,Glob,Grep,Write,Edit'\nAfter:  '--allowedTools', 'Read,Glob,Grep,Write,Edit,Agent'\n```\n\nThis ensures the `/generate-tasks` and `/codebase-audit` slash commands can use the `Agent` tool to spawn subagents without interrupting the user with a permission prompt.\n\n### Test changes\n\nUpdated `test/commands/plan.test.ts`:\n- Renamed the test to be more descriptive: \"spawns claude with --allowedTools including Agent for slash command support\"\n- Updated the expected value from `'Read,Glob,Grep,Write,Edit'` to `'Read,Glob,Grep,Write,Edit,Agent'`\n\nFull suite: 660 pass, 0 fail.\n"
     },
     {
       "id": 5,

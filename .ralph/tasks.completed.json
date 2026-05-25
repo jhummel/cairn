@@ -3015,6 +3015,25 @@
       "completedAt": "2026-05-25T04:57:22.282Z",
       "completedBy": "iteration-1",
       "notes": "# Task #1 Completion Notes\n\n## What was done\nCreated `agents/audit-planner.md` — a read-only recon specialist agent prompt that performs cold codebase audits through two cognitive lenses:\n\n1. **Security Pass** (\"How do I abuse this?\") — adversarial analysis of trust boundaries, injection surfaces, secret handling, file operations, child process spawning, and permission checks.\n\n2. **SOLID/Structural Pass** (\"What will hurt to change in six months?\") — maintainability analysis of responsibility separation, hidden coupling, interface contracts, duplication, oversized modules, and missing extension points.\n\n## Key design decisions\n- **Confirm-then-remediate framing**: Every finding must name specific files/functions, provide bounded confirmation steps, and suggest a remediation direction. Unbounded findings are demoted to Investigation Items (spikes).\n- **Read-only**: The agent does NOT write planning-notes.md or modify any project files — it returns raw structured findings.\n- **Generalized language**: Uses module/component/directory/function, not service-oriented language.\n- **Prior-work awareness**: Reads tasks.completed.json and planning-notes.md to avoid re-flagging fixed issues or rehashing settled decisions.\n- **Follows existing agent pattern**: Same structure as planner.md and post-task-reviewer.md — briefing materials section, workflow steps, output format, and rules.\n\n## Output format sections\n- Codebase Overview, Security Findings (S-N), SOLID/Structural Findings (D-N), Investigation Items (I-N), Reviewed and Judged Sound, Unresolved\n\n## Test changes\n- Updated `test/commands/init.test.ts` line 1078: added assertion that `audit-planner.md` is installed by `installAgents()`.\n- Full suite: 660 pass, 0 fail.\n"
+    },
+    {
+      "id": 4,
+      "priority": 1,
+      "title": "Investigate --allowedTools and the Agent tool",
+      "description": "The planner is spawned with `--allowedTools Read,Glob,Grep,Write,Edit` (in `src/commands/plan.ts` line 162). The `/generate-tasks` and `/codebase-audit` slash commands instruct the planner to use the `Agent` tool, which is not in that allowlist. The open question is whether `--allowedTools` restricts the `Agent` tool or whether `Agent` is always available. Investigate this by: (1) reading the Claude CLI documentation or help output (`claude --help`, `claude man` or similar) to understand `--allowedTools` behavior with respect to the Agent tool, (2) if `Agent` IS restricted by `--allowedTools`, add `Agent` to the allowlist in `src/commands/plan.ts` (change the `--allowedTools` value from `'Read,Glob,Grep,Write,Edit'` to `'Read,Glob,Grep,Write,Edit,Agent'`), (3) if `Agent` is NOT restricted (i.e., it's always available regardless of `--allowedTools`), document this finding in the task notes and leave the code unchanged. This affects both the existing `/generate-tasks` command and the new `/codebase-audit` command.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "src/commands/plan.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet",
+      "completedAt": "2026-05-25T05:03:51.449Z",
+      "completedBy": "iteration-2",
+      "notes": "# Task #4 Completion Notes\n\n## Finding: `--allowedTools` DOES restrict the `Agent` tool\n\n### How `--allowedTools` works\n\nThe Claude CLI has two distinct flags:\n- `--tools <tools...>` — controls which built-in tools are **available at all**\n- `--allowedTools <tools...>` — controls which tools are **auto-approved** (no permission prompt)\n\nIn **interactive mode** (no `-p`), `--allowedTools` means:\n- Listed tools: auto-approved, no user prompt required\n- Unlisted tools: user sees a permission prompt before each use\n\nIn **non-interactive mode** (`-p`), `--allowedTools` acts as a true whitelist: unlisted tools are **blocked entirely**.\n\nThe planner is spawned in interactive mode (`stdio: 'inherit'`, no `-p`), so with the old allowlist `Read,Glob,Grep,Write,Edit`, the `Agent` tool was NOT blocked — but it would have prompted the user for permission every time a slash command like `/generate-tasks` or `/codebase-audit` invoked it.\n\n### What was changed\n\n`src/commands/plan.ts` line 162:\n```\nBefore: '--allowedTools', 'Read,Glob,Grep,Write,Edit'\nAfter:  '--allowedTools', 'Read,Glob,Grep,Write,Edit,Agent'\n```\n\nThis ensures the `/generate-tasks` and `/codebase-audit` slash commands can use the `Agent` tool to spawn subagents without interrupting the user with a permission prompt.\n\n### Test changes\n\nUpdated `test/commands/plan.test.ts`:\n- Renamed the test to be more descriptive: \"spawns claude with --allowedTools including Agent for slash command support\"\n- Updated the expected value from `'Read,Glob,Grep,Write,Edit'` to `'Read,Glob,Grep,Write,Edit,Agent'`\n\nFull suite: 660 pass, 0 fail.\n"
     }
   ]
 }
