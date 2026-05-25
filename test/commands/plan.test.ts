@@ -447,7 +447,7 @@ describe('runPlan', () => {
     }
   });
 
-  test('spawns claude with --allowedTools Read,Glob,Grep,Write,Edit', () => {
+  test('spawns claude with --allowedTools including Agent for slash command support', () => {
     const { tmpDir, ralphDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
@@ -461,7 +461,7 @@ describe('runPlan', () => {
       const args = calls[0].args;
       expect(args).toContain('--allowedTools');
       const idx = args.indexOf('--allowedTools');
-      expect(args[idx + 1]).toBe('Read,Glob,Grep,Write,Edit');
+      expect(args[idx + 1]).toBe('Read,Glob,Grep,Write,Edit,Agent');
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
