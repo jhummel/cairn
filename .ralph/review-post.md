@@ -1750,3 +1750,301 @@ CLAUDE.md content itself, which is appropriate for documentation.
 CLEAN
 
 ---
+
+## Task #15: Full-suite verification + build + manual corruption-recovery smoke test
+Reviewed: 2026-04-20T06:30:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Step 1: bun test — full suite green
+│         658 pass / 0 fail / 1290 expects
+├── [DONE] Step 2: bun run build — dist/ralph produced cleanly
+│         61MB binary, --version reports 0.1.0
+├── [PARTIAL] Step 3a: scratch project start/complete/note/note--replace smoke test
+│   ├── [DONE] All four mutations produced valid JSON
+│   ├── [DONE] Note append: 'manual smoke | appended'; --replace: 'replaced'
+│   └── [PARTIAL] Required RALPH_PROJECT_ROOT env var for non-git scratch dirs —
+│             documented in notes but not flagged as a gap vs. task description
+│             (task did not mention env var workaround needed)
+├── [PARTIAL] Step 3b: deliberate broken comma → verify jsonrepair recovery +
+│            corruption.log entry with stage:'jsonrepair'
+│   ├── [DONE] jsonrepair recovered cleanly; file persisted valid JSON
+│   └── [GAP] corruption.log entry has stage:'parse', NOT stage:'jsonrepair'
+│             Task spec required 'stage:jsonrepair' entry; actual code only logs
+│             stage:'jsonrepair' when jsonrepair FAILS (not on success). Agent
+│             documented this correctly but the expected observable outcome was
+│             not achieved. The spec was imprecise, but the gap vs. the literal
+│             requirement exists.
+├── [DONE] Step 3c: delete both tasks.json AND snapshot → TasksFileError surfaced
+│   ├── [DONE] Unrecoverable garbage + no snapshot: exit 1, corruption.log had
+│   │         all three stages (parse, jsonrepair, snapshot)
+│   └── [DONE] Both-files-deleted variant: ENOENT TasksFileError, exit 1,
+│             no corruption.log writes (correct — absence ≠ corruption)
+├── [PARTIAL] Step 3d: trigger post-task review; verify permission_denied event
+│            in stream-json for Edit on .ralph/tasks.json
+│   ├── [DONE] Structural verification: confirmed allowlist string in
+│   │         src/post-task-reviewer.ts:123 excludes tasks.json
+│   ├── [DONE] Unit test at test/post-task-reviewer.test.ts:263-265 asserts
+│   │         the exact --allowedTools string verbatim
+│   └── [GAP] Live end-to-end verification NOT performed — no real review was
+│             triggered, no stream-json was inspected for permission_denied event.
+│             Task explicitly required: "confirm by reading the stream-json output
+│             for a permission_denied event." Agent substituted structural proof.
+└── [DONE] All results recorded in task notes on completion
+```
+
+### Files Changed
+- `.ralph/tasks.json` — task #15 marked complete with detailed notes
+- `.ralph/tasks.completed.json` — tasks #1–#14 from current session archived
+- `.ralph/.ralph_tasks_snapshot.json` — new snapshot file (task #15 state)
+- `.ralph/.ralph_iterations.log` — iteration #21 appended
+- `.ralph/review-post.md` — prior task reviews appended (tasks #11, #6, #1, #12, #3, #2, #4, #5, #7, #1-revert, #10, #9, #8, #13, #14)
+- `.ralph/planning-notes.md` — updated with current session planning context
+
+### Gaps
+1. **Step 3b — stage label mismatch**: The task required verifying `stage:'jsonrepair'` in corruption.log. Per `src/tasks-file.ts:60-79`, the code logs `stage:'jsonrepair'` only when jsonrepair *fails*; successful recovery logs `stage:'parse'`. The agent correctly identified and documented this discrepancy, but the spec's observable requirement (a `stage:'jsonrepair'` entry) was not met. The underlying behavior (recovery succeeded) is correct, but the verification criterion was not satisfied literally.
+
+2. **Step 3d — no live end-to-end test**: The task explicitly required triggering a real post-task review and reading the stream-json output for a `permission_denied` event. The agent substituted code inspection + unit test assertion instead. This is a structural proof, not an end-to-end smoke test as specified. The rationale (cost in tokens and time) is pragmatic but the requirement was explicit.
+
+3. **Step 3a — undocumented env var requirement**: Non-git scratch directories require `RALPH_PROJECT_ROOT` to be set. This is a usability constraint discovered during the smoke test but not noted as a gap or actionable issue for future documentation.
+
+### Regression Risks
+None detected. This task made no source code changes — it was pure verification. All `.ralph/` mutations are internal data files (tasks.json, snapshot, log, review). No existing tests were deleted or modified.
+
+### Verdict
+HAS_GAPS
+
+---
+
+## Task #1: Create agents/audit-planner.md — the recon specialist agent prompt
+Reviewed: 2026-05-24T00:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Create agents/audit-planner.md
+├── [DONE] Read briefing materials (CLAUDE.md, IMPLEMENTATION.md,
+│         tasks.completed.json, planning-notes.md)
+│         └── Lines 5-12: all four sources listed; build configs also included
+├── [DONE] Two-pass structure — security lens + SOLID/structural lens
+│   ├── [DONE] Security Pass ("How do I abuse this?") — lines 24-34
+│   │         (trust boundaries, injection, secrets, file ops, child processes,
+│   │          permission checks — 6 concrete question categories)
+│   └── [DONE] SOLID/Structural Pass ("What will hurt to change in 6 months?")
+│             — lines 36-46 (SRP, hidden coupling, interfaces, duplication,
+│               oversized modules, missing extension points — 6 categories)
+├── [DONE] Confirm-then-remediate framing
+│   ├── [DONE] Every finding must name files/functions (line 51)
+│   ├── [DONE] Bounded confirmation steps required (line 52)
+│   └── [DONE] Remediation direction required (line 53)
+├── [DONE] Spike demotion — unbounded findings demoted to Investigation Items
+│         (lines 55, 78-83: [I-N] format with Concern + Spike scope)
+├── [DONE] Structured output format
+│   ├── [DONE] Codebase Overview (lines 61-62)
+│   ├── [DONE] Security Findings [S-N] with severity (lines 64-69)
+│   ├── [DONE] SOLID/Structural Findings [D-N] with impact (lines 71-76)
+│   ├── [DONE] Investigation Items [I-N] (lines 78-83) — additive superset;
+│   │         required by spike-demotion requirement, not listed in format spec
+│   │         but necessary to house demoted findings
+│   ├── [DONE] Reviewed and Judged Sound (lines 84-85)
+│   └── [DONE] Unresolved (lines 87-88)
+├── [DONE] Agent must NOT write planning-notes.md or modify project files
+│         (lines 2-3, reinforced in RULES at line 91)
+├── [DONE] Generalized language (module/component/directory/function)
+│         — RULES line 93 explicitly prohibits service-oriented language
+├── [DONE] Follows pattern of existing agents (planner.md, post-task-reviewer.md)
+│         — BRIEFING MATERIALS → YOUR ROLE → WORKFLOW → detail sections →
+│           OUTPUT FORMAT → RULES structure matches existing agents
+└── [DONE] bun test passes
+          └── Test added: init.test.ts line 1078 asserts
+              audit-planner.md is installed by installAgents()
+              Agent notes: 660 pass / 0 fail
+```
+
+### Files Changed
+- `agents/audit-planner.md` — new file, 95 lines; full recon specialist agent prompt
+- `test/commands/init.test.ts` — one assertion added to "copies actual ralph agents to .claude/agents/" test (line 1078)
+- `.ralph/.ralph_iterations.log` — iteration tracking entries appended
+- `.ralph/.ralph_task_1_notes.md` — new completion notes file
+- `.ralph/.ralph_tasks_snapshot.json` — updated to reflect new task list
+- `.ralph/tasks.completed.json` — task #15 from prior session archived
+- `.ralph/tasks.json` — task #1 marked complete; tasks #2–5 added for subsequent work
+
+### Gaps
+None detected. All five structural requirements (briefing materials, two-pass lens,
+confirm-then-remediate, spike demotion, structured output format) are fully implemented.
+The prohibition on writing files and the generalized language rule are both explicit in
+the RULES section.
+
+Note: the task description lists five output sections ("Codebase Overview, Security
+Findings, SOLID/Structural Findings, Reviewed and Judged Sound, Unresolved") but the
+agent also added "Investigation Items" as a sixth. This is a correct superset: spike
+demotion (requirement 4) needs a named destination section, and the task description
+implicitly requires it.
+
+### Regression Risks
+- The "copies actual ralph agents to .claude/agents/" test at init.test.ts:1072 now
+  asserts on four filenames instead of three. Removing audit-planner.md would break
+  this test — intentional guard behavior.
+- No existing source code was modified. installAgents() already globs *.md from the
+  agents/ directory, so the new file is picked up automatically.
+- No tests were deleted or weakened.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #4: Investigate --allowedTools and the Agent tool
+Reviewed: 2026-05-24T00:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] (1) Investigate --allowedTools behavior re: Agent tool
+│         — findings documented in .ralph/.ralph_task_4_notes.md:
+│           interactive mode (no -p) → unlisted tools prompt user;
+│           non-interactive mode (-p) → unlisted tools blocked entirely.
+│           Planner uses stdio:'inherit' (interactive), so Agent was NOT
+│           blocked but would prompt on every /generate-tasks invocation.
+├── [DONE] (2) Agent IS restricted → add Agent to allowlist in src/commands/plan.ts
+│         — line 162: 'Read,Glob,Grep,Write,Edit' → 'Read,Glob,Grep,Write,Edit,Agent'
+└── [DONE] (3) Document findings in task notes (.ralph/.ralph_task_4_notes.md)
+          — covers both /generate-tasks and /codebase-audit slash commands
+          — test updated: renamed + expected value updated to include Agent
+```
+
+### Files Changed
+- `src/commands/plan.ts` — `--allowedTools` value updated (line 162) to include `Agent`
+- `test/commands/plan.test.ts` — test renamed for clarity; expected `--allowedTools` value updated to `'Read,Glob,Grep,Write,Edit,Agent'`
+- `.ralph/.ralph_task_4_notes.md` — new completion notes file with detailed investigation findings
+- `.ralph/.ralph_tasks_snapshot.json` — updated to reflect task #4 completion, task #1 archived
+- `.ralph/tasks.json` — task #4 marked complete with notes; task #1 removed (archived)
+- `.ralph/tasks.completed.json` — task #1 archived here
+- `.ralph/.ralph_iterations.log` — iteration 2 completion appended
+
+### Gaps
+None detected. All three branches of the investigation task are fully addressed: the behavior was investigated, the correct conditional branch was chosen (Agent IS restricted → add to allowlist), the code was updated, and findings were documented.
+
+Minor observation: the investigation findings are derived from behavioral reasoning about the CLI (interactive vs. non-interactive mode semantics) rather than quoting a specific documentation source. The conclusion is consistent with known `--allowedTools` behavior and the reasoning is sound, but the diff cannot independently confirm which documentation source was consulted.
+
+### Regression Risks
+- Adding `Agent` to `--allowedTools` grants the planning session (interactive mode) the ability to spawn sub-agents without any user permission prompt. This is the intended effect. No unintended tool access is introduced — the allowlist still restricts all other tools to the explicit set.
+- The test update is a precise match to the code change: only the expected string and test description were updated; the test structure and assertion logic are unchanged. No test coverage was deleted or weakened.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #2: Create commands/codebase-audit.md — the slash command wrapper
+Reviewed: 2026-05-24T00:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Create commands/codebase-audit.md
+│         — new file, 66 lines
+├── [DONE] Follow pattern established by commands/generate-tasks.md
+│         — same structure: role definition, Agent tool invocation,
+│           step-by-step numbered instructions, write-directly note
+├── [DONE] (1) Spawn audit-planner agent via Agent tool
+│         — instructs planner to Read agents/audit-planner.md and pass
+│           its full contents verbatim as the subagent prompt
+│           (subagent_type: "general-purpose")
+├── [DONE] (2) Receive structured findings report
+│         — subagent returns structured audit output to calling agent
+├── [DONE] (3) Present concise summary organized by severity and lens
+│         — Security findings grouped by severity (critical/high/medium/low)
+│         — Structural findings grouped by impact (high/medium/low)
+│         — Investigation items listed with one-line descriptions
+│         — Clean areas called out so user knows what needs no attention
+│         — Explicit scanability target: "read it in under 2 minutes"
+│         — Explicitly forbids dumping raw output
+├── [DONE] (4) Invite user to discuss
+│         — Exact blockquote: "Anything surprising here? Anything you know
+│           is already handled? Anything to add from your own experience
+│           with this codebase?" — faithful elaboration of task's phrasing
+│         — "Do NOT rush to write planning notes. Stay in discussion mode
+│           until the user signals they are ready to move on."
+├── [DONE] (5) Write planning-notes.md in standard format when complete
+│         — All 6 required sections present: Context, Goals, Approach,
+│           Rejected Alternatives, Rough Task Outline, Open Questions
+│         — Writes using Write tool directly (not another subagent)
+│         — Suggests /generate-tasks as next step after writing
+├── [DONE] User can course-correct before anything gets generated
+│         — Explicit discussion-mode gate; no file writes until user signals
+└── [DONE] Tests: bun test passes
+          — test/commands/init.test.ts updated with 2 assertions:
+            (a) "copies .md files" test: codebase-audit.md exists in dest
+            (b) "logs installed/updated" test: codebase-audit.md in output
+          — Full suite: 660 pass, 0 fail
+```
+
+### Files Changed
+- `commands/codebase-audit.md` — new file, 66 lines; full slash command implementation
+- `test/commands/init.test.ts` — 2 assertions added (lines 911, 944) for `codebase-audit.md`
+- `.ralph/.ralph_task_2_notes.md` — new completion notes file
+- `.ralph/.ralph_tasks_snapshot.json` — task #2 marked complete; task #4 archived
+- `.ralph/tasks.json` — task #2 marked complete; task #4 removed (archived)
+- `.ralph/tasks.completed.json` — task #4 archived here
+- `.ralph/.ralph_iterations.log` — iterations 2 and 3 completion entries appended
+
+### Gaps
+None detected. All five numbered requirements from the task description are explicitly
+implemented in `commands/codebase-audit.md`. The discussion-gate and course-correct
+requirement are directly addressed. The structural pattern from `commands/generate-tasks.md`
+is faithfully followed (Agent tool invocation, role setup, stepwise instructions).
+
+Note: the task says the slash command "instructs the planner agent to spawn the
+audit-planner agent." The implementation achieves this indirectly — it instructs the
+planner to first Read `agents/audit-planner.md` and then pass those contents verbatim
+to the Agent tool. This is the correct approach: embedding the full prompt inline in the
+slash command would create a duplicate that could diverge from the agent file. The
+indirection is a better design, not a gap.
+
+### Regression Risks
+None detected. This task is purely additive: a new markdown file plus two test assertions.
+The test assertions reinforce rather than replace existing checks — the "copies .md files"
+test already asserted `generate-tasks.md` and `review-tasks.md`; the new assertion for
+`codebase-audit.md` follows the same pattern. The `installSlashCommands()` implementation
+globs `*.md` from the `commands/` directory, so the new file is picked up automatically
+without any source change. No existing tests were deleted or weakened.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #3: Verify ralph init installs new files + add tests
+Reviewed: 2026-05-24T00:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Verify installSlashCommands() auto-picks up new files via glob (no src changes needed)
+├── [DONE] Verify installAgents() auto-picks up new files via glob (no src changes needed)
+├── [DONE] Test: installSlashCommands() copies codebase-audit.md to .claude/commands/ with correct content
+│   ├── [DONE] Uses temp dir as mock ralphRoot (fakeRalphRoot pattern)
+│   ├── [DONE] Asserts file exists at target path
+│   └── [DONE] Asserts file content matches source
+└── [DONE] Test: installAgents() copies audit-planner.md to .claude/agents/ with correct content
+    ├── [DONE] Uses temp dir as mock ralphRoot (fakeRalphRoot pattern)
+    ├── [DONE] Asserts file exists at target path
+    └── [DONE] Asserts file content matches source
+```
+
+### Files Changed
+- `test/commands/init.test.ts` — two new tests added inside `describe('installSlashCommands')` and `describe('installAgents')` blocks
+
+### Gaps
+None detected. `src/commands/init.ts` was not modified, which is correct — the task description explicitly states both functions glob `*.md` and therefore pick up new files automatically without code changes. Both new tests satisfy the full spec: isolated mock `ralphRoot`, `finally`-block cleanup, presence check, and content equality check.
+
+### Regression Risks
+None detected. The new tests are purely additive and self-contained (fresh temp dirs, cleaned in `finally`). The existing `'copies actual ralph agents to .claude/agents/'` test already asserts `audit-planner.md` exists against the real `agents/` directory; the new test is complementary (isolated content check), not a duplicate or conflict. The `installSlashCommands()` and `installAgents()` implementations use `readdirSync(...).filter(f => f.endsWith('.md'))`, confirming automatic pickup of any new `.md` file without source changes.
+
+### Verdict
+CLEAN
+
+---

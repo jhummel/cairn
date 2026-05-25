@@ -238,19 +238,47 @@ describe('validateTaskTests', () => {
       expect(result.status).toBe('passed');
     });
 
-    it('runs tests in projectRoot even when task has a directory', async () => {
+    it('resolves task.directory relative to projectRoot when set', async () => {
       const subDir = join(tmpDir, 'sub');
       mkdirSync(subDir);
-      writeFileSync(join(tmpDir, 'root-sentinel.txt'), 'hello');
+      writeFileSync(join(subDir, 'sub-sentinel.txt'), 'hello');
       const task: Task = {
         id: 1, priority: 1, title: 'Test', status: 'complete',
         directory: 'sub',
+        tests: ['test -f sub-sentinel.txt'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('passed');
+    });
+
+    it('treats directory "/" as projectRoot (not filesystem root)', async () => {
+      writeFileSync(join(tmpDir, 'root-sentinel.txt'), 'hello');
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        directory: '/',
         tests: ['test -f root-sentinel.txt'],
       };
       writeTasksFile(tasksFilePath, [task]);
 
       const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
       expect(result.status).toBe('passed');
+    });
+
+    it('does not match files at projectRoot when task.directory points elsewhere', async () => {
+      const subDir = join(tmpDir, 'sub');
+      mkdirSync(subDir);
+      writeFileSync(join(tmpDir, 'root-only.txt'), 'hello');
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        directory: 'sub',
+        tests: ['test -f root-only.txt'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('failed');
     });
   });
 

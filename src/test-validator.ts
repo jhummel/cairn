@@ -90,7 +90,8 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
   if (!fileTask || fileTask.status !== 'complete') {
     return { status: 'skipped' };
   }
-  const cwd = projectRoot;
+  const taskDir = task.directory && task.directory !== '/' ? task.directory : '.';
+  const cwd = path.resolve(projectRoot, taskDir);
 
   for (const cmd of task.tests) {
     const { exitCode, stderr } = await runCommand(cmd, cwd, timeoutMs);

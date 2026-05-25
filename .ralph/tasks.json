@@ -2,54 +2,12 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 2,
-      "priority": 2,
-      "title": "Create commands/codebase-audit.md — the slash command wrapper",
-      "description": "Create the slash command at `commands/codebase-audit.md`, following the pattern established by `commands/generate-tasks.md`. This slash command instructs the planner agent to: (1) spawn the `audit-planner` agent via the Agent tool, (2) receive the structured findings report, (3) present a concise summary to the user organized by severity and lens — not the full raw output, but a digestible overview, (4) invite the user to discuss (\"anything surprising? anything you know is already handled? anything to add?\"), (5) when the conversation feels complete, write `planning-notes.md` incorporating the audit findings into the standard format (Context, Goals, Approach, Rejected Alternatives, Rough Task Outline, Open Questions). The user must be able to course-correct before anything gets generated. Reference `commands/generate-tasks.md` for structural patterns (how the slash command wraps a subagent invocation).",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "commands/codebase-audit.md",
-        "commands/generate-tasks.md"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        1
-      ],
-      "model": "opus",
-      "completedAt": "2026-05-25T05:09:20.653Z",
-      "completedBy": "iteration-3",
-      "notes": "# Task #2 Completion Notes\n\n## What was done\n\nCreated `commands/codebase-audit.md` — the slash command that wraps the `audit-planner` agent.\n\n### Slash command design\n\nThe command follows the pattern from `commands/generate-tasks.md`:\n1. Spawns the `audit-planner` agent via the Agent tool (reads `agents/audit-planner.md` and passes its contents as the prompt)\n2. Receives the structured findings report\n3. Presents a concise summary organized by severity (security) and impact (structural) — not the raw output\n4. Invites the user to discuss findings, dismiss false positives, add context\n5. When discussion is complete, writes `.ralph/planning-notes.md` in the standard format (Context, Goals, Approach, Rejected Alternatives, Rough Task Outline, Open Questions)\n6. Suggests running `/generate-tasks` next\n\n### Key design decisions\n\n- The command instructs the planner to read `agents/audit-planner.md` and pass it verbatim rather than embedding the full audit prompt inline. This keeps the slash command maintainable and ensures changes to the audit-planner agent are automatically picked up.\n- Discussion mode is explicit: the command tells the agent not to rush to writing planning notes, staying in conversation until the user signals readiness.\n- The summary format groups security findings by severity and structural findings by impact, with clean areas called out so the user knows what doesn't need attention.\n\n### Tests updated\n\nUpdated `test/commands/init.test.ts`:\n- \"copies .md files\" test: added assertion for `codebase-audit.md` existence\n- \"logs installed/updated\" test: added assertion that `codebase-audit.md` appears in install output\n\nFull suite: 660 pass, 0 fail.\n"
-    },
-    {
-      "id": 3,
-      "priority": 3,
-      "title": "Verify ralph init installs new files + add tests",
-      "description": "Verify that `installSlashCommands()` and `installAgents()` in `src/commands/init.ts` will automatically pick up the new `commands/codebase-audit.md` and `agents/audit-planner.md` files without any code changes. Both functions glob `*.md` from their respective source directories (`commands/` and `agents/`), so this should be automatic. Write a test in `test/commands/init.test.ts` that explicitly verifies: (1) when a `commands/` source directory contains `codebase-audit.md`, `installSlashCommands()` copies it to the target project's `.claude/commands/codebase-audit.md`, and (2) when an `agents/` source directory contains `audit-planner.md`, `installAgents()` copies it to the target project's `.claude/agents/audit-planner.md`. Use temp directories as mock ralph roots (following the existing test pattern with `ralphRoot` parameter overrides). The test should confirm the files are present with correct content after installation.",
-      "directory": "",
-      "status": "pending",
-      "files": [
-        "src/commands/init.ts",
-        "test/commands/init.test.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        1,
-        2
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 5,
       "priority": 4,
       "title": "End-to-end verification — build, test, and smoke test",
       "description": "Final verification that everything works together. Steps: (1) Run `bun test` and confirm all tests pass (existing + new from task 3). (2) Run `bun run build` and confirm the compiled binary builds successfully. (3) Verify the new files exist at their expected paths: `agents/audit-planner.md` and `commands/codebase-audit.md`. (4) Verify the agent prompt contains the key structural elements: two-lens separation (security + SOLID), confirm-then-remediate framing, spike demotion, bounded confirmation, structured findings format, project context reading instructions. (5) Verify the slash command references the `audit-planner` agent by name and includes instructions for the planner to spawn it, present findings, continue conversation, and write planning-notes.md. (6) Run `ralph init` in a temp directory (or verify via the test suite) that both new files get installed to `.claude/commands/` and `.claude/agents/`. Document all results in task notes.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "agents/audit-planner.md",
         "commands/codebase-audit.md",
@@ -64,7 +22,10 @@
         3,
         4
       ],
-      "model": "sonnet"
+      "model": "sonnet",
+      "completedAt": "2026-05-25T05:26:00.394Z",
+      "completedBy": "iteration-5",
+      "notes": "# Task #5 Completion Notes — End-to-end verification\n\n## Results\n\n### 1. Tests\n- **bun test**: 662 pass, 0 fail (4.62s across 25 files)\n\n### 2. Build\n- **bun run build**: Success — 105 modules bundled, compiled to `dist/ralph` in ~142ms\n\n### 3. File existence\n- `agents/audit-planner.md` — exists ✓\n- `commands/codebase-audit.md` — exists ✓\n\n### 4. audit-planner.md structural elements verified\n- **Two-lens separation**: \"Perform a cold sweep of the codebase through two cognitive lenses: security (adversarial) and SOLID/structural\"\n- **Confirm-then-remediate framing**: Section \"## Confirm-Then-Remediate Framing\" with Confirm/Remediate sub-steps\n- **Spike demotion**: \"If a finding cannot meet this bar...demote it to an Investigation Item. Investigation items are spikes\"\n- **Bounded confirmation**: \"bounded instructions for verifying the claim (e.g., 'read lines 40-60 of src/foo.ts')\"\n- **Structured findings format**: Explicit output format with Security Findings / SOLID/Structural Findings sections\n- **Project context reading**: Reads `planning-notes.md` to avoid rehashing settled decisions\n\n### 5. commands/codebase-audit.md slash command verified\n- References `audit-planner` agent by name (via `agents/audit-planner.md` file read)\n- Instructions to spawn it via Agent tool with `subagent_type: \"general-purpose\"`\n- Present findings: groups by severity (security) and impact (structural)\n- Continue conversation: \"Let the user react, ask questions, dismiss false positives...\"\n- Write planning-notes.md: explicit Write tool instructions with format\n\n### 6. ralph init smoke test\nRunning `ralph init` (intercepted in project root due to no path arg support) confirmed output:\n```\nInstalled: .claude/commands/codebase-audit.md\nInstalled: .claude/agents/audit-planner.md\n```\nUnit tests in `test/commands/init.test.ts` (lines 974–1104) cover both files with isolated mock ralphRoot tests that verify content fidelity.\n\n## Summary\nAll steps pass. The codebase-audit slash command and audit-planner agent are complete, tested, and correctly installed by `ralph init`.\n"
     }
   ]
 }

@@ -1,170 +1,110 @@
 ## Context
 
-Two intertwined problems this round.
+Ralph's plan command (`ralph plan`) launches an interactive planner session where the user discusses what to build. The planner agent writes `planning-notes.md`, then the user runs `/generate-tasks` to turn those notes into `tasks.json`. This flow works well when the user knows what they want, but there's no automated alternative — no way to say "go find what needs work."
 
-### Problem 1 (carried from prior session): `tasks.json` corruption
+The existing slash command pattern is established: `commands/generate-tasks.md` and `commands/review-tasks.md` live in Ralph's `commands/` directory, get installed into target projects via `ralph init` → `installSlashCommands()` (copies to `.claude/commands/`). Agent definitions live in `agents/` and get installed via `installAgents()` (copies to `.claude/agents/`). The planner agent is spawned by `plan.ts` with `--allowedTools Read,Glob,Grep,Write,Edit` and `--append-system-prompt` for dynamic project context.
 
-Recurring bug — `tasks.json` becomes malformed mid-run, then the next iteration's `validateTaskTests` crashes at `JSON.parse(readFileSync(tasksFilePath, 'utf-8'))` (`src/test-validator.ts:70`). Confirmed example: a task ended up with
-
-```
-"notes": "…adequately. | Post-iteration: test commands could not execute…"
-"files": [ … ]
-```
-
-The missing comma after `notes` is the signature of a botched surgical `Edit` whose `old_string` ended with `"…",` and whose `new_string` dropped the terminating comma.
-
-**Root cause.** `src/commands/run.ts:119` tells the worker agent to use `Edit` to mutate fields on the task object in `tasks.json`. `Edit` is a surgical string replacement with no understanding of JSON structure; any off-by-one boundary, missing comma, unescaped quote, or embedded newline can produce malformed JSON. Ralph-owned mutators (`task-archiver.ts`, `test-validator.ts`) are safe because they round-trip through `JSON.parse → mutate → JSON.stringify`. Only agents touch the file as raw text.
-
-**Likely mutators (in order of suspicion).**
-
-1. The next iteration's worker agent, when it `Edit`s tasks.json to set its own task's status to `in-progress`.
-2. The post-task reviewer — its allowlist (`src/post-task-reviewer.ts:124`) is `"Read,Glob,Grep,Edit,Write"`. Its prompt directs it to `review-post.md`, but the allowlist permits any file.
-3. The current iteration's agent appending notes after `validateTaskTests` ran (less likely — it's already marked complete and committing).
-
-**Secondary bug.** `src/task-archiver.ts:27-31` swallows `JSON.parse` errors silently and returns `{ archivedCount: 0, prevNotes: null }`. If tasks.json was already corrupted when archival ran, the loop reports success and moves on. This hides the original damage.
-
-### Problem 2 (new this session): infinite loop on "write failing tests" tasks
-
-The prior plan split most work into paired `write tests` / `implement` tasks (TDD). Ralph's post-iteration validator (`src/test-validator.ts`) re-runs `task.tests` after the agent marks the task complete; if they fail, it reverts the task to `in-progress`. A "write failing tests" task by definition ends with failing tests, so the validator reverts it every iteration — observed 11 identical `[ralph] Task #2: Unit tests for readTasksFile` commits between 03:22–03:32 before the loop was interrupted.
-
-A mid-run agent tried to patch this by adding a `tddGate: true` field to task #2 and a check in `src/test-validator.ts:75-78` that skips the revert. But `dist/ralph` was rebuilt AFTER the loop started, so the running process held the old validator in memory — the "fix" was a no-op for this run, and a hack regardless.
-
-**Real root cause.** The user's personal instruction (`instructions.md`: *"Always use TDD across all task execution"*) was read by the task-generator subagent and interpreted as *"make every task either tests or implementation,"* baking a personal execution preference into plan structure. That's wrong. TDD is how executor agents work *within* a task, not a directive for how tasks are split. With that reinterpretation, the `tddGate` flag isn't needed — tasks always end with passing tests because the executor writes, fails, fixes, passes, all inside one task.
+Prior session completed the corruption-defense work: CLI subcommands for task mutations, atomic `readTasksFile`/`writeTasksFile`, snapshot recovery, post-task-reviewer scope tightening. All 15 tasks archived.
 
 ## Goals
 
-1. **Regenerate the task list** against an updated task-generator that explicitly forbids splitting work into test/impl pairs. Each task is one atomic unit; executor agents use TDD internally.
-2. **Tighten `.ralph/instructions.md`** to make intra-task TDD unambiguous.
-3. **Rip out the mid-run `tddGate` hack** from `src/test-validator.ts` and the tddGate field from task #2 — it exists to solve a problem we're fixing at the source.
-4. **Ship the corruption-defense work** carried forward from last session (this was the original goal and nothing about it changes — only the plan structure does).
+Add a `/codebase-audit` slash command that launches an autonomous agent to do a full-codebase security + SOLID-design audit, producing findings that the planner agent then formats into `planning-notes.md`. This serves as an alternative to the user-driven planning conversation — the user kicks it off, the agent does a cold read of the codebase, and returns structured findings. The user can then continue chatting with the planner to refine before running `/generate-tasks` as usual.
 
-Non-goals: switching storage format; squashing the 11 duplicate `Task #2` commits (user accepted leaving git history as-is); adding a `tddGate`/`expectedOutcome` schema field to Ralph; adding a retry cap to the run loop.
+Key design decisions already made:
+- **The audit agent is a recon specialist, not a planner.** It returns findings to the planner, which does the formatting. The agent doesn't know about planning-notes.md structure.
+- **Two fixed lenses**: security (adversarial) and SOLID/structural. Not configurable per-invocation for now.
+- **Slash command + agent file**: `commands/codebase-audit.md` (slash command wrapper) + `agents/audit-planner.md` (the recon agent prompt). Both installed by `ralph init`.
+- **No code changes to `plan.ts` or `index.ts`** — this is purely additive (new files).
 
 ## Approach
 
-### 0. Prework — unblock + prevent re-occurrence
+### Architecture
 
-Before any corruption-defense work, these go into the new task list as the first few tasks:
+Two new files, following existing patterns:
 
-- **Revert the tddGate hack.** Remove the `if ((fileTask as any).tddGate) return { status: 'skipped' };` block from `src/test-validator.ts:75-78`. Remove the `tddGate: true` field from task #2 (will be re-emitted by regeneration anyway). No schema change — the field was never formalized.
-- **Tighten `instructions.md`.** Replace `"Always use TDD across all task execution"` with something like `"Use TDD within each task — write the test, see it fail, then make it pass. Do not split a single unit of work into separate test-writing and implementation tasks."` Defense-in-depth against future planners misreading it.
-- **Update `commands/generate-tasks.md` (and `.claude/commands/generate-tasks.md` mirror).** Add explicit guidance: each task is one atomic unit of work; do not create paired `write tests for X` / `implement X` tasks; if TDD is desired, the executor agent practices it within the task.
-- **Update `commands/review-tasks.md` (and `.claude/commands/review-tasks.md` mirror).** Add a check: paired test/impl tasks against the same files are a FAIL finding under Atomicity.
+1. **`agents/audit-planner.md`** — The recon specialist agent prompt. Read-only against the codebase. Its job:
+   - Read briefing materials (CLAUDE.md, IMPLEMENTATION.md, tasks.completed.json, prior planning-notes.md) to understand project context and avoid re-flagging fixed issues
+   - Do a cold sweep through the codebase using two separate cognitive passes (security lens, then SOLID lens)
+   - Return structured findings (not planning notes) to the planner
 
-### 1. CLI subcommands for task mutations (prevention) — from prior session
+2. **`commands/codebase-audit.md`** — The slash command, structured like `generate-tasks.md`. Tells the planner to:
+   - Spawn the audit agent (via Agent tool)
+   - Receive the findings
+   - Present a summary to the user
+   - Continue the conversation so the user can discuss, challenge, or refine findings
+   - When the user is satisfied, write `planning-notes.md` in the standard format
 
-Add a `ralph task` command group in `src/commands/task.ts`, dispatched from `src/index.ts`:
+### Audit agent design (from user's draft, adapted)
 
-- `ralph task start <id> [--iteration N]` — sets `status: 'in-progress'`. Idempotent.
-- `ralph task complete <id> --iteration N [--notes "…" | --notes-file PATH]` — sets `status`, `completedAt` (fresh ISO 8601), `completedBy: iteration-N`, and `notes`. `--notes-file -` means stdin.
-- `ralph task note <id> [--append | --replace] "…" | --notes-file PATH` — default append (` | `-separated), matching `test-validator.appendNote` semantics.
-- `ralph task set-status <id> <pending|in-progress|complete|blocked>` — escape hatch.
-- `ralph task show <id>` — prints the task as formatted JSON (read-only).
-- `ralph task add --file PATH` — validates the payload against `src/tasks-schema.json` before merging; **refuses** on validation failure.
+The agent prompt preserves these concepts from the user's original draft:
+- **Two-lens cognitive separation**: Security and SOLID held as separate mental modes, never blended in a single finding. Security is adversarial ("how do I abuse this?"), SOLID is structural ("what will hurt to change in six months?").
+- **Recon, not findings-exhaustion**: The agent is pattern-matching in one cold sweep, not proving. Findings are leads, not verdicts.
+- **Confirm-then-remediate framing**: Every finding is framed as "X appears to have issue Y; confirm by checking [bounded locations]; if confirmed, remediate by [approach]; if already safe, document why and close." This handles false positives from cold reads.
+- **Spike demotion**: If a finding can't be bounded to a confirmable-and-fixable scope, it gets demoted to an investigation item — honestly flagged as needing a deeper look, not crammed into a fix.
+- **Bounded confirmation**: Every finding must name specific files/functions/call-sites so downstream executors aren't doing unbounded spelunking.
 
-All mutating subcommands use a `mutateTasksFile(path, fn)` helper that does `JSON.parse → fn(data) → JSON.stringify(data, null, 2)` atomically (write to `<file>.tmp` then `rename`). Unknown fields on the task object are preserved.
+Changes from the user's original draft:
+- **Removed all planning-notes formatting** — the agent returns findings, not a planning document. The planner handles formatting.
+- **Removed time-box enforcement** (`~N min` tokens, atomicity grader references) — that's the planner's and task generator's concern, not the audit agent's.
+- **Generalized away from service-oriented language** — the agent describes the codebase structure it *finds* (modules, packages, directories, components) rather than assuming a microservice architecture.
+- **Added project context reading** — agent reads CLAUDE.md, IMPLEMENTATION.md, tasks.completed.json, and prior planning-notes.md before scanning.
 
-### 2. Rewrite the execution prompt to use the CLI
+### Findings return format
 
-In `buildSystemPrompt` (`src/commands/run.ts:42`), replace the "Update tasks.json … Use Edit to set these fields" instructions:
+The audit agent returns structured findings (not planning notes):
 
-- Step 1 becomes: `ralph task start <id> --iteration <N>`
-- Step 5 becomes: agent writes notes to `<dataDir>/.ralph_task_<id>_notes.md`, then calls `ralph task complete <id> --iteration <N> --notes-file <...>`. Tempfile path is supplied in the prompt.
-- Explicit ban: *"Do NOT use Edit or Write on `.ralph/tasks.json` directly — the CLI subcommands are the only supported path."*
-- DISCOVER-AND-DOCUMENT block: use `ralph task add --file <path>`.
+```
+## Codebase Overview
+Factual inventory — what was inspected, structure observed, entry points,
+trust boundaries, tech stack. File references throughout.
 
-The post-task reviewer prompt (`agents/post-task-reviewer.md`) also gets a line: *"Do not touch `.ralph/tasks.json`. You only write to `.ralph/review-post.md`."*
+## Security Findings
+Each finding: observation, severity (critical/high/medium/low), specific
+locations to confirm, remediation direction if confirmed.
 
-### 3. Defensive tasks.json I/O helper
+## SOLID / Structural Findings
+Same structure — observation, specific locations, suggested direction.
 
-New module `src/tasks-file.ts` (stub already committed as archived task #1 from prior session) exporting:
+## Reviewed and Judged Sound
+Areas inspected where nothing actionable was found. Brief reason why.
 
-- `readTasksFile(path, opts?) → { data, repaired, restored, error? }` — tries `JSON.parse`, falls back to `jsonrepair`, falls back to `<dataDir>/.ralph_tasks_snapshot.json`. On every failure path appends a structured JSONL entry to `<dataDir>/corruption.log` (timestamp, stage, error, sha256 of corrupted bytes, first 500 bytes). Throws a typed `TasksFileError` only if all three paths fail.
-- `writeTasksFile(path, data)` — atomic tempfile-then-rename.
-- `snapshotTasksFile(path, dataDir)` — copies to `<dataDir>/.ralph_tasks_snapshot.json` (single overwriting file). Called after every successful Ralph-owned write.
+## Unresolved
+Things the cold read couldn't determine — needs human judgment or
+runtime observation.
+```
 
-Callsites to migrate:
-- `src/commands/run.ts:445` (main-loop read)
-- `src/commands/run.ts:571` (post-task review status re-read)
-- `src/test-validator.ts:70` (pre-validation read)
-- `src/task-archiver.ts:28` (pre-archival read) — *also* drop the silent catch.
-- All the new CLI subcommands.
+### Slash command flow
 
-### 4. Stop silent archival failures
+The `commands/codebase-audit.md` slash command instructs the planner to:
+1. Spawn the `audit-planner` agent via the Agent tool
+2. Receive its findings report
+3. Present a concise summary to the user (not the full raw output — a digestible overview of what was found, organized by severity/lens)
+4. Invite the user to discuss — "anything surprising? anything you know is already handled? anything to add?"
+5. When the conversation feels complete, write `planning-notes.md` incorporating the audit findings into the standard format (Context, Goals, Approach, Rejected Alternatives, Rough Task Outline, Open Questions)
 
-`src/task-archiver.ts:27-31` currently returns `{ archivedCount: 0, prevNotes: null }` on any parse error. Change to: call `readTasksFile`, which either succeeds (possibly repaired/restored) or throws `TasksFileError`. On `TasksFileError`, log to the iteration log and `corruption.log`, return `archivedCount: 0` so the loop can still exit gracefully — but the user sees it.
-
-### 5. Corruption-log surfacing
-
-At the end of `ralph run`, the final summary (`src/commands/run.ts:610-619`) adds `⚠ N corruption events recovered this run — see <dataDir>/corruption.log` when N > 0 (silent when zero). Implementation: track a `corruptionEvents` counter in `runRun`, increment whenever `readTasksFile` returns `repaired: true` or `restored: true`. Forward to the ntfy notification when configured.
-
-### 6. Notes tempfile location
-
-Agent-facing notes tempfile lives at `<dataDir>/.ralph_task_<id>_notes.md`, not `/tmp/`. Reuses the existing `TEMP_FILES` cleanup in `src/commands/run.ts:345` by adding a glob-matching sweep (`.ralph_task_*_notes.md`) at run end.
-
-### 7. Snapshot cadence
-
-- After each CLI subcommand's successful write.
-- After `validateTaskTests` writes.
-- After `archiveCompletedTasks` writes.
-- At the start of each `ralph run` iteration, after the main-loop read succeeds.
-
-Keeps the snapshot always ≤ one mutation behind the live file.
-
-### 8. Post-task-reviewer scope tightening (hard enforcement)
-
-Claude Code's path-scoped `--allowedTools` syntax is fully supported and strictly enforced (verified April 2026, https://code.claude.com/docs/en/permissions.md).
-
-Two layers:
-
-1. **Hard enforcement.** Change the reviewer's allowlist in `src/post-task-reviewer.ts:119-129` from `"Read,Glob,Grep,Edit,Write"` to `"Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)"`. Covered by a unit test that asserts the exact `--allowedTools` string.
-2. **Prompt-level belt-and-suspenders.** Update `agents/post-task-reviewer.md` with an explicit "You may only write to `.ralph/review-post.md`" rule.
-
-### 9. Rollout
-
-- `bun run build` to produce a new `dist/ralph`.
-- `install.sh` already re-symlinks; no change needed.
-- Existing projects' agent prompts will start using the new CLI on their next iteration because prompts are built fresh per iteration from Ralph's code.
-- `ralph init` copies `commands/*.md` into each project's `.claude/commands/` — projects will need to re-run `ralph init` to pick up the updated generate-tasks / review-tasks guidance.
+This preserves the user's ability to course-correct before anything gets generated.
 
 ## Rejected Alternatives
 
-- **Add a `tddGate` / `expectedOutcome: fail` flag to the task schema.** Considered and rejected this round. Bakes a personal execution preference (TDD) into Ralph's official data model; solves a problem that only exists because the task-generator misinterpreted `instructions.md`. Fixing the interpretation removes the need for the flag entirely.
-- **Retry cap on duplicate task iterations.** Would have caught the 11-iteration loop, but it's a workaround for a plan-shape bug that we're fixing at the root. Reconsider only if we see runaway loops from a cause other than "task designed to end with failing tests."
-- **Manually merge each test/impl task pair in the existing `tasks.json`.** Faster in the short term, but error-prone across 8 pairs, and leaves the task-generator free to make the same mistake next time. Regenerating against an updated generate-tasks.md fixes the root cause.
-- **Change storage format (SQLite / per-task files / JSONL).** Structurally solves corruption but a much larger change with migration cost. CLI-subcommand approach gets 95% of the benefit with ~1/10 the churn.
-- **Hook-based validation of agent tool calls.** Intercept `Edit` on tasks.json via a Claude Code PreToolUse hook. Complicated, environment-dependent, still a band-aid over agents touching raw JSON.
-- **Permission-based block on the worker agent (deny Edit on tasks.json).** Worker needs broad Edit/Write across the codebase; path-denying one file is syntax-fragile. The CLI-subcommand + prompt-ban combo is cleaner. (We *are* using path-scoped allowlists on the post-task reviewer because its write scope is naturally narrow — one file.)
-- **Rotated snapshot history** (e.g., last-N snapshots). Single overwriting snapshot is sufficient — it's only consulted when parse + jsonrepair both fail, and we only need the most recent parseable version. Git already provides multi-step history via `git log -- .ralph/tasks.json`.
-- **Re-parse-and-rewrite shim after the agent exits.** Would normalize formatting but not fix missing-comma corruption (the parse still fails). Subsumed by `readTasksFile`.
-- **Use Anthropic TS SDK instead of shelling out to claude** (carried) — shelling out gives us Claude Code's full tool suite, permissions model, and MCP support for free.
-- **Port narration to TypeScript** (carried) — Kokoro TTS and sounddevice are Python-specific.
-- **Skills instead of subagents for task generation/review** (carried) — clean context matters; subagents get fresh context while keeping full tool access.
+- **Audit agent writes planning-notes.md directly.** Considered and rejected. The audit agent is a recon specialist — it finds things. The planner knows the planning-notes format and has conversational context with the user. Separating these concerns means the user can refine findings before they become notes, and the audit agent doesn't need to know about document formatting.
+- **Configurable lenses per invocation** (e.g., `/codebase-audit security` or `/codebase-audit solid,performance`). Decided to keep fixed (security + SOLID) for simplicity. Can be extended later by adding lens parameters or additional audit profiles.
+- **Separate command instead of slash command** (e.g., `ralph audit`). The slash command pattern fits better — it runs inside the planner session so the user can continue chatting. A separate CLI command would break the conversational flow.
+- **Embed the full agent prompt in the slash command** (like `generate-tasks.md` embeds its subagent prompt). Rejected in favor of a separate `agents/audit-planner.md` file — the prompt is substantial, and having it as a named agent enables potential reuse outside the plan flow.
+
+Carried from prior sessions:
+- **Use Anthropic TS SDK instead of shelling out to claude** — shelling out gives us Claude Code's full tool suite, permissions model, and MCP support for free.
+- **Port narration to TypeScript** — Kokoro TTS and sounddevice are Python-specific.
+- **Skills instead of subagents for task generation/review** — clean context matters; subagents get fresh context while keeping full tool access.
+- **Change storage format (SQLite / per-task files / JSONL)** — structurally solves corruption but a much larger change with migration cost. CLI-subcommand approach gets 95% of the benefit.
 
 ## Rough Task Outline
 
-Each task is atomic — one agent-sized unit. The executor agent practices TDD *within* each task (writes test, sees it fail, writes code, sees it pass). No separate test-writing tasks.
-
-**CRITICAL FOR TASK GENERATOR:** Do not split any of the work below into separate `write tests` / `implement` pairs. Each bullet is one task.
-
-1. Revert the mid-run `tddGate` hack. Delete the `if ((fileTask as any).tddGate)` block from `src/test-validator.ts:75-78`. Remove the `tddGate: true` field from task #2 (if present after regeneration) — not needed. — `src/`
-2. Tighten `.ralph/instructions.md`. Replace the existing line with: *"Use TDD within each task — write the test, see it fail, then make it pass. Do not split a single unit of work into separate test-writing and implementation tasks."* — `.ralph/`
-3. Update `commands/generate-tasks.md` and `.claude/commands/generate-tasks.md` with explicit "tasks are atomic; do not split TDD across tasks" guidance. — `commands/`, `.claude/commands/`
-4. Update `commands/review-tasks.md` and `.claude/commands/review-tasks.md` to flag paired test/impl tasks against the same files as a FAIL finding under Atomicity. — `commands/`, `.claude/commands/`
-5. Implement `readTasksFile`, `writeTasksFile`, `snapshotTasksFile`, `TasksFileError`, and `corruption.log` append in `src/tasks-file.ts`; write covering tests (valid / missing-comma / unescaped-quote / trailing-garbage / empty / missing-file / snapshot-recovery / double-corrupted). Tests + impl in one task. — `src/`, `test/`
-6. Implement `mutateTasksFile(path, fn, opts?)` in `src/tasks-file.ts` with atomic tempfile+rename + snapshot call; write atomicity tests (tempfile-during-write, rename-on-success, cleanup-on-throw, unknown-field preservation, snapshot called). — `src/`, `test/`
-7. Implement `src/commands/task.ts` with the full `ralph task` subcommand group (`start`, `complete`, `note`, `set-status`, `add`, `show`); wire into `src/index.ts`. Use ajv for `add` schema validation (add via `bun add ajv`). Full covering tests per subcommand. Run `bun run build` at end. — `src/commands/`, `src/`, `test/commands/`
-8. Rewrite `buildSystemPrompt()` in `src/commands/run.ts` to use the `ralph task` CLI (start, complete with --notes-file, tempfile at `<dataDir>/.ralph_task_<id>_notes.md`). Add explicit ban on Edit/Write to `.ralph/tasks.json`. Update DISCOVER-AND-DOCUMENT to use `ralph task add --file`. Extend prompt tests to assert the new strings present and the old `"Use Edit to set these fields"` absent. — `src/commands/`, `test/commands/`
-9. Migrate `src/test-validator.ts` to use `readTasksFile` + `writeTasksFile` + `snapshotTasksFile`. Add tests covering the repair/restore paths and the `TasksFileError` graceful-failure contract. Preserve appendNote semantics. — `src/`, `test/`
-10. Migrate `src/task-archiver.ts` to use `readTasksFile` + `writeTasksFile` + `snapshotTasksFile`; stop silently swallowing parse errors (log to iteration log + `corruption.log`). Extend archiver tests to cover the TasksFileError path. — `src/`, `test/`
-11. Migrate the two reads in `src/commands/run.ts` (main-loop at :445, post-task-review status re-read at :571) to `readTasksFile`; add per-iteration snapshot after main-loop read; track `corruptionEvents` counter; surface in final summary with `⚠ N corruption events recovered this run — see <dataDir>/corruption.log` when > 0; forward to ntfy when configured; extend TEMP_FILES cleanup to glob-sweep `.ralph_task_*_notes.md`. Extend run.ts tests to cover all new behavior. — `src/commands/`, `test/commands/`
-12. Tighten post-task-reviewer allowlist in `src/post-task-reviewer.ts:119-129` from `"Read,Glob,Grep,Edit,Write"` to `"Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)"`. Add test asserting the exact `--allowedTools` string. — `src/`, `test/`
-13. Add explicit "You may only write to `.ralph/review-post.md` — never modify `.ralph/tasks.json`" rule near the top of `agents/post-task-reviewer.md`. Preserve the existing Output Format and Coverage Diagram sections verbatim. — `agents/`
-14. Add a short note to `CLAUDE.md` Conventions section: agent workflow uses `ralph task` subcommands; direct Edit/Write on `.ralph/tasks.json` is forbidden and caught by prompt ban + post-task reviewer path-scoped allowlist. 4–6 lines. — project root
-15. Final verification: `bun test` green; `bun run build` clean; manual smoke test on a scratch project exercising `ralph task start/complete/note`; deliberately break tasks.json and verify `readTasksFile` recovers via jsonrepair with a `corruption.log` entry; delete both tasks.json and snapshot and verify `TasksFileError` is surfaced; trigger a post-task review in a scratch repo and verify Edit on tasks.json is denied by the path-scoped allowlist. Record results in task notes. — project root
-
-Specialist-agent note: none of the available specialist agents (`planner`, `post-task-reviewer`, `summarizer`) map to these tasks — they're all straight engineering. The generalist is fine. (`post-task-reviewer` is still used by the run loop post-iteration — that's separate.)
+1. Create `agents/audit-planner.md` — the recon specialist agent prompt. Adapted from user's draft: two-lens separation (security + SOLID), confirm-then-remediate framing, spike demotion, bounded confirmation, project context reading, generalized module/component language. Returns structured findings format. Read-only. — `agents/`
+2. Create `commands/codebase-audit.md` — slash command wrapper following the `generate-tasks.md` pattern. Instructs the planner to spawn the audit agent, present findings summary, continue conversation, then write planning-notes.md in standard format when discussion is complete. — `commands/`
+3. Update `commands/codebase-audit.md` mirror — ensure `ralph init` installs the new slash command. Currently `installSlashCommands()` copies all `commands/*.md`, so this is automatic. But also ensure `installAgents()` copies the new agent file. Verify by reading `init.ts` logic — if both functions glob `*.md` from their respective directories, no code change needed, just a verification task. — `src/commands/`, `commands/`, `agents/`
+4. Write tests for the new files — verify the agent file and slash command are present, well-formed, and get installed by `ralph init`. Add a test to `test/commands/init.test.ts` that confirms `installSlashCommands` and `installAgents` pick up the new files. — `test/`
+5. End-to-end smoke test — run `ralph plan` on a scratch project, type `/codebase-audit`, verify the agent spawns, produces findings, and the planner presents them. Manual verification, document results in task notes. — project root
 
 ## Open Questions
 
-(none — all decisions captured in Approach)
+1. **Planner `--allowedTools` and the Agent tool.** The planner is spawned with `--allowedTools Read,Glob,Grep,Write,Edit` (plan.ts:162). The `/generate-tasks` slash command instructs the planner to use the `Agent` tool, which isn't in that list — yet it works in practice. Need to verify whether `--allowedTools` restricts the `Agent` tool or whether `Agent` is always available. If it *is* restricted, we'd need to add `Agent` to the allowlist in `plan.ts`. This affects both the new `/codebase-audit` command and the existing `/generate-tasks` command.
