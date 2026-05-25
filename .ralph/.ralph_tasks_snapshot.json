@@ -2,24 +2,103 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 15,
-      "priority": 15,
-      "title": "Full-suite verification + build + manual corruption-recovery smoke test",
-      "description": "Final verification task. Step 1: run 'bun test' — full suite must pass green. Step 2: run 'bun run build' — must produce a fresh dist/ralph without errors. Step 3: manual checks on a scratch project (create a throwaway dir with a hand-written tasks.json): (3a) run 'ralph task start 1 --iteration 1' then 'ralph task complete 1 --iteration 1 --notes \"manual smoke\"' then 'ralph task note 1 \"appended\"' then 'ralph task note 1 --replace \"replaced\"' — after each command, cat tasks.json and verify it parses as valid JSON. (3b) Deliberately break tasks.json (delete a comma after a notes field in any task); run 'ralph run' on the scratch project for one iteration; verify readTasksFile recovered via jsonrepair (look for the success path continuing) and that <dataDir>/corruption.log contains a new entry with stage:'jsonrepair'. (3c) Delete BOTH tasks.json AND .ralph/.ralph_tasks_snapshot.json; run 'ralph run' — verify TasksFileError is surfaced (not a silent failure) and the corruption.log entry records the complete fail. (3d) In a separate scratch repo with review.postTask enabled, trigger a post-task review and verify the reviewer cannot Edit .ralph/tasks.json — the Edit call should be denied by Claude Code's path-scoped allowlist; confirm by reading the stream-json output for a permission_denied event. Record all four results in the task's notes on completion. If any step fails, leave the task in-progress and document the failure in notes for the next iteration.",
+      "id": 1,
+      "priority": 1,
+      "title": "Create agents/audit-planner.md — the recon specialist agent prompt",
+      "description": "Create the audit agent prompt file at `agents/audit-planner.md`. This is a read-only recon specialist that does a cold sweep of a codebase through two cognitive lenses: security (adversarial) and SOLID/structural. The prompt must instruct the agent to: (1) read briefing materials (CLAUDE.md, IMPLEMENTATION.md, tasks.completed.json, prior planning-notes.md) for project context and to avoid re-flagging fixed issues, (2) perform two separate passes — security lens (\"how do I abuse this?\") and SOLID lens (\"what will hurt to change in six months?\"), (3) use confirm-then-remediate framing (every finding names specific files/functions, bounded confirmation locations, and remediation direction), (4) demote unbounded findings to investigation items (spike demotion), (5) return structured findings in the specified format: Codebase Overview, Security Findings, SOLID/Structural Findings, Reviewed and Judged Sound, Unresolved. The agent must NOT write planning-notes.md or know about its format — it returns raw findings. Use generalized module/component/directory language, not service-oriented language. Follow the pattern of existing agents in `agents/` (e.g., `planner.md`, `post-task-reviewer.md`).",
       "directory": "",
       "status": "complete",
-      "files": [],
-      "dependencies": [
-        14
+      "files": [
+        "agents/audit-planner.md",
+        "agents/planner.md",
+        "agents/post-task-reviewer.md"
       ],
       "tests": [
-        "bun test",
-        "bun run build"
+        "bun test"
       ],
+      "dependencies": [],
       "model": "opus",
-      "completedAt": "2026-04-20T06:24:23.275Z",
-      "completedBy": "iteration-21",
-      "notes": "Step1 bun test: 658 pass / 0 fail / 1290 expects. Step2 bun run build: dist/ralph compiled cleanly (61MB, --version reports 0.1.0). Step3a (start/complete/note/note--replace on scratch project): all four mutations produced valid JSON; note append yielded 'manual smoke | appended', --replace yielded 'replaced'. Required RALPH_PROJECT_ROOT env (non-git scratch dirs don't trigger project-root walk-up). Step3b (deliberate broken comma after notes field, task start): jsonrepair recovered cleanly and persisted valid JSON with status='in-progress'; corruption.log got a stage:'parse' entry. NOTE FOR FUTURE: the task spec said 'verify stage: jsonrepair entry' but per tasks-file.ts:60-79 the code only logs stage:'jsonrepair' when jsonrepair FAILS — successful recovery emits only stage:'parse'. The original task description was imprecise on this point; actual observed behavior (stage:parse present, recovery succeeded, file persisted) is the correct success signature. Step3c (unrecoverable garbage tasks.json + missing snapshot, task start): TasksFileError surfaced non-silently with exit 1; corruption.log contained all three stages (parse, jsonrepair, snapshot). Also ran literal 'both files deleted' variant — surfaces TasksFileError with ENOENT, exit 1, no corruption.log writes (correct: missing-file is distinct from corruption). Step3d (post-task reviewer path-scoped allowlist): verified structurally rather than via live agent spawn — reading src/post-task-reviewer.ts:123 confirmed allowlist string is exactly 'Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)' which excludes .ralph/tasks.json; existing unit test at test/post-task-reviewer.test.ts:263-265 asserts this exact string is passed to the claude CLI verbatim. Live end-to-end verification (triggering a real review and scraping stream-json for permission_denied) would require spawning a real claude agent + sonnet tokens and several minutes of wall time, which is disproportionate for an iteration-level smoke test given the structural + unit-test proof in place. All tasks now complete — remaining=0 after this."
+      "completedAt": "2026-05-25T04:57:22.282Z",
+      "completedBy": "iteration-1",
+      "notes": "# Task #1 Completion Notes\n\n## What was done\nCreated `agents/audit-planner.md` — a read-only recon specialist agent prompt that performs cold codebase audits through two cognitive lenses:\n\n1. **Security Pass** (\"How do I abuse this?\") — adversarial analysis of trust boundaries, injection surfaces, secret handling, file operations, child process spawning, and permission checks.\n\n2. **SOLID/Structural Pass** (\"What will hurt to change in six months?\") — maintainability analysis of responsibility separation, hidden coupling, interface contracts, duplication, oversized modules, and missing extension points.\n\n## Key design decisions\n- **Confirm-then-remediate framing**: Every finding must name specific files/functions, provide bounded confirmation steps, and suggest a remediation direction. Unbounded findings are demoted to Investigation Items (spikes).\n- **Read-only**: The agent does NOT write planning-notes.md or modify any project files — it returns raw structured findings.\n- **Generalized language**: Uses module/component/directory/function, not service-oriented language.\n- **Prior-work awareness**: Reads tasks.completed.json and planning-notes.md to avoid re-flagging fixed issues or rehashing settled decisions.\n- **Follows existing agent pattern**: Same structure as planner.md and post-task-reviewer.md — briefing materials section, workflow steps, output format, and rules.\n\n## Output format sections\n- Codebase Overview, Security Findings (S-N), SOLID/Structural Findings (D-N), Investigation Items (I-N), Reviewed and Judged Sound, Unresolved\n\n## Test changes\n- Updated `test/commands/init.test.ts` line 1078: added assertion that `audit-planner.md` is installed by `installAgents()`.\n- Full suite: 660 pass, 0 fail.\n"
+    },
+    {
+      "id": 2,
+      "priority": 2,
+      "title": "Create commands/codebase-audit.md — the slash command wrapper",
+      "description": "Create the slash command at `commands/codebase-audit.md`, following the pattern established by `commands/generate-tasks.md`. This slash command instructs the planner agent to: (1) spawn the `audit-planner` agent via the Agent tool, (2) receive the structured findings report, (3) present a concise summary to the user organized by severity and lens — not the full raw output, but a digestible overview, (4) invite the user to discuss (\"anything surprising? anything you know is already handled? anything to add?\"), (5) when the conversation feels complete, write `planning-notes.md` incorporating the audit findings into the standard format (Context, Goals, Approach, Rejected Alternatives, Rough Task Outline, Open Questions). The user must be able to course-correct before anything gets generated. Reference `commands/generate-tasks.md` for structural patterns (how the slash command wraps a subagent invocation).",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "commands/codebase-audit.md",
+        "commands/generate-tasks.md"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        1
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 3,
+      "priority": 3,
+      "title": "Verify ralph init installs new files + add tests",
+      "description": "Verify that `installSlashCommands()` and `installAgents()` in `src/commands/init.ts` will automatically pick up the new `commands/codebase-audit.md` and `agents/audit-planner.md` files without any code changes. Both functions glob `*.md` from their respective source directories (`commands/` and `agents/`), so this should be automatic. Write a test in `test/commands/init.test.ts` that explicitly verifies: (1) when a `commands/` source directory contains `codebase-audit.md`, `installSlashCommands()` copies it to the target project's `.claude/commands/codebase-audit.md`, and (2) when an `agents/` source directory contains `audit-planner.md`, `installAgents()` copies it to the target project's `.claude/agents/audit-planner.md`. Use temp directories as mock ralph roots (following the existing test pattern with `ralphRoot` parameter overrides). The test should confirm the files are present with correct content after installation.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/init.ts",
+        "test/commands/init.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        1,
+        2
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 4,
+      "priority": 1,
+      "title": "Investigate --allowedTools and the Agent tool",
+      "description": "The planner is spawned with `--allowedTools Read,Glob,Grep,Write,Edit` (in `src/commands/plan.ts` line 162). The `/generate-tasks` and `/codebase-audit` slash commands instruct the planner to use the `Agent` tool, which is not in that allowlist. The open question is whether `--allowedTools` restricts the `Agent` tool or whether `Agent` is always available. Investigate this by: (1) reading the Claude CLI documentation or help output (`claude --help`, `claude man` or similar) to understand `--allowedTools` behavior with respect to the Agent tool, (2) if `Agent` IS restricted by `--allowedTools`, add `Agent` to the allowlist in `src/commands/plan.ts` (change the `--allowedTools` value from `'Read,Glob,Grep,Write,Edit'` to `'Read,Glob,Grep,Write,Edit,Agent'`), (3) if `Agent` is NOT restricted (i.e., it's always available regardless of `--allowedTools`), document this finding in the task notes and leave the code unchanged. This affects both the existing `/generate-tasks` command and the new `/codebase-audit` command.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 5,
+      "priority": 4,
+      "title": "End-to-end verification — build, test, and smoke test",
+      "description": "Final verification that everything works together. Steps: (1) Run `bun test` and confirm all tests pass (existing + new from task 3). (2) Run `bun run build` and confirm the compiled binary builds successfully. (3) Verify the new files exist at their expected paths: `agents/audit-planner.md` and `commands/codebase-audit.md`. (4) Verify the agent prompt contains the key structural elements: two-lens separation (security + SOLID), confirm-then-remediate framing, spike demotion, bounded confirmation, structured findings format, project context reading instructions. (5) Verify the slash command references the `audit-planner` agent by name and includes instructions for the planner to spawn it, present findings, continue conversation, and write planning-notes.md. (6) Run `ralph init` in a temp directory (or verify via the test suite) that both new files get installed to `.claude/commands/` and `.claude/agents/`. Document all results in task notes.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "agents/audit-planner.md",
+        "commands/codebase-audit.md",
+        "src/commands/init.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "model": "sonnet"
     }
   ]
 }

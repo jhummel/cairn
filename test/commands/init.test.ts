@@ -1075,6 +1075,7 @@ describe('installAgents', () => {
     expect(fs.existsSync(path.join(destDir, 'planner.md'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'summarizer.md'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'post-task-reviewer.md'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'audit-planner.md'))).toBe(true);
   });
 });
 
