@@ -970,6 +970,21 @@ describe('installSlashCommands', () => {
       fs.rmSync(fakeRalphRoot, { recursive: true });
     }
   });
+
+  test('copies codebase-audit.md from mock ralphRoot to .claude/commands/ with correct content', () => {
+    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-audit-cmds-'));
+    fs.mkdirSync(path.join(fakeRalphRoot, 'commands'));
+    const auditContent = '# codebase-audit\nThis is the audit slash command.';
+    fs.writeFileSync(path.join(fakeRalphRoot, 'commands', 'codebase-audit.md'), auditContent);
+    try {
+      installSlashCommands(tmpDir, fakeRalphRoot);
+      const destPath = path.join(tmpDir, '.claude', 'commands', 'codebase-audit.md');
+      expect(fs.existsSync(destPath)).toBe(true);
+      expect(fs.readFileSync(destPath, 'utf8')).toBe(auditContent);
+    } finally {
+      fs.rmSync(fakeRalphRoot, { recursive: true });
+    }
+  });
 });
 
 // --- installAgents tests ---
@@ -1077,6 +1092,21 @@ describe('installAgents', () => {
     expect(fs.existsSync(path.join(destDir, 'summarizer.md'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'post-task-reviewer.md'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'audit-planner.md'))).toBe(true);
+  });
+
+  test('copies audit-planner.md from mock ralphRoot to .claude/agents/ with correct content', () => {
+    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-audit-agents-'));
+    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
+    const agentContent = '# audit-planner\nThis is the audit planner agent.';
+    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'audit-planner.md'), agentContent);
+    try {
+      installAgents(tmpDir, fakeRalphRoot);
+      const destPath = path.join(tmpDir, '.claude', 'agents', 'audit-planner.md');
+      expect(fs.existsSync(destPath)).toBe(true);
+      expect(fs.readFileSync(destPath, 'utf8')).toBe(agentContent);
+    } finally {
+      fs.rmSync(fakeRalphRoot, { recursive: true });
+    }
   });
 });
 
