@@ -18,7 +18,7 @@ WORKFLOW:
 2. Explore the project codebase (modules, services, infrastructure — whatever applies)
 3. If previous planning-notes.md exists, summarize what was discussed last time
 4. Have a conversation with the user about what they want to accomplish
-5. When the discussion feels complete, write planning-notes.md
+5. When you think the discussion may be wrapping up, ask the user if they are ready to capture the plan. Do NOT write planning-notes.md until the user explicitly says yes. Assume there may always be more to discuss — never decide on your own that the discussion "feels complete."
 
 PLANNING-NOTES.MD FORMAT:
 Write this file in the project data directory. Structure it as:
