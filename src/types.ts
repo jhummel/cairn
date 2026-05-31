@@ -36,6 +36,7 @@ export interface AgentInfo {
   description: string;
   model: string;
   file: string;
+  internal?: boolean;
 }
 
 export function isValidConfig(data: unknown): data is RalphConfig {

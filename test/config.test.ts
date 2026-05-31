@@ -329,6 +329,53 @@ model: opus
     expect(agents[0].description).toBe('Single quoted');
     expect(agents[0].model).toBe('opus');
   });
+
+  it('parses internal: true from frontmatter as boolean true', () => {
+    const agentsDir = path.join(tmpDir, '.claude', 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(agentsDir, 'internal-agent.md'),
+      `---
+name: internal-agent
+description: An internal agent
+internal: true
+---
+
+Body text.`
+    );
+
+    const agents = discoverAgents(tmpDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].internal).toBe(true);
+  });
+
+  it('yields falsy internal for agent without internal field', () => {
+    const agentsDir = path.join(tmpDir, '.claude', 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(agentsDir, 'public-agent.md'),
+      `---
+name: public-agent
+description: A public agent
+---
+
+Body text.`
+    );
+
+    const agents = discoverAgents(tmpDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].internal).toBeFalsy();
+  });
+
+  it('yields falsy internal for agent with no frontmatter', () => {
+    const agentsDir = path.join(tmpDir, '.claude', 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(path.join(agentsDir, 'plain.md'), 'Just body text.');
+
+    const agents = discoverAgents(tmpDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].internal).toBeFalsy();
+  });
 });
 
 describe('setConfigEnvVars', () => {

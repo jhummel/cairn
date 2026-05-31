@@ -118,6 +118,7 @@ export function discoverAgents(projectRoot: string): AgentInfo[] {
       description: meta.description || '',
       model: meta.model || '',
       file,
+      ...(meta.internal === 'true' ? { internal: true } : {}),
     });
   }
 
