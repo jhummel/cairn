@@ -145,7 +145,9 @@ describe('readTasksFile', () => {
   describe('mutateTasksFile', () => {
     it('(m-a) writes tempfile BEFORE rename, then renames on success', () => {
       const filePath = copyFixture(VALID_FIXTURE);
-      const tmpPath = `${filePath}.tmp`;
+      // The staging path is now per-process unique (`${filePath}.tmp.<pid>.<rand>`),
+      // so match by prefix rather than an exact shared name.
+      const tmpPrefix = `${filePath}.tmp`;
       const order: string[] = [];
 
       const origWrite = fs.writeFileSync.bind(fs);
@@ -153,13 +155,13 @@ describe('readTasksFile', () => {
 
       const writeSpy = spyOn(fs, 'writeFileSync').mockImplementation(
         ((p: any, c: any, o?: any) => {
-          if (String(p) === tmpPath) order.push('write');
+          if (String(p).startsWith(tmpPrefix)) order.push('write');
           return origWrite(p, c, o);
         }) as typeof fs.writeFileSync
       );
       const renameSpy = spyOn(fs, 'renameSync').mockImplementation(
         ((from: any, to: any) => {
-          if (String(from) === tmpPath) order.push('rename');
+          if (String(from).startsWith(tmpPrefix)) order.push('rename');
           return origRename(from, to);
         }) as typeof fs.renameSync
       );
@@ -195,10 +197,14 @@ describe('readTasksFile', () => {
       expect(result.tasks).toHaveLength(2);
       expect(result.tasks[1].id).toBe(2);
       expect(result.tasks[1].title).toBe('added');
-      expect(fs.existsSync(`${filePath}.tmp`)).toBe(false);
+      // No staging or lock files left behind.
+      const leftovers = fs
+        .readdirSync(tmpDir)
+        .filter((f) => f.includes('tasks.json.tmp') || f === 'tasks.json.lock');
+      expect(leftovers).toEqual([]);
     });
 
-    it('(m-c) cleans up tempfile via fs.unlinkSync when fn throws AND leaves tasks.json untouched', () => {
+    it('(m-c) when fn throws, tasks.json is left untouched and the lock is released', () => {
       const filePath = copyFixture(VALID_FIXTURE);
       const originalBytes = fs.readFileSync(filePath);
 
@@ -211,18 +217,21 @@ describe('readTasksFile', () => {
           })
         ).toThrow('boom from fn');
 
-        // unlinkSync must have been called on the tempfile path
-        const unlinkCalls = unlinkSpy.mock.calls.filter(
-          (c) => String(c[0]) === `${filePath}.tmp`
+        // The lockfile must be released (unlinked) even when fn throws.
+        const lockUnlinks = unlinkSpy.mock.calls.filter(
+          (c) => String(c[0]) === `${filePath}.lock`
         );
-        expect(unlinkCalls.length).toBeGreaterThanOrEqual(1);
+        expect(lockUnlinks.length).toBeGreaterThanOrEqual(1);
 
-        // Original tasks.json is byte-for-byte untouched
+        // Original tasks.json is byte-for-byte untouched (no staging write happened).
         const afterBytes = fs.readFileSync(filePath);
         expect(afterBytes.equals(originalBytes)).toBe(true);
 
-        // Tempfile must not be left on disk
-        expect(fs.existsSync(`${filePath}.tmp`)).toBe(false);
+        // No staging or lock files left on disk.
+        const leftovers = fs
+          .readdirSync(tmpDir)
+          .filter((f) => f.includes('tasks.json.tmp') || f === 'tasks.json.lock');
+        expect(leftovers).toEqual([]);
       } finally {
         unlinkSpy.mockRestore();
       }
@@ -296,6 +305,68 @@ describe('readTasksFile', () => {
       });
       const after = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
       expect(after.tasks[0].title).toBe('in-place');
+    });
+
+    it('(m-g) concurrent cross-process writers lose no updates and never corrupt JSON', async () => {
+      const N_WORKERS = 5;
+      const N_ITERS = 30;
+
+      const filePath = path.join(tmpDir, 'tasks.json');
+      const initial = {
+        project: 'concurrent',
+        tasks: Array.from({ length: N_WORKERS }, (_, i) => ({
+          id: i,
+          priority: 1,
+          title: `t${i}`,
+          status: 'pending',
+          counter: 0,
+        })),
+      };
+      fs.writeFileSync(filePath, JSON.stringify(initial, null, 2));
+
+      // Each worker increments ONLY its own task's counter N_ITERS times.
+      // Without a cross-process lock (and with a shared tmp path), concurrent
+      // read->modify->write cycles clobber each other => lost updates / corruption.
+      const srcPath = path.resolve(__dirname, '../src/tasks-file.ts');
+      const workerPath = path.join(tmpDir, 'worker.ts');
+      fs.writeFileSync(
+        workerPath,
+        `import { mutateTasksFile } from ${JSON.stringify(srcPath)};
+const [filePath, idxStr, itersStr] = process.argv.slice(2);
+const idx = Number(idxStr);
+const iters = Number(itersStr);
+for (let k = 0; k < iters; k++) {
+  mutateTasksFile(filePath, (data) => {
+    data.tasks[idx].counter = (data.tasks[idx].counter ?? 0) + 1;
+  });
+}
+`
+      );
+
+      const procs = Array.from({ length: N_WORKERS }, (_, i) =>
+        Bun.spawn(['bun', 'run', workerPath, filePath, String(i), String(N_ITERS)], {
+          stdout: 'pipe',
+          stderr: 'pipe',
+        })
+      );
+      const codes = await Promise.all(procs.map((p) => p.exited));
+      expect(codes.every((c) => c === 0)).toBe(true);
+
+      // File must still be valid JSON (no corruption).
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const after = JSON.parse(raw);
+      expect(after.tasks).toHaveLength(N_WORKERS);
+
+      // No lost updates: every counter reached N_ITERS.
+      for (let i = 0; i < N_WORKERS; i++) {
+        expect(after.tasks[i].counter).toBe(N_ITERS);
+      }
+
+      // No stray tmp/lock files left behind.
+      const leftovers = fs
+        .readdirSync(tmpDir)
+        .filter((f) => f.includes('tasks.json.tmp') || f === 'tasks.json.lock');
+      expect(leftovers).toEqual([]);
     });
   });
 
