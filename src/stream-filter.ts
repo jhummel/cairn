@@ -165,6 +165,7 @@ export interface ProcessStreamOptions {
   narrate?: (text: string) => void;
   ntfy?: (msg: string, opts?: NtfyOpts) => void;
   taskContext?: string;
+  taskId?: number;
 }
 
 /**
@@ -179,6 +180,9 @@ export async function processStream(
   const truncateText = options?.truncateText
     ?? (process.env.RALPH_TRUNCATE_TEXT?.toLowerCase() !== 'false');
 
+  const prefix = options?.taskId != null ? `[#${options.taskId}] ` : '';
+  const writeLine = (text: string) => output.write(prefix + text);
+
   const rl = createInterface({ input, crlfDelay: Infinity });
 
   for await (const rawLine of rl) {
@@ -190,7 +194,7 @@ export async function processStream(
       e = JSON.parse(line);
     } catch {
       // Not JSON — pass through as-is
-      output.write(line + '\n');
+      writeLine(line + '\n');
       continue;
     }
 
@@ -199,7 +203,7 @@ export async function processStream(
     if (t === 'system' && e.subtype === 'init') {
       const model = e.model ?? '?';
       const mode = e.permissionMode ?? '?';
-      output.write(`  ${DIM}[init]${RESET} ${model} | ${mode}\n`);
+      writeLine(`  ${DIM}[init]${RESET} ${model} | ${mode}\n`);
       if (options?.taskContext) {
         options.narrate?.(`Starting work on: ${options.taskContext}`);
         options.ntfy?.(`Starting: ${options.taskContext}`, { title: 'Ralph', tags: 'hammer' });
@@ -209,7 +213,7 @@ export async function processStream(
       for (const block of content) {
         const bt = block.type ?? '';
         if (bt === 'tool_use') {
-          output.write(`  > ${fmtTool(block)}\n`);
+          writeLine(`  > ${fmtTool(block)}\n`);
         } else if (bt === 'text') {
           const text = (block.text ?? '').trim();
           if (!text) continue;
@@ -218,10 +222,10 @@ export async function processStream(
             if (firstLine.length > 80) {
               firstLine = firstLine.slice(0, 77) + '...';
             }
-            output.write(`  ${YELLOW}${firstLine}${RESET}\n`);
+            writeLine(`  ${YELLOW}${firstLine}${RESET}\n`);
           } else {
             for (const tline of text.split('\n')) {
-              output.write(`  ${YELLOW}${tline}${RESET}\n`);
+              writeLine(`  ${YELLOW}${tline}${RESET}\n`);
             }
           }
           // Forward to narration server
@@ -232,7 +236,7 @@ export async function processStream(
         }
       }
     } else if (t === 'result') {
-      output.write(`  ${fmtResult(e)}\n`);
+      writeLine(`  ${fmtResult(e)}\n`);
       // Narrate and notify iteration end
       const dur = (e.duration_ms ?? 0) / 1000;
       const turns = e.num_turns ?? 0;

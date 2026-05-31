@@ -3,32 +3,12 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 8,
-      "priority": 8,
-      "title": "Plural ready-set selector",
-      "description": "Add `selectReadyTasks(tasks: Task[], completedIds: Set<number>, opts?: { limit?: number }): Task[]` to `src/task-selector.ts` alongside the existing `selectNextTask` (which stays unchanged for serial mode). It returns a batch of pending tasks whose dependencies are ALL satisfied (use the same active+archived complete-id logic as `selectNextTask`, ~lines 51-54), sorted by priority ascending, capped at `opts.limit`, and conflict-filtered so the returned set has no two tasks sharing the same non-empty `directory` (a wave must never have two agents writing the same dir). Decide AND document in a code comment how in-progress tasks interact with the ready-set (e.g. lead with them, or treat their directories as occupied). TDD: add failing tests to `test/task-selector.test.ts` FIRST covering dependency gating, priority ordering, limit capping, and directory-conflict exclusion; watch them fail, then implement.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "src/task-selector.ts",
-        "test/task-selector.test.ts"
-      ],
-      "tests": [
-        "bun test test/task-selector.test.ts"
-      ],
-      "dependencies": [],
-      "model": "sonnet",
-      "completedAt": "2026-05-31T23:34:40.103Z",
-      "completedBy": "iteration-8",
-      "notes": "# Task #8 Completion Notes: Plural ready-set selector\n\n## What was done\n\nAdded `selectReadyTasks(tasks, completedIds, opts?)` to `src/task-selector.ts`\nalongside the existing `selectNextTask` (unchanged).\n\n### Behaviour\n\n- Returns all pending tasks whose dependencies are fully satisfied, using the\n  same active+archived complete-id union as `selectNextTask` (lines ~51-54 of\n  the original).\n- Sorted by priority ascending (lower number = higher priority).\n- Capped at `opts.limit` if provided.\n- Directory-conflict filtered: after sorting, each candidate whose non-empty\n  `directory` is already claimed by a higher-priority batch member is skipped,\n  so the returned set never has two tasks writing the same directory.\n\n### In-progress interaction (documented in a code comment)\n\nIn-progress tasks are treated as occupying their directories — any pending task\nsharing the same non-empty directory as an in-progress task is excluded from the\nready-set before the priority sort even begins. This prevents a parallel wave\nfrom dispatching a new agent into a directory that is already being mutated.\nIn-progress tasks themselves are never included in the result.\n\n## TDD\n\n1. Added 11 new failing tests to `test/task-selector.test.ts` covering:\n   - Dependency gating (unsatisfied dep, satisfied via active/archived/union)\n   - Priority ordering\n   - Limit capping\n   - Directory-conflict exclusion (batch-internal and in-progress occupation)\n   - Empty-directory tasks are not considered conflicts\n   - Blocked/complete tasks ignored\n2. Confirmed tests failed (`SyntaxError: Export named 'selectReadyTasks' not found`)\n3. Implemented the function.\n4. All 49 tests pass (11 new + 38 pre-existing).\n\n## Tests run\n\n`bun test test/task-selector.test.ts` → 49 pass, 0 fail\n`bun run build` → success\n"
-    },
-    {
       "id": 9,
       "priority": 9,
       "title": "Task-id-labeled stream output",
       "description": "Thread an optional task id through the stream filter in `src/stream-filter.ts` so concurrent agents' lines can be prefixed `[#id]`. Add an optional field (e.g. `taskId?: number` or `linePrefix?: string`) to `ProcessStreamOptions` (~line 163) and, when set, prefix each emitted output line with `[#<id>] `. When unset, output must be byte-for-byte unchanged (serial mode MUST NOT regress). TDD: add failing tests to `test/stream-filter.test.ts` FIRST — one asserting lines are prefixed when the id is provided, one asserting identical output to today when it is omitted; watch them fail, then implement.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "src/stream-filter.ts",
         "test/stream-filter.test.ts"
@@ -37,7 +17,10 @@
         "bun test test/stream-filter.test.ts"
       ],
       "dependencies": [],
-      "model": "sonnet"
+      "model": "sonnet",
+      "completedAt": "2026-05-31T23:37:33.678Z",
+      "completedBy": "iteration-9",
+      "notes": "# Task #9 Completion Notes: Task-id-labeled stream output\n\n## What was done\n\nAdded `taskId?: number` to `ProcessStreamOptions` in `src/stream-filter.ts` (line ~163).\n\nWhen `taskId` is set, every output line emitted by `processStream` is prefixed with `[#<id>] `. When omitted, output is byte-for-byte unchanged (serial mode regression guard confirmed by test).\n\n### Implementation approach\n\nInstead of touching each `output.write(...)` call individually, I introduced a `writeLine` helper scoped inside `processStream`:\n\n```typescript\nconst prefix = options?.taskId != null ? `[#${options.taskId}] ` : '';\nconst writeLine = (text: string) => output.write(prefix + text);\n```\n\nAll 6 `output.write(...)` calls inside the loop were replaced with `writeLine(...)`. Because every write already terminated with `\\n` (one line per call), the prefix is correctly placed at the start of each visual output line.\n\n## TDD\n\n1. Added 2 failing tests to `test/stream-filter.test.ts` in a new `processStream taskId prefix` describe block:\n   - `prefixes every output line with [#<id>] when taskId is provided` — ran against all 3 event types (init, tool_use, result), asserted every line matches `/^\\[#5\\] /`\n   - `does not prefix lines when taskId is omitted — byte-for-byte unchanged` — confirmed omission produces identical bytes to no-options call\n2. Confirmed tests failed (58 pass, 1 fail) before implementation\n3. Implemented feature\n4. All 59 tests pass, 0 fail\n\n## Tests run\n\n`bun test test/stream-filter.test.ts` → 59 pass, 0 fail  \n`bun run build` → success\n"
     }
   ]
 }

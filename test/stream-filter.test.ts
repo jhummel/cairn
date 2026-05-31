@@ -513,6 +513,38 @@ describe('sendNtfy', () => {
   });
 });
 
+// --- processStream taskId prefix tests ---
+
+describe('processStream taskId prefix', () => {
+  it('prefixes every output line with [#<id>] when taskId is provided', async () => {
+    const events = [
+      JSON.stringify({ type: 'system', subtype: 'init', model: 'claude-sonnet', permissionMode: 'plan' }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'ls', description: '' } }] },
+      }),
+      JSON.stringify({ type: 'result', duration_ms: 1000, total_cost_usd: 0, num_turns: 1, is_error: false }),
+    ];
+    const { writable, output } = collectWritable();
+    await processStream(linesStream(events), writable, { taskId: 5 });
+    const lines = output().trimEnd().split('\n');
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) {
+      expect(line).toMatch(/^\[#5\] /);
+    }
+  });
+
+  it('does not prefix lines when taskId is omitted — byte-for-byte unchanged', async () => {
+    const event = JSON.stringify({ type: 'system', subtype: 'init', model: 'claude-sonnet', permissionMode: 'plan' });
+    const { writable: w1, output: out1 } = collectWritable();
+    const { writable: w2, output: out2 } = collectWritable();
+    await processStream(linesStream([event]), w1);
+    await processStream(linesStream([event]), w2, {});
+    expect(out1()).toBe(out2());
+    expect(out1()).not.toContain('[#');
+  });
+});
+
 // --- processStream narration integration tests ---
 
 describe('processStream narration', () => {
