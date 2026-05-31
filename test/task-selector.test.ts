@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { loadCompletedIds, selectNextTask, buildIterationPrompt } from '../src/task-selector';
+import { loadCompletedIds, selectNextTask, selectReadyTasks, buildIterationPrompt } from '../src/task-selector';
 import type { Task } from '../src/types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -179,6 +179,115 @@ describe('selectNextTask', () => {
     // id=3 has no deps; id=1 complete satisfies nothing for id=4 which needs 2 and 3
     const selected = selectNextTask(tasks, new Set([2]));
     expect(selected?.id).toBe(3);
+  });
+});
+
+// ── selectReadyTasks ──────────────────────────────────────────────────────────
+
+describe('selectReadyTasks', () => {
+  it('returns empty array when task list is empty', () => {
+    expect(selectReadyTasks([], new Set())).toEqual([]);
+  });
+
+  it('returns only pending tasks with all deps satisfied', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 1, priority: 1, status: 'pending', dependencies: [] }),
+      makeTask({ id: 2, priority: 2, status: 'pending', dependencies: [99] }),
+    ];
+    expect(selectReadyTasks(tasks, new Set()).map(t => t.id)).toEqual([1]);
+  });
+
+  it('satisfies deps via active complete tasks', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 1, priority: 9, status: 'complete' }),
+      makeTask({ id: 2, priority: 1, status: 'pending', dependencies: [1] }),
+    ];
+    expect(selectReadyTasks(tasks, new Set()).map(t => t.id)).toEqual([2]);
+  });
+
+  it('satisfies deps via completedIds set', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 2, priority: 1, status: 'pending', dependencies: [1] }),
+    ];
+    expect(selectReadyTasks(tasks, new Set([1])).map(t => t.id)).toEqual([2]);
+  });
+
+  it('satisfies deps via union of both sources', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 1, priority: 9, status: 'complete' }),
+      makeTask({ id: 3, priority: 1, status: 'pending', dependencies: [1, 2] }),
+    ];
+    expect(selectReadyTasks(tasks, new Set([2])).map(t => t.id)).toEqual([3]);
+  });
+
+  it('sorts by priority ascending', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 1, priority: 5, status: 'pending' }),
+      makeTask({ id: 2, priority: 1, status: 'pending' }),
+      makeTask({ id: 3, priority: 3, status: 'pending' }),
+    ];
+    expect(selectReadyTasks(tasks, new Set()).map(t => t.id)).toEqual([2, 3, 1]);
+  });
+
+  it('caps results at limit', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 1, priority: 1, status: 'pending' }),
+      makeTask({ id: 2, priority: 2, status: 'pending' }),
+      makeTask({ id: 3, priority: 3, status: 'pending' }),
+    ];
+    const result = selectReadyTasks(tasks, new Set(), { limit: 2 });
+    expect(result).toHaveLength(2);
+    expect(result.map(t => t.id)).toEqual([1, 2]);
+  });
+
+  it('excludes lower-priority tasks sharing a directory with a higher-priority batch member', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 1, priority: 1, status: 'pending', directory: 'src/foo' }),
+      makeTask({ id: 2, priority: 2, status: 'pending', directory: 'src/bar' }),
+      makeTask({ id: 3, priority: 3, status: 'pending', directory: 'src/foo' }),
+    ];
+    // id=3 conflicts with id=1 (same dir); id=2 is ok
+    expect(selectReadyTasks(tasks, new Set()).map(t => t.id)).toEqual([1, 2]);
+  });
+
+  it('allows multiple tasks with no directory (empty string is not a conflict)', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 1, priority: 1, status: 'pending' }),
+      makeTask({ id: 2, priority: 2, status: 'pending' }),
+    ];
+    expect(selectReadyTasks(tasks, new Set()).map(t => t.id)).toEqual([1, 2]);
+  });
+
+  it('treats in-progress task directories as occupied', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 1, priority: 1, status: 'in-progress', directory: 'src/foo' }),
+      makeTask({ id: 2, priority: 2, status: 'pending', directory: 'src/foo' }),
+      makeTask({ id: 3, priority: 3, status: 'pending', directory: 'src/bar' }),
+    ];
+    // id=2 excluded because src/foo is occupied by in-progress id=1
+    expect(selectReadyTasks(tasks, new Set()).map(t => t.id)).toEqual([3]);
+  });
+
+  it('excludes in-progress tasks from the result', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 1, priority: 1, status: 'in-progress' }),
+    ];
+    expect(selectReadyTasks(tasks, new Set())).toHaveLength(0);
+  });
+
+  it('returns empty array when all pending tasks have unsatisfied deps', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 1, priority: 1, status: 'pending', dependencies: [99] }),
+    ];
+    expect(selectReadyTasks(tasks, new Set())).toEqual([]);
+  });
+
+  it('ignores blocked and complete tasks', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 1, priority: 1, status: 'blocked' }),
+      makeTask({ id: 2, priority: 2, status: 'complete' }),
+    ];
+    expect(selectReadyTasks(tasks, new Set())).toEqual([]);
   });
 });
 

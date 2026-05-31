@@ -64,6 +64,53 @@ export function selectNextTask(tasks: Task[], completedIds: Set<number>): Task |
   return null;
 }
 
+// In-progress tasks occupy their directories — any pending task that shares the
+// same non-empty directory as an in-progress task is excluded from the ready-set.
+// This prevents two concurrent agents from writing to the same directory in a
+// parallel wave. The ready-set itself also applies the same constraint among its
+// own members: after sorting by priority, each candidate is skipped if its
+// directory is already claimed by a higher-priority task in the batch.
+export function selectReadyTasks(
+  tasks: Task[],
+  completedIds: Set<number>,
+  opts?: { limit?: number },
+): Task[] {
+  // Build complete ID set from archived + active (same logic as selectNextTask)
+  const allCompleteIds = new Set<number>(completedIds);
+  for (const t of tasks) {
+    if (t.status === 'complete') allCompleteIds.add(t.id);
+  }
+
+  // Collect directories occupied by currently in-progress tasks
+  const occupiedDirs = new Set<string>();
+  for (const t of tasks) {
+    if (t.status === 'in-progress' && t.directory) occupiedDirs.add(t.directory);
+  }
+
+  // Filter to dependency-satisfied pending tasks not blocked by an occupied dir
+  const candidates = tasks.filter((t) => {
+    if (t.status !== 'pending') return false;
+    if (t.directory && occupiedDirs.has(t.directory)) return false;
+    return (t.dependencies ?? []).every((d) => allCompleteIds.has(d));
+  });
+
+  candidates.sort((a, b) => a.priority - b.priority);
+
+  // Walk the sorted list, claiming directories as we go
+  const usedDirs = new Set<string>();
+  const result: Task[] = [];
+  for (const t of candidates) {
+    if (t.directory) {
+      if (usedDirs.has(t.directory)) continue;
+      usedDirs.add(t.directory);
+    }
+    result.push(t);
+    if (opts?.limit !== undefined && result.length >= opts.limit) break;
+  }
+
+  return result;
+}
+
 export function buildIterationPrompt(
   task: Task,
   iteration: number,
