@@ -3079,6 +3079,132 @@
       "completedAt": "2026-05-25T05:23:23.651Z",
       "completedBy": "iteration-4",
       "notes": "# Task #3 Completion Notes\n\n## What was done\n\nVerified that `installSlashCommands()` and `installAgents()` in `src/commands/init.ts` automatically pick up new files via glob (no code changes needed), and added two isolated unit tests using temp mock ralphRoots.\n\n## Key findings\n\n- Both functions were already glob-based (`*.md` from their respective source dirs), so `commands/codebase-audit.md` and `agents/audit-planner.md` were automatically included with no code changes.\n- The previous iteration (Task #2) had already added assertions for these files in the real-ralph-root tests (\"copies .md files\" and \"copies actual ralph agents\" tests).\n\n## Tests added\n\nTwo new tests in `test/commands/init.test.ts`, each using a temp directory as a mock ralphRoot:\n\n1. **`installSlashCommands` → `codebase-audit.md`** (in `describe('installSlashCommands')`): Creates a fake ralphRoot with `commands/codebase-audit.md` containing known content, calls `installSlashCommands(tmpDir, fakeRalphRoot)`, asserts the file exists at `.claude/commands/codebase-audit.md` with identical content.\n\n2. **`installAgents` → `audit-planner.md`** (in `describe('installAgents')`): Creates a fake ralphRoot with `agents/audit-planner.md` containing known content, calls `installAgents(tmpDir, fakeRalphRoot)`, asserts the file exists at `.claude/agents/audit-planner.md` with identical content.\n\n## Test results\n\n662 pass, 0 fail (full suite).\n"
+    },
+    {
+      "id": 5,
+      "priority": 4,
+      "title": "End-to-end verification — build, test, and smoke test",
+      "description": "Final verification that everything works together. Steps: (1) Run `bun test` and confirm all tests pass (existing + new from task 3). (2) Run `bun run build` and confirm the compiled binary builds successfully. (3) Verify the new files exist at their expected paths: `agents/audit-planner.md` and `commands/codebase-audit.md`. (4) Verify the agent prompt contains the key structural elements: two-lens separation (security + SOLID), confirm-then-remediate framing, spike demotion, bounded confirmation, structured findings format, project context reading instructions. (5) Verify the slash command references the `audit-planner` agent by name and includes instructions for the planner to spawn it, present findings, continue conversation, and write planning-notes.md. (6) Run `ralph init` in a temp directory (or verify via the test suite) that both new files get installed to `.claude/commands/` and `.claude/agents/`. Document all results in task notes.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "agents/audit-planner.md",
+        "commands/codebase-audit.md",
+        "src/commands/init.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "model": "sonnet",
+      "completedAt": "2026-05-25T05:26:00.394Z",
+      "completedBy": "iteration-5",
+      "notes": "# Task #5 Completion Notes — End-to-end verification\n\n## Results\n\n### 1. Tests\n- **bun test**: 662 pass, 0 fail (4.62s across 25 files)\n\n### 2. Build\n- **bun run build**: Success — 105 modules bundled, compiled to `dist/ralph` in ~142ms\n\n### 3. File existence\n- `agents/audit-planner.md` — exists ✓\n- `commands/codebase-audit.md` — exists ✓\n\n### 4. audit-planner.md structural elements verified\n- **Two-lens separation**: \"Perform a cold sweep of the codebase through two cognitive lenses: security (adversarial) and SOLID/structural\"\n- **Confirm-then-remediate framing**: Section \"## Confirm-Then-Remediate Framing\" with Confirm/Remediate sub-steps\n- **Spike demotion**: \"If a finding cannot meet this bar...demote it to an Investigation Item. Investigation items are spikes\"\n- **Bounded confirmation**: \"bounded instructions for verifying the claim (e.g., 'read lines 40-60 of src/foo.ts')\"\n- **Structured findings format**: Explicit output format with Security Findings / SOLID/Structural Findings sections\n- **Project context reading**: Reads `planning-notes.md` to avoid rehashing settled decisions\n\n### 5. commands/codebase-audit.md slash command verified\n- References `audit-planner` agent by name (via `agents/audit-planner.md` file read)\n- Instructions to spawn it via Agent tool with `subagent_type: \"general-purpose\"`\n- Present findings: groups by severity (security) and impact (structural)\n- Continue conversation: \"Let the user react, ask questions, dismiss false positives...\"\n- Write planning-notes.md: explicit Write tool instructions with format\n\n### 6. ralph init smoke test\nRunning `ralph init` (intercepted in project root due to no path arg support) confirmed output:\n```\nInstalled: .claude/commands/codebase-audit.md\nInstalled: .claude/agents/audit-planner.md\n```\nUnit tests in `test/commands/init.test.ts` (lines 974–1104) cover both files with isolated mock ralphRoot tests that verify content fidelity.\n\n## Summary\nAll steps pass. The codebase-audit slash command and audit-planner agent are complete, tested, and correctly installed by `ralph init`.\n"
+    },
+    {
+      "id": 1,
+      "priority": 1,
+      "title": "Add `internal` agent flag to discovery",
+      "description": "Add `internal: true` support to agent discovery. (a) Add a YAML frontmatter block to `agents/post-task-reviewer.md` — the file currently has NO frontmatter, it starts directly with body prose, so add the whole `---` block containing at minimum `name: post-task-reviewer`, a `description`, and `internal: true`, preserving the existing body verbatim below the closing `---`. (b) In `src/config.ts` `discoverAgents` (~lines 99-122), parse a boolean `internal` field from frontmatter — the existing regex already captures `key: value` into `meta`, so coerce `meta.internal === 'true'` to a boolean — and set it on the pushed `AgentInfo`. (c) Add `internal?: boolean` to the `AgentInfo` interface in `src/types.ts` (~line 34). TDD: write the failing test in `test/config.test.ts` FIRST, asserting a discovered agent with `internal: true` frontmatter yields `internal === true` and one without yields falsy; watch it fail, then implement.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "agents/post-task-reviewer.md",
+        "src/config.ts",
+        "src/types.ts",
+        "test/config.test.ts"
+      ],
+      "tests": [
+        "bun test test/config.test.ts"
+      ],
+      "dependencies": [],
+      "model": "sonnet",
+      "completedAt": "2026-05-31T23:02:23.821Z",
+      "completedBy": "iteration-1",
+      "notes": "# Task #1 Completion Notes: Add `internal` agent flag to discovery\n\n## What was done\n\n1. **TDD**: Added 3 failing tests to `test/config.test.ts` in the `discoverAgents` describe block:\n   - `parses internal: true from frontmatter as boolean true` — asserts `agent.internal === true`\n   - `yields falsy internal for agent without internal field` — asserts `agent.internal` is falsy\n   - `yields falsy internal for agent with no frontmatter` — asserts `agent.internal` is falsy\n   \n   Confirmed all 3 failed before implementation.\n\n2. **`src/types.ts`**: Added `internal?: boolean` to the `AgentInfo` interface (~line 38).\n\n3. **`src/config.ts`** (`discoverAgents`, ~line 116): Spread `{ internal: true }` onto the pushed agent object only when `meta.internal === 'true'` (the regex captures string values, so coerce the string `'true'` to boolean). Agents without the field get no `internal` key (undefined/falsy).\n\n4. **`agents/post-task-reviewer.md`**: Prepended a YAML frontmatter block with `name`, `description`, and `internal: true`. The existing body prose is preserved verbatim below the closing `---`.\n\n## Test results\nAll 42 tests in `test/config.test.ts` pass (0 failures).\n"
+    },
+    {
+      "id": 2,
+      "priority": 2,
+      "title": "Executor guard in buildSystemPrompt",
+      "description": "Harden the specialist-injection block in `src/commands/run.ts` `buildSystemPrompt` (~lines 60-79). After resolving `agentInfo = agents.find(a => a.name === taskAgent)`, if `agentInfo?.internal` is true, do NOT inject the specialist body — emit a warning (e.g. `console.warn`) that an internal agent was assigned and is being ignored, and fall back to the generalist prompt (leave `specialistSection` empty). Non-internal agents inject exactly as before. TDD: add the failing test to `test/agent-prompt.test.ts` FIRST — assert the returned prompt does NOT contain the reviewer body when an `internal` agent is assigned, and DOES contain it for a normal specialist; watch it fail, then implement.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "src/commands/run.ts",
+        "test/agent-prompt.test.ts"
+      ],
+      "tests": [
+        "bun test test/agent-prompt.test.ts"
+      ],
+      "dependencies": [
+        1
+      ],
+      "model": "sonnet",
+      "completedAt": "2026-05-31T23:04:39.113Z",
+      "completedBy": "iteration-2",
+      "notes": "# Task #2 Completion Notes: Executor guard in buildSystemPrompt\n\n## What was done\n\n### TDD: Tests added first to `test/agent-prompt.test.ts`\n\nAdded two new tests in a `buildSystemPrompt` describe block:\n\n1. **\"injects specialist body for a non-internal agent\"** — creates a normal agent file, calls `buildSystemPrompt`, asserts the body IS in the prompt and `SPECIALIST INSTRUCTIONS:` header is present. This test passed immediately (existing behavior correct).\n\n2. **\"does NOT inject specialist body for an internal agent, and emits a warning\"** — creates an internal agent (`internal: true` in `AgentInfo`), calls `buildSystemPrompt`, asserts the body is NOT in the prompt, `SPECIALIST INSTRUCTIONS:` is not present, and `console.warn` was called once with the agent name. This test failed before implementation (red phase confirmed).\n\nAlso added imports for `buildSystemPrompt`, `SystemPromptInput`, `AgentInfo`, `RalphConfig`, and `spyOn` from `bun:test`.\n\n### Implementation in `src/commands/run.ts` (~lines 60-83)\n\nIn the specialist injection block, added an `agentInfo.internal` guard:\n\n```typescript\nif (agentInfo.internal) {\n  console.warn(`[ralph] Agent '${taskAgent}' is marked internal and cannot be used as a task specialist — falling back to generalist prompt.`);\n} else {\n  // ... existing file read + specialistSection assignment\n}\n```\n\nNon-internal agents inject exactly as before. Internal agents get a warning and `specialistSection` stays empty, so the prompt falls back to the generalist template.\n\n## Test results\n\nAll 5 tests in `test/agent-prompt.test.ts` pass. Full suite: 667 pass, 0 fail.\n"
+    },
+    {
+      "id": 3,
+      "priority": 3,
+      "title": "Filter internal agents from the planner's agent list",
+      "description": "In `src/commands/plan.ts` (~lines 80-88, the block that builds the `AVAILABLE SPECIALIST AGENTS (.claude/agents/):` section), filter out agents where `internal` is true before building the list, so internal agents (e.g. post-task-reviewer) are never listed to the planner/generate-tasks context as assignable. If all agents are filtered out, omit the section entirely (matching the existing `agents.length > 0` guard behavior). TDD: add the failing test to `test/commands/plan.test.ts` FIRST, asserting an `internal` agent name is absent from the returned context while a normal agent is present; watch it fail, then implement.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "src/commands/plan.ts",
+        "test/commands/plan.test.ts"
+      ],
+      "tests": [
+        "bun test test/commands/plan.test.ts"
+      ],
+      "dependencies": [
+        1
+      ],
+      "model": "sonnet",
+      "completedAt": "2026-05-31T23:06:33.804Z",
+      "completedBy": "iteration-3",
+      "notes": "# Task #3 Completion Notes: Filter internal agents from the planner's agent list\n\n## What was done\n\n### TDD: Tests added first to `test/commands/plan.test.ts`\n\nAdded two new tests in the `buildDynamicContext` describe block:\n\n1. **\"excludes internal agents from the agents section while keeping normal agents\"** — passes a mixed array of one `internal: true` agent (`post-task-reviewer`) and one normal agent (`specialist`), asserts the internal agent's name is absent and the normal agent is present, and the section header is still present. Failed before implementation (red phase confirmed).\n\n2. **\"omits agent section entirely when all agents are internal\"** — passes only an internal agent, asserts neither the agent name nor `AVAILABLE SPECIALIST AGENTS` appears. Failed before implementation (red phase confirmed).\n\n### Implementation in `src/commands/plan.ts` (line 81-82)\n\nIn `buildDynamicContext`, added a single filter line before building the agents section:\n\n```typescript\nconst visibleAgents = agents.filter(a => !a.internal);\nif (visibleAgents.length > 0) {\n  const lines = visibleAgents.map(a => { ... });\n  ...\n}\n```\n\nChanged `agents.length > 0` to `visibleAgents.length > 0` and `agents.map` to `visibleAgents.map`. The existing `agents.length > 0` guard naturally became the `visibleAgents.length > 0` guard, so an all-internal list correctly omits the section entirely.\n\n## Test results\n\n- `bun test test/commands/plan.test.ts`: 41 pass, 0 fail\n- `bun test` (full suite): 669 pass, 0 fail\n"
+    },
+    {
+      "id": 4,
+      "priority": 4,
+      "title": "Rewrite AGENT SELECTION in generate-tasks.md",
+      "description": "Documentation/prompt change to `commands/generate-tasks.md`. Rewrite the `AGENT SELECTION:` section (~lines 140-143) to state plainly that post-task review runs AUTOMATICALLY after every task (gated on config), so the task-generation agent must NEVER create \"review code\" / \"review the work\" tasks and must NEVER assign `post-task-reviewer` (or any internal agent) to a task's `agent` field. Keep the legitimate guidance that genuine executor specialists may be assigned to matching tasks and that most tasks use the default generalist. No code or tests — this is a prompt edit only.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "commands/generate-tasks.md"
+      ],
+      "tests": [],
+      "dependencies": [],
+      "model": "sonnet",
+      "completedAt": "2026-05-31T23:08:12.175Z",
+      "completedBy": "iteration-4",
+      "notes": "# Task #4 Completion Notes: Rewrite AGENT SELECTION in generate-tasks.md\n\n## What was done\n\nEdited the `AGENT SELECTION:` section in `commands/generate-tasks.md` (lines 140-143).\n\n### Change\n\nPrepended a new bullet that explicitly states:\n- Post-task code review runs **automatically** after every task (gated on project config)\n- The task-generation agent must NEVER create review tasks or assign internal agents (e.g. `post-task-reviewer`) to the `agent` field\n\nRetained the existing two bullets:\n- Specialist executor agents from `.claude/agents/` may be assigned to matching tasks\n- Most tasks use the default generalist\n\n### Why\n\nPreviously the section had no guidance about internal agents, leaving open the possibility that a task-generation agent would create explicit \"review\" tasks or mistakenly assign `post-task-reviewer` to tasks. The new bullet closes both gaps with clear \"NEVER\" language.\n\n## No code changes, no tests\n\nThis was a prompt/documentation edit only.\n"
+    },
+    {
+      "id": 5,
+      "priority": 5,
+      "title": "Gate the planner's write in planner.md",
+      "description": "Documentation/prompt change to `agents/planner.md`. Replace WORKFLOW step 5 (\"When the discussion feels complete, write planning-notes.md\") with an explicit user-go-ahead gate: the planner must NOT write `planning-notes.md` based on its own judgment that the discussion \"feels complete.\" It MAY ask the user whether they are ready to capture the plan, but must only write AFTER the user explicitly gives the go-ahead, and should assume there may always be more to discuss. Keep the existing constraint (~line 47) that it only ever writes `planning-notes.md`. No code or tests — this is a prompt edit only.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "agents/planner.md"
+      ],
+      "tests": [],
+      "dependencies": [],
+      "model": "sonnet",
+      "completedAt": "2026-05-31T23:09:33.397Z",
+      "completedBy": "iteration-5",
+      "notes": "# Task #5 Completion Notes: Gate the planner's write in planner.md\n\n## What was done\n\nEdited `agents/planner.md`, WORKFLOW step 5 (line 21).\n\n### Change\n\n**Before:**\n> 5. When the discussion feels complete, write planning-notes.md\n\n**After:**\n> 5. When you think the discussion may be wrapping up, ask the user if they are ready to capture the plan. Do NOT write planning-notes.md until the user explicitly says yes. Assume there may always be more to discuss — never decide on your own that the discussion \"feels complete.\"\n\n## Why\n\nThe old wording gave the planner a judgment call (\"feels complete\") that could cause it to write the file prematurely, cutting short the planning conversation. The new wording:\n- Requires an explicit user go-ahead before writing\n- Allows the planner to *ask* if the user is ready (good UX)\n- Explicitly forbids self-judgment about completeness\n- Reminds the planner there may always be more to discuss\n\n## No code changes, no tests\n\nPrompt/documentation edit only. The existing constraint at line 47 (only write `planning-notes.md`) is untouched.\n"
     }
   ]
 }

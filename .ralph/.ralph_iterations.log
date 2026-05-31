@@ -298,3 +298,18 @@ Iteration 3 completed: 2026-05-25T05:10:02.338Z — SUCCESS
 Iteration 4 started: 2026-05-25T05:21:55.908Z — Task #3: Verify ralph init installs new files + add tests
 Iteration 4 completed: 2026-05-25T05:23:36.234Z — SUCCESS
 Iteration 5 started: 2026-05-25T05:25:00.282Z — Task #5: End-to-end verification — build, test, and smoke test
+Iteration 5 completed: 2026-05-25T05:26:34.297Z — SUCCESS
+Iteration 6: COMPLETION FLAG FOUND
+Ralph Execution Loop Started: 2026-05-31T23:01:29.570Z
+
+Iteration 1 started: 2026-05-31T23:01:29.574Z — Task #1: Add `internal` agent flag to discovery
+Iteration 1 completed: 2026-05-31T23:02:30.161Z — SUCCESS
+Iteration 2 started: 2026-05-31T23:03:01.250Z — Task #2: Executor guard in buildSystemPrompt
+Iteration 2 completed: 2026-05-31T23:04:47.689Z — SUCCESS
+Iteration 3 started: 2026-05-31T23:05:28.798Z — Task #3: Filter internal agents from the planner's agent list
+Iteration 3 completed: 2026-05-31T23:06:40.684Z — SUCCESS
+Iteration 4 started: 2026-05-31T23:07:48.877Z — Task #4: Rewrite AGENT SELECTION in generate-tasks.md
+Iteration 4 completed: 2026-05-31T23:08:18.432Z — SUCCESS
+Iteration 5 started: 2026-05-31T23:09:11.793Z — Task #5: Gate the planner's write in planner.md
+Iteration 5 completed: 2026-05-31T23:09:43.294Z — SUCCESS
+Iteration 6 started: 2026-05-31T23:10:13.408Z — Task #6: Parallel-execution RFC

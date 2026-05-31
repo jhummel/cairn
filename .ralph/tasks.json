@@ -1,31 +1,74 @@
 {
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 5,
-      "priority": 4,
-      "title": "End-to-end verification — build, test, and smoke test",
-      "description": "Final verification that everything works together. Steps: (1) Run `bun test` and confirm all tests pass (existing + new from task 3). (2) Run `bun run build` and confirm the compiled binary builds successfully. (3) Verify the new files exist at their expected paths: `agents/audit-planner.md` and `commands/codebase-audit.md`. (4) Verify the agent prompt contains the key structural elements: two-lens separation (security + SOLID), confirm-then-remediate framing, spike demotion, bounded confirmation, structured findings format, project context reading instructions. (5) Verify the slash command references the `audit-planner` agent by name and includes instructions for the planner to spawn it, present findings, continue conversation, and write planning-notes.md. (6) Run `ralph init` in a temp directory (or verify via the test suite) that both new files get installed to `.claude/commands/` and `.claude/agents/`. Document all results in task notes.",
+      "id": 6,
+      "priority": 6,
+      "title": "Parallel-execution RFC",
+      "description": "Write a design RFC (new doc: `docs/parallel-execution-rfc.md`) for running multiple dependency-free tasks concurrently. Must cover: (1) ISOLATION MODEL — git worktrees-per-task vs directory-disjoint scheduling, with trade-offs, left as the central OPEN decision rather than pre-committed; (2) SCHEDULING — a plural ready-set selector capped at N with conflict filtering; (3) OUTPUT RENDERING for N concurrent agents (task-id line prefixes / per-task logs / sectioned view); (4) NARRATION & NOTIFICATIONS — in parallel mode drop per-agent streaming narration, narrate lifecycle milestones only (started/completed/failed) via a queue, batch ntfy into wave summaries; serial mode keeps full streaming; (5) KNOCK-ON EFFECTS — `prevNotes` carry-forward (no single predecessor per wave), the per-iteration `tasks.json` snapshot (`src/commands/run.ts` ~line 454), test-validation timing, and post-task review under parallelism; (6) ROLLOUT — opt-in flag (e.g. `--parallel N`) with serial as default. Ground it in current serial behavior: `selectNextTask` (`src/task-selector.ts`), focused commits in the shared working tree (`src/commands/run.ts` ~line 548), unlocked `mutateTasksFile` (`src/tasks-file.ts`), single-socket narration (`src/narration.ts`). Documentation only — no code or tests.",
       "directory": "",
       "status": "complete",
       "files": [
-        "agents/audit-planner.md",
-        "commands/codebase-audit.md",
-        "src/commands/init.ts"
+        "docs/parallel-execution-rfc.md"
+      ],
+      "tests": [],
+      "dependencies": [],
+      "model": "opus",
+      "completedAt": "2026-05-31T23:13:33.370Z",
+      "completedBy": "iteration-6",
+      "notes": "# Task #6 Completion Notes: Parallel-execution RFC\n\n## What was done\n\nCreated `docs/parallel-execution-rfc.md` (350 lines). Documentation only — no\ncode or tests, as the task specified.\n\n## Structure\n\nThe RFC is grounded throughout in the *current serial behavior*, with concrete\nfile:line references so the design is anchored to real code:\n\n- §2 baseline catalogs every serial assumption: single `selectNextTask`\n  (`src/task-selector.ts:44`), single `spawnClaude` shared-tree agent\n  (`src/commands/run.ts:184`), focused commits in the shared tree\n  (`src/commands/run.ts:129`), unlocked `mutateTasksFile`\n  (`src/tasks-file.ts:174`), per-iteration snapshot\n  (`src/commands/run.ts:454`), single narration socket (`src/narration.ts`),\n  single `prevNotes` predecessor (`src/commands/run.ts:624`).\n\nAll six required topics are covered:\n\n1. **§3 Isolation model** — Option A (git worktree per task) vs Option B\n   (directory-disjoint shared tree), full pros/cons, left as THE central OPEN\n   decision with a decision *procedure* rather than a verdict. Rest of doc\n   written isolation-agnostic, flagging where it depends on the choice.\n2. **§4 Scheduling** — plural `selectReadyTasks` selector capped at N, reusing\n   today's readiness rule, with conflict filtering (dependency-internal +\n   footprint). Also covers wave-vs-rolling; recommends wave first.\n3. **§5 Output rendering** — task-id line prefixes (baseline) + per-task log\n   files + optional sectioned TUI gated on isTTY.\n4. **§6 Narration & notifications** — parallel mode drops per-agent streaming\n   narration, narrates lifecycle milestones (started/completed/failed) via a\n   serialized queue, batches ntfy into wave summaries; serial mode unchanged.\n5. **§7 Knock-on effects** — prevNotes carry-forward (no single predecessor),\n   per-iteration snapshot timing, the cross-process `mutateTasksFile` race\n   (flagged as the sharpest hazard + lock prerequisite), test-validation\n   timing, post-task review diff attribution under both isolation options.\n6. **§8 Rollout** — opt-in `--parallel N`, serial as default and preserved\n   verbatim, independently-shippable work sequence, `--parallel 1` kill switch.\n\n§9 summarizes the open questions, with the isolation model as #1.\n\n## Notable design stances taken (for reviewer awareness)\n\n- Recommends adding a cross-process lock to `mutateTasksFile` as a standalone\n  prerequisite — safe for serial mode too, so it can land first.\n- Recommends wave (barrier) execution before rolling concurrency.\n- Recommends `--parallel 1` be behaviorally identical to serial as the core\n  compatibility guarantee.\n\n## Tests\n\nNone — documentation only.\n"
+    },
+    {
+      "id": 7,
+      "priority": 7,
+      "title": "Concurrency-safe tasks.json writes",
+      "description": "Make `src/tasks-file.ts` writes safe under concurrent writers (each Ralph agent shells `ralph task ...`, so this MUST be cross-process safe). Two fixes: (a) give each write a per-process UNIQUE tmp path instead of the shared `${filePath}.tmp` (used in both `writeTasksFile` ~line 164 and the `finally` cleanup in `mutateTasksFile` ~line 180) — e.g. incorporate `process.pid` plus a crypto/random suffix so concurrent writers never clobber the same tmp file; (b) add a cross-process FILE LOCK around the read->modify->write critical section in `mutateTasksFile` — acquire via an `O_EXCL` lockfile (e.g. `${filePath}.lock`) with bounded retry/backoff, release it in a `finally`, and surface a clear error if the lock can't be acquired. Keep the existing snapshot-after-write behavior. TDD: add a failing concurrent-writer test to `test/tasks-file.test.ts` FIRST (interleave multiple `mutateTasksFile` calls mutating distinct fields and assert no lost updates and no JSON corruption), watch it fail, then implement.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/tasks-file.ts",
+        "test/tasks-file.test.ts"
       ],
       "tests": [
-        "bun test"
+        "bun test test/tasks-file.test.ts"
       ],
-      "dependencies": [
-        1,
-        2,
-        3,
-        4
+      "dependencies": [],
+      "model": "opus"
+    },
+    {
+      "id": 8,
+      "priority": 8,
+      "title": "Plural ready-set selector",
+      "description": "Add `selectReadyTasks(tasks: Task[], completedIds: Set<number>, opts?: { limit?: number }): Task[]` to `src/task-selector.ts` alongside the existing `selectNextTask` (which stays unchanged for serial mode). It returns a batch of pending tasks whose dependencies are ALL satisfied (use the same active+archived complete-id logic as `selectNextTask`, ~lines 51-54), sorted by priority ascending, capped at `opts.limit`, and conflict-filtered so the returned set has no two tasks sharing the same non-empty `directory` (a wave must never have two agents writing the same dir). Decide AND document in a code comment how in-progress tasks interact with the ready-set (e.g. lead with them, or treat their directories as occupied). TDD: add failing tests to `test/task-selector.test.ts` FIRST covering dependency gating, priority ordering, limit capping, and directory-conflict exclusion; watch them fail, then implement.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/task-selector.ts",
+        "test/task-selector.test.ts"
       ],
-      "model": "sonnet",
-      "completedAt": "2026-05-25T05:26:00.394Z",
-      "completedBy": "iteration-5",
-      "notes": "# Task #5 Completion Notes — End-to-end verification\n\n## Results\n\n### 1. Tests\n- **bun test**: 662 pass, 0 fail (4.62s across 25 files)\n\n### 2. Build\n- **bun run build**: Success — 105 modules bundled, compiled to `dist/ralph` in ~142ms\n\n### 3. File existence\n- `agents/audit-planner.md` — exists ✓\n- `commands/codebase-audit.md` — exists ✓\n\n### 4. audit-planner.md structural elements verified\n- **Two-lens separation**: \"Perform a cold sweep of the codebase through two cognitive lenses: security (adversarial) and SOLID/structural\"\n- **Confirm-then-remediate framing**: Section \"## Confirm-Then-Remediate Framing\" with Confirm/Remediate sub-steps\n- **Spike demotion**: \"If a finding cannot meet this bar...demote it to an Investigation Item. Investigation items are spikes\"\n- **Bounded confirmation**: \"bounded instructions for verifying the claim (e.g., 'read lines 40-60 of src/foo.ts')\"\n- **Structured findings format**: Explicit output format with Security Findings / SOLID/Structural Findings sections\n- **Project context reading**: Reads `planning-notes.md` to avoid rehashing settled decisions\n\n### 5. commands/codebase-audit.md slash command verified\n- References `audit-planner` agent by name (via `agents/audit-planner.md` file read)\n- Instructions to spawn it via Agent tool with `subagent_type: \"general-purpose\"`\n- Present findings: groups by severity (security) and impact (structural)\n- Continue conversation: \"Let the user react, ask questions, dismiss false positives...\"\n- Write planning-notes.md: explicit Write tool instructions with format\n\n### 6. ralph init smoke test\nRunning `ralph init` (intercepted in project root due to no path arg support) confirmed output:\n```\nInstalled: .claude/commands/codebase-audit.md\nInstalled: .claude/agents/audit-planner.md\n```\nUnit tests in `test/commands/init.test.ts` (lines 974–1104) cover both files with isolated mock ralphRoot tests that verify content fidelity.\n\n## Summary\nAll steps pass. The codebase-audit slash command and audit-planner agent are complete, tested, and correctly installed by `ralph init`.\n"
+      "tests": [
+        "bun test test/task-selector.test.ts"
+      ],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 9,
+      "priority": 9,
+      "title": "Task-id-labeled stream output",
+      "description": "Thread an optional task id through the stream filter in `src/stream-filter.ts` so concurrent agents' lines can be prefixed `[#id]`. Add an optional field (e.g. `taskId?: number` or `linePrefix?: string`) to `ProcessStreamOptions` (~line 163) and, when set, prefix each emitted output line with `[#<id>] `. When unset, output must be byte-for-byte unchanged (serial mode MUST NOT regress). TDD: add failing tests to `test/stream-filter.test.ts` FIRST — one asserting lines are prefixed when the id is provided, one asserting identical output to today when it is omitted; watch them fail, then implement.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/stream-filter.ts",
+        "test/stream-filter.test.ts"
+      ],
+      "tests": [
+        "bun test test/stream-filter.test.ts"
+      ],
+      "dependencies": [],
+      "model": "sonnet"
     }
   ]
 }
