@@ -62,17 +62,21 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   if (taskAgent) {
     const agentInfo = agents.find(a => a.name === taskAgent);
     if (agentInfo) {
-      const agentFilePath = path.join(projectRoot, '.claude', 'agents', agentInfo.file);
-      if (fs.existsSync(agentFilePath)) {
-        const body = stripFrontmatter(fs.readFileSync(agentFilePath, 'utf-8'));
-        if (body) {
-          specialistSection = `SPECIALIST INSTRUCTIONS:
+      if (agentInfo.internal) {
+        console.warn(`[ralph] Agent '${taskAgent}' is marked internal and cannot be used as a task specialist — falling back to generalist prompt.`);
+      } else {
+        const agentFilePath = path.join(projectRoot, '.claude', 'agents', agentInfo.file);
+        if (fs.existsSync(agentFilePath)) {
+          const body = stripFrontmatter(fs.readFileSync(agentFilePath, 'utf-8'));
+          if (body) {
+            specialistSection = `SPECIALIST INSTRUCTIONS:
 You have been assigned as a specialist agent for this task. Follow these instructions in addition to your standard workflow:
 
 ${body}
 
 ---
 `;
+          }
         }
       }
     }
