@@ -382,6 +382,36 @@ describe('buildDynamicContext', () => {
       fs.rmSync(tmpDir, { recursive: true });
     }
   });
+
+  test('excludes internal agents from the agents section while keeping normal agents', () => {
+    const agents: AgentInfo[] = [
+      { name: 'post-task-reviewer', description: 'Internal reviewer', model: 'sonnet', file: 'post-task-reviewer.md', internal: true },
+      { name: 'specialist', description: 'Useful agent', model: 'opus', file: 'specialist.md' },
+    ];
+    const result = buildDynamicContext({
+      projectName: 'proj',
+      projectRoot: '/tmp/test',
+      dataDir: '/tmp/test/.ralph',
+      agents,
+    });
+    expect(result).not.toContain('post-task-reviewer');
+    expect(result).toContain('specialist');
+    expect(result).toContain('AVAILABLE SPECIALIST AGENTS');
+  });
+
+  test('omits agent section entirely when all agents are internal', () => {
+    const agents: AgentInfo[] = [
+      { name: 'post-task-reviewer', description: 'Internal reviewer', model: 'sonnet', file: 'post-task-reviewer.md', internal: true },
+    ];
+    const result = buildDynamicContext({
+      projectName: 'proj',
+      projectRoot: '/tmp/test',
+      dataDir: '/tmp/test/.ralph',
+      agents,
+    });
+    expect(result).not.toContain('post-task-reviewer');
+    expect(result).not.toContain('AVAILABLE SPECIALIST AGENTS');
+  });
 });
 
 // ── runPlan tests ──────────────────────────────────────────

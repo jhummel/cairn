@@ -78,8 +78,9 @@ export function buildDynamicContext(opts: {
   const { projectName, projectRoot, dataDir, agents } = opts;
 
   let agentsSection = '';
-  if (agents.length > 0) {
-    const lines = agents.map(a => {
+  const visibleAgents = agents.filter(a => !a.internal);
+  if (visibleAgents.length > 0) {
+    const lines = visibleAgents.map(a => {
       const desc = a.description ? ` — ${a.description}` : '';
       const model = a.model ? ` (model: ${a.model})` : '';
       return `  - ${a.name}${desc}${model}`;
