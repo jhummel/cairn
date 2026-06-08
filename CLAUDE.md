@@ -51,6 +51,7 @@ target-project/
 ├── .ralph/
 │   ├── tasks.json              # Active task list
 │   ├── tasks.completed.json    # Archive of completed tasks
+│   ├── state.json              # Monotonic task-ID counter { "nextTaskId": N } — committed to git
 │   └── planning-notes.md       # Output from planning discussions
 └── ralph.json                  # Project configuration (optional)
 ```
@@ -72,7 +73,10 @@ ralph task complete <id> --iteration <n> [--notes "..."]
 ralph task note <id> "message"
 ralph task set-status <id> <status>
 ralph task add --title "..." --description "..." [...]
+ralph task next-id [--count <n>]
 ralph task show <id>
 ```
+
+Task IDs are allocated by `ralph task next-id`, which reads and increments `state.json`. IDs are never reused — once allocated, an ID remains reserved even if the task is deleted or archived. `state.json` is seeded lazily on first call and is committed to git alongside `tasks.json`.
 
 Direct `Edit` or `Write` on `.ralph/tasks.json` is **forbidden**. This is enforced two ways: the per-agent system prompt explicitly bans it, and the post-task reviewer runs with a path-scoped allowlist that excludes `.ralph/tasks.json`. The CLI routes all writes through `writeTasksFile()`, which performs atomic temp-file replacement and validates JSON on every write — making corruption structurally impossible via this path.
