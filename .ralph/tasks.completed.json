@@ -3262,6 +3262,48 @@
       "completedAt": "2026-05-31T23:34:40.103Z",
       "completedBy": "iteration-8",
       "notes": "# Task #8 Completion Notes: Plural ready-set selector\n\n## What was done\n\nAdded `selectReadyTasks(tasks, completedIds, opts?)` to `src/task-selector.ts`\nalongside the existing `selectNextTask` (unchanged).\n\n### Behaviour\n\n- Returns all pending tasks whose dependencies are fully satisfied, using the\n  same active+archived complete-id union as `selectNextTask` (lines ~51-54 of\n  the original).\n- Sorted by priority ascending (lower number = higher priority).\n- Capped at `opts.limit` if provided.\n- Directory-conflict filtered: after sorting, each candidate whose non-empty\n  `directory` is already claimed by a higher-priority batch member is skipped,\n  so the returned set never has two tasks writing the same directory.\n\n### In-progress interaction (documented in a code comment)\n\nIn-progress tasks are treated as occupying their directories — any pending task\nsharing the same non-empty directory as an in-progress task is excluded from the\nready-set before the priority sort even begins. This prevents a parallel wave\nfrom dispatching a new agent into a directory that is already being mutated.\nIn-progress tasks themselves are never included in the result.\n\n## TDD\n\n1. Added 11 new failing tests to `test/task-selector.test.ts` covering:\n   - Dependency gating (unsatisfied dep, satisfied via active/archived/union)\n   - Priority ordering\n   - Limit capping\n   - Directory-conflict exclusion (batch-internal and in-progress occupation)\n   - Empty-directory tasks are not considered conflicts\n   - Blocked/complete tasks ignored\n2. Confirmed tests failed (`SyntaxError: Export named 'selectReadyTasks' not found`)\n3. Implemented the function.\n4. All 49 tests pass (11 new + 38 pre-existing).\n\n## Tests run\n\n`bun test test/task-selector.test.ts` → 49 pass, 0 fail\n`bun run build` → success\n"
+    },
+    {
+      "id": 9,
+      "priority": 9,
+      "title": "Task-id-labeled stream output",
+      "description": "Thread an optional task id through the stream filter in `src/stream-filter.ts` so concurrent agents' lines can be prefixed `[#id]`. Add an optional field (e.g. `taskId?: number` or `linePrefix?: string`) to `ProcessStreamOptions` (~line 163) and, when set, prefix each emitted output line with `[#<id>] `. When unset, output must be byte-for-byte unchanged (serial mode MUST NOT regress). TDD: add failing tests to `test/stream-filter.test.ts` FIRST — one asserting lines are prefixed when the id is provided, one asserting identical output to today when it is omitted; watch them fail, then implement.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "src/stream-filter.ts",
+        "test/stream-filter.test.ts"
+      ],
+      "tests": [
+        "bun test test/stream-filter.test.ts"
+      ],
+      "dependencies": [],
+      "model": "sonnet",
+      "completedAt": "2026-05-31T23:37:33.678Z",
+      "completedBy": "iteration-9",
+      "notes": "# Task #9 Completion Notes: Task-id-labeled stream output\n\n## What was done\n\nAdded `taskId?: number` to `ProcessStreamOptions` in `src/stream-filter.ts` (line ~163).\n\nWhen `taskId` is set, every output line emitted by `processStream` is prefixed with `[#<id>] `. When omitted, output is byte-for-byte unchanged (serial mode regression guard confirmed by test).\n\n### Implementation approach\n\nInstead of touching each `output.write(...)` call individually, I introduced a `writeLine` helper scoped inside `processStream`:\n\n```typescript\nconst prefix = options?.taskId != null ? `[#${options.taskId}] ` : '';\nconst writeLine = (text: string) => output.write(prefix + text);\n```\n\nAll 6 `output.write(...)` calls inside the loop were replaced with `writeLine(...)`. Because every write already terminated with `\\n` (one line per call), the prefix is correctly placed at the start of each visual output line.\n\n## TDD\n\n1. Added 2 failing tests to `test/stream-filter.test.ts` in a new `processStream taskId prefix` describe block:\n   - `prefixes every output line with [#<id>] when taskId is provided` — ran against all 3 event types (init, tool_use, result), asserted every line matches `/^\\[#5\\] /`\n   - `does not prefix lines when taskId is omitted — byte-for-byte unchanged` — confirmed omission produces identical bytes to no-options call\n2. Confirmed tests failed (58 pass, 1 fail) before implementation\n3. Implemented feature\n4. All 59 tests pass, 0 fail\n\n## Tests run\n\n`bun test test/stream-filter.test.ts` → 59 pass, 0 fail  \n`bun run build` → success\n"
+    },
+    {
+      "id": 16,
+      "priority": 1,
+      "title": "Extract shared file-lock helper into src/file-lock.ts",
+      "description": "Create src/file-lock.ts and move the cross-process advisory-lock machinery out of src/tasks-file.ts into it: acquireLock(lockPath), the sleepSync(ms) helper, and the LOCK_RETRY_MS / LOCK_MAX_WAIT_MS / LOCK_STALE_MS constants (currently tasks-file.ts:189-240). Export acquireLock and sleepSync. The O_EXCL ('wx') open, stale-lock break via mtimeMs > LOCK_STALE_MS, bounded retry/backoff with jitter, and returning the fd must all be preserved exactly — behavior unchanged. The current lock-timeout error is thrown as a TasksFileError; to avoid file-lock.ts depending on tasks-file.ts, throw a generic Error from the helper (or define a local FileLockError) — update tasks-file.ts accordingly and keep the message text. Refactor mutateTasksFile in tasks-file.ts to import and call the extracted acquireLock. Remove the now-duplicated definitions from tasks-file.ts. TDD: add test/file-lock.test.ts covering acquire→release, that a second acquire on a held lock blocks/retries, and that a stale lockfile (mtime older than LOCK_STALE_MS) is broken — write the test, watch it fail, then implement.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "src/file-lock.ts",
+        "src/tasks-file.ts",
+        "test/file-lock.test.ts"
+      ],
+      "dependencies": [],
+      "tests": [
+        "bun test test/file-lock.test.ts",
+        "bun test test/tasks-file.test.ts"
+      ],
+      "model": "opus",
+      "completedAt": "2026-06-08T18:46:07.150Z",
+      "completedBy": "iteration-1",
+      "notes": "# Task #16: Extract shared file-lock helper into src/file-lock.ts\n\n## What was done\n- Created `src/file-lock.ts` holding the cross-process advisory-lock machinery moved out of `src/tasks-file.ts` (formerly lines 189–240):\n  - `acquireLock(lockPath)` — exported\n  - `sleepSync(ms)` — exported\n  - `LOCK_RETRY_MS` / `LOCK_MAX_WAIT_MS` / `LOCK_STALE_MS` constants (module-private)\n  - `FileLockError` class — exported. Defined locally to avoid file-lock.ts depending on tasks-file.ts. The lock-timeout message text is preserved verbatim (\"Could not acquire tasks-file lock at ... within 15000ms; ...\").\n- Behavior preserved exactly: O_EXCL ('wx') open, best-effort pid/ts metadata write, stale-lock break via `mtimeMs > LOCK_STALE_MS`, bounded retry/backoff with jitter, returns the open fd.\n- Refactored `src/tasks-file.ts`: added `import { acquireLock } from './file-lock'`, removed the now-duplicated `sleepSync`/`acquireLock`/constants. `mutateTasksFile` calls the imported `acquireLock` unchanged (signature `acquireLock(lockPath)`).\n\n## Error type change (intentional, per task)\nThe lock-timeout error was previously thrown as `TasksFileError`; it is now `FileLockError`. Message text is identical. No test or caller asserted on the timeout error *type* (verified via grep of tasks-file.test.ts — only checks lockfile unlink behavior, not error class).\n\n## TDD\nWrote `test/file-lock.test.ts` first and watched it fail (module not found). Tests cover:\n1. acquire → release → re-acquire\n2. second acquire on a held *fresh* lock blocks/retries until released — uses a real subprocess (`Bun.spawn` running a generated child .ts that imports acquireLock); main holds the lock, asserts the child has not written its sentinel after 400ms, then releases and confirms the child acquires.\n3. stale lockfile (mtime set 5 min in the past via `fs.utimesSync`) is broken and re-acquired\n4. FileLockError is exported and is an Error subclass with name 'FileLockError'\nAlso a sleepSync duration sanity check.\n\n## Verification\n- `bun test test/file-lock.test.ts test/tasks-file.test.ts` → 23 pass\n- `bun test` (full) → 690 pass, 0 fail\n- `bun run build` → succeeds (the \"not a git repository\" line is unrelated build-time version detection noise in a subshell)\n"
     }
   ]
 }

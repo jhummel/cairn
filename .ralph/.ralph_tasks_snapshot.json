@@ -3,40 +3,117 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 8,
-      "priority": 8,
-      "title": "Plural ready-set selector",
-      "description": "Add `selectReadyTasks(tasks: Task[], completedIds: Set<number>, opts?: { limit?: number }): Task[]` to `src/task-selector.ts` alongside the existing `selectNextTask` (which stays unchanged for serial mode). It returns a batch of pending tasks whose dependencies are ALL satisfied (use the same active+archived complete-id logic as `selectNextTask`, ~lines 51-54), sorted by priority ascending, capped at `opts.limit`, and conflict-filtered so the returned set has no two tasks sharing the same non-empty `directory` (a wave must never have two agents writing the same dir). Decide AND document in a code comment how in-progress tasks interact with the ready-set (e.g. lead with them, or treat their directories as occupied). TDD: add failing tests to `test/task-selector.test.ts` FIRST covering dependency gating, priority ordering, limit capping, and directory-conflict exclusion; watch them fail, then implement.",
+      "id": 17,
+      "priority": 2,
+      "title": "Task-counter module src/task-counter.ts",
+      "description": "Create src/task-counter.ts owning the monotonic counter persisted at <dataDir>/state.json as { \"nextTaskId\": N }. Export reserveTaskIds(dataDir: string, count = 1): number[] (returns the contiguous reserved ids) performing an atomic read→increment-by-count→write INSIDE the shared file-lock from src/file-lock.ts (lock on state.json.lock), using the same temp-file-rename atomic write pattern as writeTasksFile in tasks-file.ts. Lazy seeding: when state.json is missing, compute seed = max(all \"id\" values across <dataDir>/tasks.completed.json + <dataDir>/tasks.json) + 1, floored at 1, and treat that as nextTaskId before reserving. Read ids cheaply (parse JSON, map over tasks[].id); tolerate a missing/empty tasks.completed.json. Export a helper such as seedNextId(dataDir) for reuse by ralph init (task 20). TDD: add test/task-counter.test.ts covering (a) seed-from-archive: archive with max id 15 + empty active → first reserve returns 16; (b) single reserve increments by 1; (c) block reserve count=3 returns 3 contiguous ids and advances the counter by 3; (d) lazy-seed when state.json absent; (e) two sequential reserves never overlap; (f) floor of 1 when no prior ids exist. Write tests first, watch them fail, then implement.",
       "directory": "",
       "status": "complete",
       "files": [
-        "src/task-selector.ts",
-        "test/task-selector.test.ts"
+        "src/task-counter.ts",
+        "test/task-counter.test.ts"
+      ],
+      "dependencies": [
+        16
       ],
       "tests": [
-        "bun test test/task-selector.test.ts"
+        "bun test test/task-counter.test.ts"
       ],
-      "dependencies": [],
-      "model": "sonnet",
-      "completedAt": "2026-05-31T23:34:40.103Z",
-      "completedBy": "iteration-8",
-      "notes": "# Task #8 Completion Notes: Plural ready-set selector\n\n## What was done\n\nAdded `selectReadyTasks(tasks, completedIds, opts?)` to `src/task-selector.ts`\nalongside the existing `selectNextTask` (unchanged).\n\n### Behaviour\n\n- Returns all pending tasks whose dependencies are fully satisfied, using the\n  same active+archived complete-id union as `selectNextTask` (lines ~51-54 of\n  the original).\n- Sorted by priority ascending (lower number = higher priority).\n- Capped at `opts.limit` if provided.\n- Directory-conflict filtered: after sorting, each candidate whose non-empty\n  `directory` is already claimed by a higher-priority batch member is skipped,\n  so the returned set never has two tasks writing the same directory.\n\n### In-progress interaction (documented in a code comment)\n\nIn-progress tasks are treated as occupying their directories — any pending task\nsharing the same non-empty directory as an in-progress task is excluded from the\nready-set before the priority sort even begins. This prevents a parallel wave\nfrom dispatching a new agent into a directory that is already being mutated.\nIn-progress tasks themselves are never included in the result.\n\n## TDD\n\n1. Added 11 new failing tests to `test/task-selector.test.ts` covering:\n   - Dependency gating (unsatisfied dep, satisfied via active/archived/union)\n   - Priority ordering\n   - Limit capping\n   - Directory-conflict exclusion (batch-internal and in-progress occupation)\n   - Empty-directory tasks are not considered conflicts\n   - Blocked/complete tasks ignored\n2. Confirmed tests failed (`SyntaxError: Export named 'selectReadyTasks' not found`)\n3. Implemented the function.\n4. All 49 tests pass (11 new + 38 pre-existing).\n\n## Tests run\n\n`bun test test/task-selector.test.ts` → 49 pass, 0 fail\n`bun run build` → success\n"
+      "model": "opus",
+      "completedAt": "2026-06-08T18:50:09.326Z",
+      "completedBy": "iteration-2",
+      "notes": "# Task #17: Task-counter module src/task-counter.ts\n\n## What was done\nCreated `src/task-counter.ts` owning a monotonic task-id counter persisted at\n`<dataDir>/state.json` as `{ \"nextTaskId\": N }`.\n\n### Exports\n- `reserveTaskIds(dataDir: string, count = 1): number[]` — returns the contiguous\n  reserved ids (e.g. `[7,8,9]`). Performs an atomic read → increment-by-count →\n  write of `state.json` **inside the shared file lock** from `src/file-lock.ts`\n  (lock path `state.json.lock`), using the same temp-file-then-rename atomic\n  write pattern as `writeTasksFile` in `tasks-file.ts` (`uniqueTmpPath` =\n  `pid + random hex`, self-cleaning on failure). Rejects non-positive / non-integer\n  counts.\n- `seedNextId(dataDir: string): number` — lazy-seed helper for reuse by `ralph init`\n  (task 20). Computes `max(all id values across tasks.completed.json + tasks.json) + 1`,\n  floored at 1.\n\n### Behavior details\n- **Lazy seeding**: when `state.json` is missing, the start id = `seedNextId(dataDir)`.\n  When `state.json` exists, its `nextTaskId` is used verbatim (existing state wins\n  over the seed).\n- **Cheap id reads** (`readTaskIds`): parses JSON directly and maps `tasks[].id`,\n  filtering to finite numbers. Deliberately does NOT use `readTasksFile` (no\n  repair/snapshot machinery needed — seeding only wants a best-effort max).\n  Tolerates a missing OR empty `tasks.completed.json`/`tasks.json` (returns `[]`).\n- **Floor of 1**: brand-new project with no ids anywhere starts at id 1.\n\n## TDD\nWrote `test/task-counter.test.ts` first, watched it fail (`Cannot find module\n'../src/task-counter'`), then implemented. Tests cover all required cases:\n(a) seed-from-archive max 15 + empty active → 16; (b) single reserve increments by 1;\n(c) block reserve count=3 → 3 contiguous ids, counter +3; (d) lazy-seed when\nstate.json absent; (e) two sequential reserves never overlap; (f) floor of 1 with no\nprior ids. Plus: max across both files, existing-state-wins, missing-completed\ntolerance, and count validation.\n\n## Verification\n- `bun test test/task-counter.test.ts` → 11 pass\n- `bun test` (full) → 701 pass, 0 fail\n- `bun run build` → succeeds (the \"not a git repository\" line is unrelated\n  build-time version-detection noise in a subshell)\n\n## For the next agent (task 20 — ralph init)\n`seedNextId(dataDir)` is exported specifically so `ralph init` can write the initial\n`state.json` without duplicating the max-id logic. Note `reserveTaskIds` already\nlazy-seeds on first use, so init writing state.json is an optional optimization, not\na correctness requirement.\n"
     },
     {
-      "id": 9,
-      "priority": 9,
-      "title": "Task-id-labeled stream output",
-      "description": "Thread an optional task id through the stream filter in `src/stream-filter.ts` so concurrent agents' lines can be prefixed `[#id]`. Add an optional field (e.g. `taskId?: number` or `linePrefix?: string`) to `ProcessStreamOptions` (~line 163) and, when set, prefix each emitted output line with `[#<id>] `. When unset, output must be byte-for-byte unchanged (serial mode MUST NOT regress). TDD: add failing tests to `test/stream-filter.test.ts` FIRST — one asserting lines are prefixed when the id is provided, one asserting identical output to today when it is omitted; watch them fail, then implement.",
+      "id": 18,
+      "priority": 3,
+      "title": "ralph task next-id [--count <n>] CLI command",
+      "description": "Add a next-id subcommand to the task group in src/commands/task.ts (registerTaskCommands) and confirm wiring through src/index.ts (registerTaskCommands(program) — likely no change needed). Add an exported testable handler (mirror the existing taskAdd/taskShow pattern: takes dataDir, optional count, stdout/stderr writers, returns an exit code) that calls reserveTaskIds(dataDir, count) and prints the reserved id(s) to stdout — one id per line. --count defaults to 1 and must reject non-positive / non-integer values with a stderr message + exit 1. Use the existing dataDir() closure / RALPH_DATA_DIR for the live command. TDD: add tests to test/commands/task.test.ts covering default single id, --count 3 printing 3 ids and advancing the counter, and invalid --count 0 / -2 / abc → exit 1. Write tests first, watch them fail, then implement.",
       "directory": "",
       "status": "pending",
       "files": [
-        "src/stream-filter.ts",
-        "test/stream-filter.test.ts"
+        "src/commands/task.ts",
+        "src/index.ts",
+        "test/commands/task.test.ts"
+      ],
+      "dependencies": [
+        17
       ],
       "tests": [
-        "bun test test/stream-filter.test.ts"
+        "bun test test/commands/task.test.ts"
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 19,
+      "priority": 4,
+      "title": "Auto-assign id in ralph task add",
+      "description": "Make ralph task add (taskAdd in src/commands/task.ts:218) own id assignment. Inside taskAdd (which has dataDir), call reserveTaskIds(dataDir, 1), inject that id into the parsed payload (overwriting any supplied id — always ignore agent-supplied ids), THEN validate. Because validation runs after injection, the schema's required id is always present, so no schema relaxation is needed. Print the assigned id to stdout (e.g. 'assigned id: <n>') so the agent learns it. Reserve the id only once and reuse it if the mutate retries. Also update the executor prompt in src/commands/run.ts (the DISCOVER AND DOCUMENT block, ~lines 131-133): change it so agents do NOT supply an id — drop id from the 'New tasks need at minimum' list and note the CLI assigns and prints the id. TDD: add tests to test/commands/task.test.ts covering a payload with no id getting a reserved id assigned and appended; a payload WITH an id having it overwritten by the reserved one; and the assigned id being printed to stdout. Write tests first, watch them fail, then implement.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/task.ts",
+        "src/commands/run.ts",
+        "test/commands/task.test.ts"
+      ],
+      "dependencies": [
+        17
+      ],
+      "tests": [
+        "bun test test/commands/task.test.ts",
+        "bun test test/agent-prompt.test.ts"
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 20,
+      "priority": 5,
+      "title": "ralph init seeds state.json",
+      "description": "In initCoreFiles (src/commands/init.ts:37), create <dataDir>/state.json if it does not already exist: write { \"nextTaskId\": N } where N is 1 for a fresh project, or max(existing ids across tasks.completed.json + tasks.json) + 1 on re-init of a project with prior tasks. Reuse the seeding logic from src/task-counter.ts (import the exported seedNextId/equivalent rather than duplicating). Do NOT add state.json to GITIGNORE_CONTENT — it must be committed to git (current .ralph/.gitignore does not exclude it). Print 'Created: .ralph/state.json' (or 'state.json already exists.') matching the surrounding console-log style. TDD: add tests to test/commands/init.test.ts covering fresh init → { nextTaskId: 1 }; re-init with an archive whose max id is 15 → { nextTaskId: 16 }; and existing state.json left untouched. Write tests first, watch them fail, then implement.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/init.ts",
+        "src/task-counter.ts",
+        "test/commands/init.test.ts"
+      ],
+      "dependencies": [
+        17
+      ],
+      "tests": [
+        "bun test test/commands/init.test.ts"
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 21,
+      "priority": 6,
+      "title": "Rewrite the ID rule in commands/generate-tasks.md",
+      "description": "Edit the SOURCE commands/generate-tasks.md (repo root — NOT the installed .claude/commands/ copy). Find the rule that tells the subagent to 'continue from the highest existing ID' in tasks.json (around line 149) and the related ID-assignment guidance. Replace it with: after the user approves the breakdown, reserve a contiguous block of ids by running `ralph task next-id --count <n>` (where n = number of NEW tasks) and assign those returned ids sequentially to the new tasks; never reuse archived ids; preserve any already-complete tasks' existing ids and all their metadata unchanged. Match the exact output format (one id per line) implemented in task 18. Keep the rest of the prompt intact.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "commands/generate-tasks.md"
+      ],
+      "dependencies": [
+        18
+      ],
+      "tests": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 22,
+      "priority": 7,
+      "title": "Update README and CLAUDE.md for the monotonic ID system",
+      "description": "Document the new ID system in README.md and CLAUDE.md. Add: (1) .ralph/state.json to the per-project data layout in CLAUDE.md (the directory tree under 'Per-project data layout'), described as the monotonic task-ID counter { \"nextTaskId\": N }; (2) the never-reused-id guarantee and lazy-seeding behavior; (3) the `ralph task next-id [--count <n>]` command in the agent-workflow command list in CLAUDE.md; (4) a note that state.json is committed to git (not gitignored), like tasks.json. Keep edits concise and consistent with existing doc tone.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "README.md",
+        "CLAUDE.md"
       ],
       "dependencies": [],
+      "tests": [],
       "model": "sonnet"
     }
   ]
