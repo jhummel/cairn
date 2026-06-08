@@ -3,35 +3,12 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 20,
-      "priority": 5,
-      "title": "ralph init seeds state.json",
-      "description": "In initCoreFiles (src/commands/init.ts:37), create <dataDir>/state.json if it does not already exist: write { \"nextTaskId\": N } where N is 1 for a fresh project, or max(existing ids across tasks.completed.json + tasks.json) + 1 on re-init of a project with prior tasks. Reuse the seeding logic from src/task-counter.ts (import the exported seedNextId/equivalent rather than duplicating). Do NOT add state.json to GITIGNORE_CONTENT — it must be committed to git (current .ralph/.gitignore does not exclude it). Print 'Created: .ralph/state.json' (or 'state.json already exists.') matching the surrounding console-log style. TDD: add tests to test/commands/init.test.ts covering fresh init → { nextTaskId: 1 }; re-init with an archive whose max id is 15 → { nextTaskId: 16 }; and existing state.json left untouched. Write tests first, watch them fail, then implement.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "src/commands/init.ts",
-        "src/task-counter.ts",
-        "test/commands/init.test.ts"
-      ],
-      "dependencies": [
-        17
-      ],
-      "tests": [
-        "bun test test/commands/init.test.ts"
-      ],
-      "model": "sonnet",
-      "completedAt": "2026-06-08T19:02:07.842Z",
-      "completedBy": "iteration-5",
-      "notes": "# Task #20: ralph init seeds state.json\n\n## What was done\n\nAdded `state.json` seeding to `initCoreFiles` in `src/commands/init.ts`.\n\n### `src/commands/init.ts`\n- Imported `seedNextId` from `../task-counter` (reusing existing logic — no duplication).\n- After creating `tasks.json`, added a new block to create `state.json` if it does not already exist:\n  - If absent: calls `seedNextId(dataDir)` to compute the correct starting id (1 for fresh project; max(existing ids) + 1 for re-init), writes `{ nextTaskId: N }` as pretty JSON with trailing newline, prints `  Created: .ralph/state.json`.\n  - If present: prints `  state.json already exists.` and leaves the file untouched.\n- `state.json` is NOT added to `.ralph/.gitignore` — it is committed to git.\n\n### `test/commands/init.test.ts`\nAdded 5 new tests inside the `initCoreFiles` describe block (written first, watched fail, then implemented):\n1. `creates state.json with { nextTaskId: 1 } on fresh init` — verifies file exists and content is correct.\n2. `prints Created: .ralph/state.json on fresh init` — verifies console output.\n3. `re-init with archive max id 15 seeds state.json with nextTaskId: 16` — pre-populates `tasks.completed.json` with ids [10, 15, 3], confirms seeded id is 16.\n4. `leaves existing state.json untouched` — pre-existing `{ nextTaskId: 99 }` survives the call unchanged.\n5. `prints state.json already exists. when state.json is present` — checks console output for the already-exists message.\n\n## Verification\n- `bun test test/commands/init.test.ts` → 101 pass, 0 fail.\n- `bun test` (full suite) → 715 pass, 0 fail.\n- `bun run build` → succeeds.\n"
-    },
-    {
       "id": 21,
       "priority": 6,
       "title": "Rewrite the ID rule in commands/generate-tasks.md",
       "description": "Edit the SOURCE commands/generate-tasks.md (repo root — NOT the installed .claude/commands/ copy). Find the rule that tells the subagent to 'continue from the highest existing ID' in tasks.json (around line 149) and the related ID-assignment guidance. Replace it with: after the user approves the breakdown, reserve a contiguous block of ids by running `ralph task next-id --count <n>` (where n = number of NEW tasks) and assign those returned ids sequentially to the new tasks; never reuse archived ids; preserve any already-complete tasks' existing ids and all their metadata unchanged. Match the exact output format (one id per line) implemented in task 18. Keep the rest of the prompt intact.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "commands/generate-tasks.md"
       ],
@@ -39,7 +16,10 @@
         18
       ],
       "tests": [],
-      "model": "sonnet"
+      "model": "sonnet",
+      "completedAt": "2026-06-08T19:04:41.810Z",
+      "completedBy": "iteration-6",
+      "notes": "# Task #21: Rewrite the ID rule in commands/generate-tasks.md\n\n## What was done\n\nEdited `commands/generate-tasks.md` (the source file at the repo root, not the installed copy).\n\n### Two targeted changes:\n\n**1. RULES section (line 149):**\n- Old: `Keep task IDs unique and sequential (continue from the highest existing ID if preserving completed tasks)`\n- New: `Assign IDs to new tasks only after user approval: run \\`ralph task next-id --count <n>\\` (where \\`n\\` = the number of new tasks), then assign the returned IDs sequentially. The command outputs one integer per line. Never reuse archived IDs. Preserve existing completed tasks' IDs and all their metadata unchanged.`\n\n**2. \"After receiving\" paragraph (line 159):**\n- Old: `Once approved, write \\`.ralph/tasks.json\\` directly using the Write tool — do NOT spawn another agent just to write the file.`\n- New: `Once approved: (1) run \\`ralph task next-id --count <n>\\` (where \\`n\\` = the number of new tasks) and assign the returned IDs sequentially to the new tasks — the command outputs one integer per line; (2) write \\`.ralph/tasks.json\\` directly using the Write tool — do NOT spawn another agent just to write the file.`\n\n### Why two places:\nThe RULES section governs the subagent's behavior during task proposal. The \"After receiving\" paragraph governs the parent agent's behavior after the user approves. Both needed updating: the rule clarifies that IDs are assigned post-approval (not during proposal), and the approval paragraph describes the exact steps (call `next-id`, assign, then write).\n\n### Output format note:\n`ralph task next-id --count 3` outputs integers one per line (e.g., `23\\n24\\n25`), matching the implementation from task 18. The prompt now references \"one integer per line\" in both locations.\n\n## No tests needed\nThis is a markdown prompt file — no unit tests apply.\n"
     },
     {
       "id": 22,

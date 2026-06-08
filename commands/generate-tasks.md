@@ -146,7 +146,7 @@ AGENT SELECTION:
 RULES:
 
 - NEVER modify tasks with status `complete` or their metadata (`completedAt`, `completedBy`, `notes`)
-- Keep task IDs unique and sequential (continue from the highest existing ID if preserving completed tasks)
+- Assign IDs to new tasks only after user approval: run `ralph task next-id --count <n>` (where `n` = the number of new tasks), then assign the returned IDs sequentially. The command outputs one integer per line. Never reuse archived IDs. Preserve existing completed tasks' IDs and all their metadata unchanged.
 - The description field should give the worker agent enough context to complete the task independently
 - Include specific file paths in the `files` array so the worker knows where to look
 - Each task should be scoped to ~5 minutes of focused agent work
@@ -156,4 +156,4 @@ RULES:
 
 ---
 
-After receiving the subagent's proposed tasks, present them to the user for review. Once approved, write `.ralph/tasks.json` directly using the Write tool — do NOT spawn another agent just to write the file.
+After receiving the subagent's proposed tasks, present them to the user for review. Once approved: (1) run `ralph task next-id --count <n>` (where `n` = the number of new tasks) and assign the returned IDs sequentially to the new tasks — the command outputs one integer per line; (2) write `.ralph/tasks.json` directly using the Write tool — do NOT spawn another agent just to write the file.
