@@ -3,56 +3,12 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 18,
-      "priority": 3,
-      "title": "ralph task next-id [--count <n>] CLI command",
-      "description": "Add a next-id subcommand to the task group in src/commands/task.ts (registerTaskCommands) and confirm wiring through src/index.ts (registerTaskCommands(program) — likely no change needed). Add an exported testable handler (mirror the existing taskAdd/taskShow pattern: takes dataDir, optional count, stdout/stderr writers, returns an exit code) that calls reserveTaskIds(dataDir, count) and prints the reserved id(s) to stdout — one id per line. --count defaults to 1 and must reject non-positive / non-integer values with a stderr message + exit 1. Use the existing dataDir() closure / RALPH_DATA_DIR for the live command. TDD: add tests to test/commands/task.test.ts covering default single id, --count 3 printing 3 ids and advancing the counter, and invalid --count 0 / -2 / abc → exit 1. Write tests first, watch them fail, then implement.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "src/commands/task.ts",
-        "src/index.ts",
-        "test/commands/task.test.ts"
-      ],
-      "dependencies": [
-        17
-      ],
-      "tests": [
-        "bun test test/commands/task.test.ts"
-      ],
-      "model": "opus",
-      "completedAt": "2026-06-08T18:54:23.388Z",
-      "completedBy": "iteration-3",
-      "notes": "# Task #18: `ralph task next-id [--count <n>]` CLI command\n\n## What was done\nAdded a `next-id` subcommand to the `task` group plus an exported, testable\nhandler, following the existing `taskAdd`/`taskShow` pattern.\n\n### `src/commands/task.ts`\n- New import: `reserveTaskIds` from `../task-counter`.\n- New exported handler `taskNextId(opts: TaskNextIdOpts): number`:\n  - `TaskNextIdOpts = { count?: number; dataDir: string; stdout?: Writer; stderr?: Writer }`\n  - `count` defaults to 1.\n  - Validates `Number.isInteger(count) && count >= 1`; on failure writes\n    `ralph task next-id: --count must be a positive integer, got <count>\\n`\n    to stderr and returns exit code 1 — **before** touching state.json\n    (so no reservation/state write happens on invalid input).\n  - Calls `reserveTaskIds(dataDir, count)` and prints the ids one per line\n    (`ids.join('\\n') + '\\n'`) to stdout, returns 0.\n  - Wraps `reserveTaskIds` in try/catch and surfaces errors on stderr → exit 1.\n- CLI wiring in `registerTaskCommands`: `task.command('next-id')` with\n  `--option('--count <n>', ..., (v) => parseInt(v,10), 1)` (default 1).\n  Live command uses the existing `dataDir()` closure (`process.env.RALPH_DATA_DIR`).\n  Invalid CLI input like `--count abc` → `parseInt` yields `NaN` → handler\n  rejects with exit 1.\n\n### `src/index.ts`\nNo change needed — `registerTaskCommands(program)` was already wired\n(import line 14, call line 182). Confirmed via grep.\n\n## TDD\nAdded tests to `test/commands/task.test.ts` FIRST, watched them fail with\n`Export named 'taskNextId' not found`, then implemented.\nNew `describe('task next-id')` block (defaultTasks has ids 1,2 so seed → 3):\n- (10a) default → prints `3\\n`, exit 0.\n- (10b) `--count 3` → prints `3\\n4\\n5\\n`; a follow-up call continues at `6\\n`\n  (proves the counter advanced / persisted across calls in the same dataDir).\n- (10c) parametrized over `[0, -2, NaN, 1.5]` → exit 1, stderr matches\n  `/ralph task next-id/`, and asserts **no** `state.json` was written on rejection.\n\n## Verification\n- `bun test test/commands/task.test.ts` → 28 pass, 0 fail.\n- `bun test` (full suite) → 707 pass, 0 fail.\n- `bun run build` → succeeds.\n\n## Heads-up for next agents\n- `state.json` is the task-id counter file (`{ \"nextTaskId\": N }`), created\n  lazily on first `reserveTaskIds`. It is **untracked** and not in `.gitignore`.\n  If a future task (e.g. init, task 20) wants it ignored or seeded explicitly,\n  that's a separate concern.\n- Live CLI smoke-testing of `next-id` in this sandbox is awkward: the shell has\n  `RALPH_DATA_DIR` exported to the repo's `.ralph`, and inline `VAR=val cmd` /\n  `env` overrides did not reach the spawned binary — so smoke runs mutate the\n  repo's real counter. The unit tests use isolated tmpdirs and are the reliable\n  check. (Any stray `state.json` from such smoke runs should be deleted; I removed\n  the one my test created.)\n"
-    },
-    {
-      "id": 19,
-      "priority": 4,
-      "title": "Auto-assign id in ralph task add",
-      "description": "Make ralph task add (taskAdd in src/commands/task.ts:218) own id assignment. Inside taskAdd (which has dataDir), call reserveTaskIds(dataDir, 1), inject that id into the parsed payload (overwriting any supplied id — always ignore agent-supplied ids), THEN validate. Because validation runs after injection, the schema's required id is always present, so no schema relaxation is needed. Print the assigned id to stdout (e.g. 'assigned id: <n>') so the agent learns it. Reserve the id only once and reuse it if the mutate retries. Also update the executor prompt in src/commands/run.ts (the DISCOVER AND DOCUMENT block, ~lines 131-133): change it so agents do NOT supply an id — drop id from the 'New tasks need at minimum' list and note the CLI assigns and prints the id. TDD: add tests to test/commands/task.test.ts covering a payload with no id getting a reserved id assigned and appended; a payload WITH an id having it overwritten by the reserved one; and the assigned id being printed to stdout. Write tests first, watch them fail, then implement.",
-      "directory": "",
-      "status": "pending",
-      "files": [
-        "src/commands/task.ts",
-        "src/commands/run.ts",
-        "test/commands/task.test.ts"
-      ],
-      "dependencies": [
-        17
-      ],
-      "tests": [
-        "bun test test/commands/task.test.ts",
-        "bun test test/agent-prompt.test.ts"
-      ],
-      "model": "opus"
-    },
-    {
       "id": 20,
       "priority": 5,
       "title": "ralph init seeds state.json",
       "description": "In initCoreFiles (src/commands/init.ts:37), create <dataDir>/state.json if it does not already exist: write { \"nextTaskId\": N } where N is 1 for a fresh project, or max(existing ids across tasks.completed.json + tasks.json) + 1 on re-init of a project with prior tasks. Reuse the seeding logic from src/task-counter.ts (import the exported seedNextId/equivalent rather than duplicating). Do NOT add state.json to GITIGNORE_CONTENT — it must be committed to git (current .ralph/.gitignore does not exclude it). Print 'Created: .ralph/state.json' (or 'state.json already exists.') matching the surrounding console-log style. TDD: add tests to test/commands/init.test.ts covering fresh init → { nextTaskId: 1 }; re-init with an archive whose max id is 15 → { nextTaskId: 16 }; and existing state.json left untouched. Write tests first, watch them fail, then implement.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "src/commands/init.ts",
         "src/task-counter.ts",
@@ -64,7 +20,10 @@
       "tests": [
         "bun test test/commands/init.test.ts"
       ],
-      "model": "sonnet"
+      "model": "sonnet",
+      "completedAt": "2026-06-08T19:02:07.842Z",
+      "completedBy": "iteration-5",
+      "notes": "# Task #20: ralph init seeds state.json\n\n## What was done\n\nAdded `state.json` seeding to `initCoreFiles` in `src/commands/init.ts`.\n\n### `src/commands/init.ts`\n- Imported `seedNextId` from `../task-counter` (reusing existing logic — no duplication).\n- After creating `tasks.json`, added a new block to create `state.json` if it does not already exist:\n  - If absent: calls `seedNextId(dataDir)` to compute the correct starting id (1 for fresh project; max(existing ids) + 1 for re-init), writes `{ nextTaskId: N }` as pretty JSON with trailing newline, prints `  Created: .ralph/state.json`.\n  - If present: prints `  state.json already exists.` and leaves the file untouched.\n- `state.json` is NOT added to `.ralph/.gitignore` — it is committed to git.\n\n### `test/commands/init.test.ts`\nAdded 5 new tests inside the `initCoreFiles` describe block (written first, watched fail, then implemented):\n1. `creates state.json with { nextTaskId: 1 } on fresh init` — verifies file exists and content is correct.\n2. `prints Created: .ralph/state.json on fresh init` — verifies console output.\n3. `re-init with archive max id 15 seeds state.json with nextTaskId: 16` — pre-populates `tasks.completed.json` with ids [10, 15, 3], confirms seeded id is 16.\n4. `leaves existing state.json untouched` — pre-existing `{ nextTaskId: 99 }` survives the call unchanged.\n5. `prints state.json already exists. when state.json is present` — checks console output for the already-exists message.\n\n## Verification\n- `bun test test/commands/init.test.ts` → 101 pass, 0 fail.\n- `bun test` (full suite) → 715 pass, 0 fail.\n- `bun run build` → succeeds.\n"
     },
     {
       "id": 21,

@@ -4,6 +4,7 @@ import { spawnSync as nodeSpawnSync } from 'child_process';
 import type { RalphConfig } from '../types';
 import { loadConfig, autoDetectHealthCheck } from '../config';
 import { resolveRalphRoot } from '../utils';
+import { seedNextId } from '../task-counter';
 
 const GITIGNORE_CONTENT = `# Ralph temp files (tasks.json and planning-notes.md are tracked)
 .ralph_complete
@@ -58,6 +59,16 @@ export function initCoreFiles(projectRoot: string, dataDir: string): void {
     const projectName = path.basename(projectRoot);
     fs.writeFileSync(tasksPath, JSON.stringify({ project: projectName, tasks: [] }, null, 2) + '\n');
     console.log('  Created: .ralph/tasks.json');
+  }
+
+  // Create .ralph/state.json
+  const statePath = path.join(dataDir, 'state.json');
+  if (fs.existsSync(statePath)) {
+    console.log('  state.json already exists.');
+  } else {
+    const nextTaskId = seedNextId(dataDir);
+    fs.writeFileSync(statePath, JSON.stringify({ nextTaskId }, null, 2) + '\n');
+    console.log('  Created: .ralph/state.json');
   }
 }
 

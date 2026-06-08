@@ -162,6 +162,54 @@ describe('initCoreFiles', () => {
     const data = JSON.parse(fs.readFileSync(path.join(dataDir, 'tasks.json'), 'utf8'));
     expect(data.project).toBe('my-project');
   });
+
+  // --- state.json tests ---
+
+  test('creates state.json with { nextTaskId: 1 } on fresh init', () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    initCoreFiles(tmpDir, dataDir);
+    const statePath = path.join(dataDir, 'state.json');
+    expect(fs.existsSync(statePath)).toBe(true);
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    expect(state).toEqual({ nextTaskId: 1 });
+  });
+
+  test('prints Created: .ralph/state.json on fresh init', () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    initCoreFiles(tmpDir, dataDir);
+    expect(stdoutLines.join('\n')).toContain('Created: .ralph/state.json');
+  });
+
+  test('re-init with archive max id 15 seeds state.json with nextTaskId: 16', () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(dataDir);
+    const archive = { tasks: [{ id: 10 }, { id: 15 }, { id: 3 }] };
+    fs.writeFileSync(path.join(dataDir, 'tasks.completed.json'), JSON.stringify(archive));
+    initCoreFiles(tmpDir, dataDir);
+    const statePath = path.join(dataDir, 'state.json');
+    expect(fs.existsSync(statePath)).toBe(true);
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    expect(state).toEqual({ nextTaskId: 16 });
+  });
+
+  test('leaves existing state.json untouched', () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(dataDir);
+    const statePath = path.join(dataDir, 'state.json');
+    fs.writeFileSync(statePath, JSON.stringify({ nextTaskId: 99 }));
+    initCoreFiles(tmpDir, dataDir);
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    expect(state).toEqual({ nextTaskId: 99 });
+  });
+
+  test('prints state.json already exists. when state.json is present', () => {
+    const dataDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(dataDir);
+    fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 5 }));
+    initCoreFiles(tmpDir, dataDir);
+    expect(stdoutLines.join('\n')).toContain('state.json already exists.');
+    expect(stdoutLines.join('\n')).not.toContain('Created: .ralph/state.json');
+  });
 });
 
 // --- parseBooleanInput tests ---
