@@ -3,6 +3,7 @@ import * as path from 'path';
 import { Command } from 'commander';
 import Ajv, { type ErrorObject } from 'ajv';
 import { mutateTasksFile, type TasksFile } from '../tasks-file';
+import { reserveTaskIds } from '../task-counter';
 import type { Task } from '../types';
 import schema from '../tasks-schema.json' with { type: 'json' };
 
@@ -283,6 +284,31 @@ export function taskShow(opts: TaskShowOpts): number {
   }
 }
 
+export interface TaskNextIdOpts {
+  count?: number;
+  dataDir: string;
+  stdout?: Writer;
+  stderr?: Writer;
+}
+
+export function taskNextId(opts: TaskNextIdOpts): number {
+  const stdout = opts.stdout ?? defaultStdout();
+  const stderr = opts.stderr ?? defaultStderr();
+  const count = opts.count ?? 1;
+  if (!Number.isInteger(count) || count < 1) {
+    stderr.write(`ralph task next-id: --count must be a positive integer, got ${count}\n`);
+    return 1;
+  }
+  try {
+    const ids = reserveTaskIds(opts.dataDir, count);
+    stdout.write(ids.join('\n') + '\n');
+    return 0;
+  } catch (err) {
+    stderr.write(`ralph task next-id: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+}
+
 /**
  * Wire the `task` subcommand group onto a Commander program.
  */
@@ -362,6 +388,18 @@ export function registerTaskCommands(program: Command): void {
       const code = taskAdd({
         file: options.file,
         tasksPath: tasksPath(),
+        dataDir: dataDir(),
+      });
+      process.exit(code);
+    });
+
+  task
+    .command('next-id')
+    .description('Reserve and print the next task id(s), one per line')
+    .option('--count <n>', 'Number of ids to reserve (default 1)', (v) => parseInt(v, 10), 1)
+    .action((options: { count: number }) => {
+      const code = taskNextId({
+        count: options.count,
         dataDir: dataDir(),
       });
       process.exit(code);

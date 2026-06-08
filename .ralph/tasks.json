@@ -3,34 +3,12 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 17,
-      "priority": 2,
-      "title": "Task-counter module src/task-counter.ts",
-      "description": "Create src/task-counter.ts owning the monotonic counter persisted at <dataDir>/state.json as { \"nextTaskId\": N }. Export reserveTaskIds(dataDir: string, count = 1): number[] (returns the contiguous reserved ids) performing an atomic read→increment-by-count→write INSIDE the shared file-lock from src/file-lock.ts (lock on state.json.lock), using the same temp-file-rename atomic write pattern as writeTasksFile in tasks-file.ts. Lazy seeding: when state.json is missing, compute seed = max(all \"id\" values across <dataDir>/tasks.completed.json + <dataDir>/tasks.json) + 1, floored at 1, and treat that as nextTaskId before reserving. Read ids cheaply (parse JSON, map over tasks[].id); tolerate a missing/empty tasks.completed.json. Export a helper such as seedNextId(dataDir) for reuse by ralph init (task 20). TDD: add test/task-counter.test.ts covering (a) seed-from-archive: archive with max id 15 + empty active → first reserve returns 16; (b) single reserve increments by 1; (c) block reserve count=3 returns 3 contiguous ids and advances the counter by 3; (d) lazy-seed when state.json absent; (e) two sequential reserves never overlap; (f) floor of 1 when no prior ids exist. Write tests first, watch them fail, then implement.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "src/task-counter.ts",
-        "test/task-counter.test.ts"
-      ],
-      "dependencies": [
-        16
-      ],
-      "tests": [
-        "bun test test/task-counter.test.ts"
-      ],
-      "model": "opus",
-      "completedAt": "2026-06-08T18:50:09.326Z",
-      "completedBy": "iteration-2",
-      "notes": "# Task #17: Task-counter module src/task-counter.ts\n\n## What was done\nCreated `src/task-counter.ts` owning a monotonic task-id counter persisted at\n`<dataDir>/state.json` as `{ \"nextTaskId\": N }`.\n\n### Exports\n- `reserveTaskIds(dataDir: string, count = 1): number[]` — returns the contiguous\n  reserved ids (e.g. `[7,8,9]`). Performs an atomic read → increment-by-count →\n  write of `state.json` **inside the shared file lock** from `src/file-lock.ts`\n  (lock path `state.json.lock`), using the same temp-file-then-rename atomic\n  write pattern as `writeTasksFile` in `tasks-file.ts` (`uniqueTmpPath` =\n  `pid + random hex`, self-cleaning on failure). Rejects non-positive / non-integer\n  counts.\n- `seedNextId(dataDir: string): number` — lazy-seed helper for reuse by `ralph init`\n  (task 20). Computes `max(all id values across tasks.completed.json + tasks.json) + 1`,\n  floored at 1.\n\n### Behavior details\n- **Lazy seeding**: when `state.json` is missing, the start id = `seedNextId(dataDir)`.\n  When `state.json` exists, its `nextTaskId` is used verbatim (existing state wins\n  over the seed).\n- **Cheap id reads** (`readTaskIds`): parses JSON directly and maps `tasks[].id`,\n  filtering to finite numbers. Deliberately does NOT use `readTasksFile` (no\n  repair/snapshot machinery needed — seeding only wants a best-effort max).\n  Tolerates a missing OR empty `tasks.completed.json`/`tasks.json` (returns `[]`).\n- **Floor of 1**: brand-new project with no ids anywhere starts at id 1.\n\n## TDD\nWrote `test/task-counter.test.ts` first, watched it fail (`Cannot find module\n'../src/task-counter'`), then implemented. Tests cover all required cases:\n(a) seed-from-archive max 15 + empty active → 16; (b) single reserve increments by 1;\n(c) block reserve count=3 → 3 contiguous ids, counter +3; (d) lazy-seed when\nstate.json absent; (e) two sequential reserves never overlap; (f) floor of 1 with no\nprior ids. Plus: max across both files, existing-state-wins, missing-completed\ntolerance, and count validation.\n\n## Verification\n- `bun test test/task-counter.test.ts` → 11 pass\n- `bun test` (full) → 701 pass, 0 fail\n- `bun run build` → succeeds (the \"not a git repository\" line is unrelated\n  build-time version-detection noise in a subshell)\n\n## For the next agent (task 20 — ralph init)\n`seedNextId(dataDir)` is exported specifically so `ralph init` can write the initial\n`state.json` without duplicating the max-id logic. Note `reserveTaskIds` already\nlazy-seeds on first use, so init writing state.json is an optional optimization, not\na correctness requirement.\n"
-    },
-    {
       "id": 18,
       "priority": 3,
       "title": "ralph task next-id [--count <n>] CLI command",
       "description": "Add a next-id subcommand to the task group in src/commands/task.ts (registerTaskCommands) and confirm wiring through src/index.ts (registerTaskCommands(program) — likely no change needed). Add an exported testable handler (mirror the existing taskAdd/taskShow pattern: takes dataDir, optional count, stdout/stderr writers, returns an exit code) that calls reserveTaskIds(dataDir, count) and prints the reserved id(s) to stdout — one id per line. --count defaults to 1 and must reject non-positive / non-integer values with a stderr message + exit 1. Use the existing dataDir() closure / RALPH_DATA_DIR for the live command. TDD: add tests to test/commands/task.test.ts covering default single id, --count 3 printing 3 ids and advancing the counter, and invalid --count 0 / -2 / abc → exit 1. Write tests first, watch them fail, then implement.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "src/commands/task.ts",
         "src/index.ts",
@@ -42,7 +20,10 @@
       "tests": [
         "bun test test/commands/task.test.ts"
       ],
-      "model": "opus"
+      "model": "opus",
+      "completedAt": "2026-06-08T18:54:23.388Z",
+      "completedBy": "iteration-3",
+      "notes": "# Task #18: `ralph task next-id [--count <n>]` CLI command\n\n## What was done\nAdded a `next-id` subcommand to the `task` group plus an exported, testable\nhandler, following the existing `taskAdd`/`taskShow` pattern.\n\n### `src/commands/task.ts`\n- New import: `reserveTaskIds` from `../task-counter`.\n- New exported handler `taskNextId(opts: TaskNextIdOpts): number`:\n  - `TaskNextIdOpts = { count?: number; dataDir: string; stdout?: Writer; stderr?: Writer }`\n  - `count` defaults to 1.\n  - Validates `Number.isInteger(count) && count >= 1`; on failure writes\n    `ralph task next-id: --count must be a positive integer, got <count>\\n`\n    to stderr and returns exit code 1 — **before** touching state.json\n    (so no reservation/state write happens on invalid input).\n  - Calls `reserveTaskIds(dataDir, count)` and prints the ids one per line\n    (`ids.join('\\n') + '\\n'`) to stdout, returns 0.\n  - Wraps `reserveTaskIds` in try/catch and surfaces errors on stderr → exit 1.\n- CLI wiring in `registerTaskCommands`: `task.command('next-id')` with\n  `--option('--count <n>', ..., (v) => parseInt(v,10), 1)` (default 1).\n  Live command uses the existing `dataDir()` closure (`process.env.RALPH_DATA_DIR`).\n  Invalid CLI input like `--count abc` → `parseInt` yields `NaN` → handler\n  rejects with exit 1.\n\n### `src/index.ts`\nNo change needed — `registerTaskCommands(program)` was already wired\n(import line 14, call line 182). Confirmed via grep.\n\n## TDD\nAdded tests to `test/commands/task.test.ts` FIRST, watched them fail with\n`Export named 'taskNextId' not found`, then implemented.\nNew `describe('task next-id')` block (defaultTasks has ids 1,2 so seed → 3):\n- (10a) default → prints `3\\n`, exit 0.\n- (10b) `--count 3` → prints `3\\n4\\n5\\n`; a follow-up call continues at `6\\n`\n  (proves the counter advanced / persisted across calls in the same dataDir).\n- (10c) parametrized over `[0, -2, NaN, 1.5]` → exit 1, stderr matches\n  `/ralph task next-id/`, and asserts **no** `state.json` was written on rejection.\n\n## Verification\n- `bun test test/commands/task.test.ts` → 28 pass, 0 fail.\n- `bun test` (full suite) → 707 pass, 0 fail.\n- `bun run build` → succeeds.\n\n## Heads-up for next agents\n- `state.json` is the task-id counter file (`{ \"nextTaskId\": N }`), created\n  lazily on first `reserveTaskIds`. It is **untracked** and not in `.gitignore`.\n  If a future task (e.g. init, task 20) wants it ignored or seeded explicitly,\n  that's a separate concern.\n- Live CLI smoke-testing of `next-id` in this sandbox is awkward: the shell has\n  `RALPH_DATA_DIR` exported to the repo's `.ralph`, and inline `VAR=val cmd` /\n  `env` overrides did not reach the spawned binary — so smoke runs mutate the\n  repo's real counter. The unit tests use isolated tmpdirs and are the reliable\n  check. (Any stray `state.json` from such smoke runs should be deleted; I removed\n  the one my test created.)\n"
     },
     {
       "id": 19,

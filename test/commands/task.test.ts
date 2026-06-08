@@ -9,6 +9,7 @@ import {
   taskSetStatus,
   taskAdd,
   taskShow,
+  taskNextId,
 } from '../../src/commands/task';
 import type { TasksFile } from '../../src/tasks-file';
 
@@ -306,6 +307,54 @@ describe('task add', () => {
     const after = fs.readFileSync(tasksPath, 'utf-8');
     expect(after).toBe(before);
   });
+});
+
+describe('task next-id', () => {
+  // defaultTasks() has ids 1 and 2, so seedNextId → 3 when no state.json exists.
+  it('(10a) prints a single reserved id by default', () => {
+    const out: string[] = [];
+    const exitCode = taskNextId({
+      dataDir: tmpDir,
+      stdout: { write: (s) => out.push(s) },
+    });
+    expect(exitCode).toBe(0);
+    expect(out.join('')).toBe('3\n');
+  });
+
+  it('(10b) --count 3 prints 3 ids one per line and advances the counter', () => {
+    const out1: string[] = [];
+    const exitCode1 = taskNextId({
+      count: 3,
+      dataDir: tmpDir,
+      stdout: { write: (s) => out1.push(s) },
+    });
+    expect(exitCode1).toBe(0);
+    expect(out1.join('')).toBe('3\n4\n5\n');
+
+    // Counter advanced: next reservation continues at 6.
+    const out2: string[] = [];
+    const exitCode2 = taskNextId({
+      dataDir: tmpDir,
+      stdout: { write: (s) => out2.push(s) },
+    });
+    expect(exitCode2).toBe(0);
+    expect(out2.join('')).toBe('6\n');
+  });
+
+  for (const bad of [0, -2, NaN, 1.5]) {
+    it(`(10c) rejects invalid --count ${bad} with exit 1`, () => {
+      const stderr: string[] = [];
+      const exitCode = taskNextId({
+        count: bad,
+        dataDir: tmpDir,
+        stderr: { write: (s) => stderr.push(s) },
+      });
+      expect(exitCode).toBe(1);
+      expect(stderr.join('')).toMatch(/ralph task next-id/);
+      // No state.json should have been written on rejection.
+      expect(fs.existsSync(path.join(tmpDir, 'state.json'))).toBe(false);
+    });
+  }
 });
 
 describe('task show', () => {
