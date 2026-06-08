@@ -307,6 +307,83 @@ describe('task add', () => {
     const after = fs.readFileSync(tasksPath, 'utf-8');
     expect(after).toBe(before);
   });
+
+  // defaultTasks() has ids 1 and 2, so seedNextId → 3 when no state.json exists.
+  it('(8d) assigns a reserved id to a payload with no id and appends it', () => {
+    const payloadPath = path.join(tmpDir, 'no-id-task.json');
+    const payload = {
+      priority: 3,
+      title: 'Auto-id task',
+      status: 'pending',
+      description: 'desc',
+      files: [],
+      dependencies: [],
+      tests: [],
+    };
+    fs.writeFileSync(payloadPath, JSON.stringify(payload));
+
+    const exitCode = taskAdd({
+      file: payloadPath,
+      tasksPath,
+      dataDir: tmpDir,
+    });
+    expect(exitCode).toBe(0);
+    const after = readTasks();
+    expect(after.tasks).toHaveLength(3);
+    expect(after.tasks[2].id).toBe(3);
+    expect(after.tasks[2].title).toBe('Auto-id task');
+  });
+
+  it('(8e) overwrites an agent-supplied id with the reserved id', () => {
+    const payloadPath = path.join(tmpDir, 'supplied-id-task.json');
+    const payload = {
+      id: 999,
+      priority: 3,
+      title: 'Supplied-id task',
+      status: 'pending',
+      description: 'desc',
+      files: [],
+      dependencies: [],
+      tests: [],
+    };
+    fs.writeFileSync(payloadPath, JSON.stringify(payload));
+
+    const exitCode = taskAdd({
+      file: payloadPath,
+      tasksPath,
+      dataDir: tmpDir,
+    });
+    expect(exitCode).toBe(0);
+    const after = readTasks();
+    expect(after.tasks).toHaveLength(3);
+    // The supplied 999 is ignored; the reserved id (3) wins.
+    expect(after.tasks[2].id).toBe(3);
+    expect(after.tasks.some((t) => t.id === 999)).toBe(false);
+  });
+
+  it('(8f) prints the assigned id to stdout', () => {
+    const payloadPath = path.join(tmpDir, 'print-id-task.json');
+    const payload = {
+      priority: 3,
+      title: 'Print-id task',
+      status: 'pending',
+      description: 'desc',
+      files: [],
+      dependencies: [],
+      tests: [],
+    };
+    fs.writeFileSync(payloadPath, JSON.stringify(payload));
+
+    const out: string[] = [];
+    const exitCode = taskAdd({
+      file: payloadPath,
+      tasksPath,
+      dataDir: tmpDir,
+      stdout: { write: (s) => out.push(s) },
+    });
+    expect(exitCode).toBe(0);
+    expect(out.join('')).toBe('assigned id: 3\n');
+  });
 });
 
 describe('task next-id', () => {

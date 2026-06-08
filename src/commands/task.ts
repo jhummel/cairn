@@ -198,7 +198,8 @@ export function taskSetStatus(opts: TaskSetStatusOpts): number {
 export interface TaskAddOpts {
   file: string;
   tasksPath: string;
-  dataDir?: string;
+  dataDir: string;
+  stdout?: Writer;
   stderr?: Writer;
 }
 
@@ -217,6 +218,7 @@ function formatAjvError(err: ErrorObject): { field: string; reason: string } {
 const taskItemSchema = (schema as { properties: { tasks: { items: object } } }).properties.tasks.items;
 
 export function taskAdd(opts: TaskAddOpts): number {
+  const stdout = opts.stdout ?? defaultStdout();
   const stderr = opts.stderr ?? defaultStderr();
 
   let payload: unknown;
@@ -228,6 +230,22 @@ export function taskAdd(opts: TaskAddOpts): number {
       `ralph task add: validation failed — file: ${err instanceof Error ? err.message : String(err)}\n`
     );
     return 1;
+  }
+
+  // Own id assignment: reserve a single id once and inject it into the payload,
+  // overwriting any agent-supplied id. This runs before validation so the
+  // schema's required `id` is always satisfied. The reserved id is captured
+  // outside the mutate callback so a mutate retry reuses it rather than burning
+  // a fresh id each attempt.
+  let assignedId: number;
+  try {
+    [assignedId] = reserveTaskIds(opts.dataDir, 1);
+  } catch (err) {
+    stderr.write(`ralph task add: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+  if (payload && typeof payload === 'object') {
+    (payload as { id: number }).id = assignedId;
   }
 
   const ajv = new Ajv({ allErrors: false, strict: false, logger: false });
@@ -251,6 +269,7 @@ export function taskAdd(opts: TaskAddOpts): number {
       },
       { dataDir: opts.dataDir }
     );
+    stdout.write(`assigned id: ${assignedId}\n`);
     return 0;
   } catch (err) {
     stderr.write(`ralph task add: ${err instanceof Error ? err.message : String(err)}\n`);

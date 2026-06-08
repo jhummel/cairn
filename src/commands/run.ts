@@ -130,7 +130,7 @@ ${testInstruction}
 
 DISCOVER AND DOCUMENT:
 - If you discover bugs or missing functionality UNRELATED to your task, use ralph task add --file <path> to append a new task (the CLI validates the payload before merging). Include a 'directory' field indicating where the work should happen. Max 3 discovered tasks per iteration.
-- New tasks need at minimum: id, priority, title, description, directory, status ('pending'), files (array), dependencies (array), tests (array).
+- Do NOT supply an id — the CLI assigns one for you and prints it ('assigned id: <n>'). New tasks need at minimum: priority, title, description, directory, status ('pending'), files (array), dependencies (array), tests (array).
 - If you learn something operational about a module (config quirk, undocumented dependency), add a brief note to the directory-level CLAUDE.md.
 - Keep CLAUDE.md strictly operational (build commands, config quirks, gotchas). No status updates, no progress notes, no task history.
 
