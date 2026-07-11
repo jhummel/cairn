@@ -343,3 +343,9 @@ Ralph Execution Loop Started: 2026-07-11T22:10:14.279Z
 Iteration 1 started: 2026-07-11T22:10:14.285Z — Task #26: Field-preserving state.json I/O + round counter
 Iteration 1 completed: 2026-07-11T22:12:06.972Z — SUCCESS
 Iteration 2 started: 2026-07-11T22:13:38.968Z — Task #27: ralph plan bumps the planning round
+Iteration 2 completed: 2026-07-11T22:14:45.627Z — SUCCESS
+Iteration 3 started: 2026-07-11T22:15:53.212Z — Task #28: Reviewer targets .ralph/reviews/round-<N>.md with directory-scoped allowlist
+Iteration 3 completed: 2026-07-11T22:18:31.669Z — SUCCESS
+Iteration 4 started: 2026-07-11T22:22:04.781Z — Task #29: Rewrite post-task-reviewer agent prompt for injected file path
+Iteration 4 completed: 2026-07-11T22:22:59.731Z — SUCCESS
+Iteration 5 started: 2026-07-11T22:24:12.735Z — Task #30: Delete legacy review-post.md and update docs

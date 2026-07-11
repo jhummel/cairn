@@ -51,7 +51,9 @@ target-project/
 ├── .ralph/
 │   ├── tasks.json              # Active task list
 │   ├── tasks.completed.json    # Archive of completed tasks
-│   ├── state.json              # Monotonic task-ID counter { "nextTaskId": N } — committed to git
+│   ├── state.json              # Monotonic task-ID counter + planning round { "nextTaskId": N, "round": R } — committed to git
+│   ├── reviews/
+│   │   └── round-<N>.md        # Per-planning-round post-task review logs
 │   └── planning-notes.md       # Output from planning discussions
 └── ralph.json                  # Project configuration (optional)
 ```
@@ -77,6 +79,6 @@ ralph task next-id [--count <n>]
 ralph task show <id>
 ```
 
-Task IDs are allocated by `ralph task next-id`, which reads and increments `state.json`. IDs are never reused — once allocated, an ID remains reserved even if the task is deleted or archived. `state.json` is seeded lazily on first call and is committed to git alongside `tasks.json`.
+Task IDs are allocated by `ralph task next-id`, which reads and increments `state.json`. IDs are never reused — once allocated, an ID remains reserved even if the task is deleted or archived. `state.json` is seeded lazily on first call and is committed to git alongside `tasks.json`. `state.json` also tracks the current planning round; `ralph plan` bumps the round counter on every planning run, and the post-task reviewer writes its findings to `.ralph/reviews/round-<N>.md` for the active round.
 
-Direct `Edit` or `Write` on `.ralph/tasks.json` is **forbidden**. This is enforced two ways: the per-agent system prompt explicitly bans it, and the post-task reviewer runs with a path-scoped allowlist that excludes `.ralph/tasks.json`. The CLI routes all writes through `writeTasksFile()`, which performs atomic temp-file replacement and validates JSON on every write — making corruption structurally impossible via this path.
+Direct `Edit` or `Write` on `.ralph/tasks.json` is **forbidden**. This is enforced two ways: the per-agent system prompt explicitly bans it, and the post-task reviewer runs with a directory-scoped allowlist covering only `.ralph/reviews/**`, which excludes `.ralph/tasks.json`. The CLI routes all writes through `writeTasksFile()`, which performs atomic temp-file replacement and validates JSON on every write — making corruption structurally impossible via this path.

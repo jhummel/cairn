@@ -297,7 +297,9 @@ your-project/
 ├── .ralph/
 │   ├── tasks.json              # Active task list
 │   ├── tasks.completed.json    # Archive of completed tasks
-│   ├── state.json              # Monotonic task-ID counter — never reuses IDs (committed to git)
+│   ├── state.json              # Monotonic task-ID counter + planning round — never reuses IDs (committed to git)
+│   ├── reviews/
+│   │   └── round-<N>.md        # Per-planning-round post-task review logs
 │   ├── planning-notes.md       # Output from planning discussions
 │   ├── instructions.md         # Personal agent preferences (gitignored)
 │   └── .gitignore              # Ignores temp files and instructions.md

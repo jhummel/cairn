@@ -3,34 +3,12 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 29,
-      "priority": 4,
-      "title": "Rewrite post-task-reviewer agent prompt for injected file path",
-      "description": "Update the reviewer agent definition so its output target is the file path given in its user prompt, not a hardcoded filename. IMPORTANT: agent definitions live in the SOURCE directory agents/ at the repo root — ralph init installs them into target projects' .claude/. Edit the source file agents/post-task-reviewer.md, then sync this repo's own installed copy .claude/agents/post-task-reviewer.md so the two files are identical.\n\nChanges in agents/post-task-reviewer.md:\n1. Frontmatter description (line 3): currently '...writes results to review-post.md.' — reword to say it appends results to the per-round review file specified in its prompt (keep internal: true).\n2. Line ~11: 'You may only write to `.ralph/review-post.md`' — change to: you may only write to the review file whose path is given in your user prompt; never modify `.ralph/tasks.json`.\n3. Output Format section (line ~42): 'Append your review to `.ralph/review-post.md` using the Edit tool' — change to append to the file path given in the user prompt (Edit if it exists, Write to create it).\n4. Keep the entire existing review format unchanged: coverage ASCII tree with [DONE]/[PARTIAL]/[GAP], Files Changed, Gaps, Regression Risks, Verdict CLEAN | HAS_GAPS | HAS_RISKS.\n5. Verify no review-post.md mention remains in either copy (grep both files).\n\nThis is a markdown/prompt-only task; run the full test suite as a regression check.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "agents/post-task-reviewer.md",
-        ".claude/agents/post-task-reviewer.md"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        28
-      ],
-      "model": "sonnet",
-      "completedAt": "2026-07-11T22:22:43.725Z",
-      "completedBy": "iteration-4",
-      "notes": "# Task #29: Rewrite post-task-reviewer agent prompt for injected file path\n\n## What changed\n\n`agents/post-task-reviewer.md` (source) and `.claude/agents/post-task-reviewer.md` (this repo's installed copy) — edited identically, then synced with `cp` and diffed to confirm byte-for-byte match.\n\n1. Frontmatter `description` (line 3): now reads \"...appends results to the per-round review file specified in its prompt.\" (was \"...writes results to review-post.md.\") `internal: true` unchanged.\n2. Line 11: \"You may only write to `.ralph/review-post.md`\" → \"You may only write to the review file whose path is given in your user prompt — never modify `.ralph/tasks.json`.\"\n3. Output Format section (~line 42-43): \"Append your review to `.ralph/review-post.md` using the Edit tool. If the file does not yet exist, use the Write tool to create it.\" → \"Append your review to the file path given in your user prompt, using the Edit tool. If the file does not yet exist, use the Write tool to create it.\"\n4. Everything else — Coverage Diagram section, Gap Detection, Regression Checks, the exact review output template (`## Task #<id>: <title>`, `### Coverage`/`### Files Changed`/`### Gaps`/`### Regression Risks`/`### Verdict`), and the CLEAN/HAS_GAPS/HAS_RISKS verdict rules — left byte-for-byte unchanged.\n\nThis aligns the agent's own instructions with task #28's change to `src/post-task-reviewer.ts`, which already injects the actual `reviewFilePath` (`.ralph/reviews/round-<N>.md`) into the user prompt and scopes `--allowedTools` to `.ralph/reviews/**`. Before this task, the agent definition still told the model to hardcode `.ralph/review-post.md`, which would have been silently denied by the allowlist.\n\n## Verification\n- `grep -rn \"review-post.md\" agents/post-task-reviewer.md .claude/agents/post-task-reviewer.md` → no matches (exit 1) in either file.\n- `diff agents/post-task-reviewer.md .claude/agents/post-task-reviewer.md` → identical.\n- `bun test` → 730 pass, 0 fail (markdown-only change, no test changes needed/expected).\n- `bun run build` → compiles clean.\n\n## Notes for next agent\n- No further consumers of the old `.ralph/review-post.md` filename remain in the agent prompt. The task #28 notes mention a stale `.ralph/review-post.md` file may still exist on disk in this repo from before that change — still out of scope here, untouched.\n- This was the last task in the current round (1 remaining before this one, now 0).\n"
-    },
-    {
       "id": 30,
       "priority": 5,
       "title": "Delete legacy review-post.md and update docs",
       "description": "Remove the legacy single-file review log and update all documentation for the per-round system.\n\n1. `git rm .ralph/review-post.md` (git history preserves it — do not archive or copy it anywhere).\n2. CLAUDE.md updates: (a) in the 'Per-project data layout' tree, add `.ralph/reviews/` ('round-<N>.md — per-planning-round post-task review logs') and update the state.json comment from '{ \"nextTaskId\": N }' to include the round field, e.g. '{ \"nextTaskId\": N, \"round\": R }'; (b) in the Agent workflow section, update the sentence about the post-task reviewer running 'with a path-scoped allowlist that excludes .ralph/tasks.json' to describe the directory-scoped rule covering .ralph/reviews/**; (c) mention that `ralph plan` bumps the round counter.\n3. README.md updates: line ~300's data-layout tree entry for state.json ('Monotonic task-ID counter — never reuses IDs') — extend for the round counter, and add the reviews/ directory to that tree.\n4. Scrub any remaining `review-post.md` references repo-wide: `grep -rn review-post . --exclude-dir=node_modules --exclude-dir=.git` must return no hits in source, tests, agents/, .claude/, or docs (checks test/commands/init.test.ts, test/commands/plan.test.ts, test/agent-prompt.test.ts among others; as of planning, those three had no references — verify nothing regressed).\n5. Run the full suite to confirm nothing referenced the deleted file.\n\nDocs-and-deletion task; no new unit tests required beyond the grep gate and the full suite.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "CLAUDE.md",
         "README.md",
@@ -43,7 +21,10 @@
         28,
         29
       ],
-      "model": "sonnet"
+      "model": "sonnet",
+      "completedAt": "2026-07-11T22:25:40.415Z",
+      "completedBy": "iteration-5",
+      "notes": "# Task #30: Delete legacy review-post.md and update docs\n\n## What changed\n\n1. `git rm -f .ralph/review-post.md` — deleted the legacy single-file review log (git history preserves prior content; had uncommitted local review appends from tasks #27/#28 in the working tree that were discarded, per the task's explicit \"do not archive or copy it anywhere\" instruction).\n\n2. `CLAUDE.md`:\n   - Per-project data layout tree: `state.json` comment now reads `Monotonic task-ID counter + planning round { \"nextTaskId\": N, \"round\": R } — committed to git`; added `reviews/` directory with `round-<N>.md — Per-planning-round post-task review logs`.\n   - Agent workflow section: appended a sentence noting `state.json` also tracks the planning round, that `ralph plan` bumps it on every planning run, and that the post-task reviewer writes to `.ralph/reviews/round-<N>.md` for the active round.\n   - Updated the tasks.json-protection sentence: \"path-scoped allowlist that excludes `.ralph/tasks.json`\" → \"directory-scoped allowlist covering only `.ralph/reviews/**`, which excludes `.ralph/tasks.json`\" — matches the actual `reviewFileRule` glob in `src/post-task-reviewer.ts` (task #28).\n\n3. `README.md` (Per-project data tree, ~line 293-308): extended the `state.json` comment to \"Monotonic task-ID counter + planning round — never reuses IDs (committed to git)\"; added `reviews/round-<N>.md` entry.\n\n## Verification\n\n- `grep -rn \"review-post\" . --exclude-dir=node_modules --exclude-dir=.git`: remaining hits are all in `.ralph/` task-tracking/history artifacts (`tasks.json`, `tasks.completed.json`, `.ralph_tasks_snapshot.json`, `planning-notes.md`, `.ralph_task_28/29_notes.md` — all historical record of this and prior tasks, not source/docs) plus one intentional negative-assertion in `test/post-task-reviewer.test.ts` (`expect(prompt).not.toContain(\"review-post.md\")` — asserting the string's *absence*, which is correct and expected).\n- `grep -n \"review-post\" test/commands/init.test.ts test/commands/plan.test.ts test/agent-prompt.test.ts` → no hits (confirmed clean, as expected from planning).\n- `bun test` → 730 pass, 0 fail, 1443 expect() calls. No test referenced the deleted file.\n- `bun run build` → compiles clean.\n\n## Notes for next agent\n\n- `.ralph/tasks.json`, `.ralph/tasks.completed.json`, and `.ralph/.ralph_tasks_snapshot.json` still contain historical string mentions of `review-post.md` inside old task descriptions/notes — this is expected and correct (immutable historical record of what was asked/done in past iterations), not something to scrub.\n- This was the last task in the current planning round — 0 remaining pending/in-progress tasks after this one.\n"
     }
   ]
 }
