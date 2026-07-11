@@ -139,7 +139,8 @@ MODEL SELECTION GUIDANCE:
 
 AGENT SELECTION:
 
-- If `.claude/agents/` contains specialist agents, assign them to tasks matching their expertise
+- Post-task code review runs **automatically** after every task (gated on project config) — do NOT create "review code", "review the work", or similar review tasks, and do NOT assign `post-task-reviewer` or any other internal agent to a task's `agent` field
+- If `.claude/agents/` contains specialist executor agents, assign them to tasks matching their expertise
 - Not every task needs a specialist — use the default generalist for tasks without a clear match
 
 RULES:

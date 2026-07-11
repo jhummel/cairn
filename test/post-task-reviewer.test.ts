@@ -262,7 +262,7 @@ describe("spawnPostTaskReviewer", () => {
     expect(args).toContain("--verbose");
     expect(args).toContain("--allowedTools");
     expect(args[args.indexOf("--allowedTools") + 1]).toBe(
-      "Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)"
+      `Read,Glob,Grep,Edit(/${spawnTmpDir}/.ralph/review-post.md),Write(/${spawnTmpDir}/.ralph/review-post.md)`
     );
     expect(args).toContain("--agents");
     expect(args).toContain("--agent");

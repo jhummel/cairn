@@ -3373,6 +3373,66 @@
       "completedAt": "2026-06-08T18:58:23.706Z",
       "completedBy": "iteration-4",
       "notes": "# Task #19: Auto-assign id in ralph task add\n\n## What was done\nMade `ralph task add` (`taskAdd` in `src/commands/task.ts`) own id assignment so\nagents no longer supply ids.\n\n### `src/commands/task.ts`\n- `TaskAddOpts`: `dataDir` is now **required** (`string`, was `string?`) and\n  added an optional `stdout?: Writer`. All callers (CLI + tests) already pass\n  `dataDir`, so no call sites broke.\n- In `taskAdd`, after JSON parse and **before** AJV validation:\n  - Reserve exactly one id via `reserveTaskIds(opts.dataDir, 1)`, captured into\n    a local `assignedId` outside the mutate callback. Reservation failure →\n    `ralph task add: <msg>\\n` on stderr, exit 1.\n  - Inject `assignedId` into the parsed payload (`payload.id = assignedId`),\n    overwriting any agent-supplied id. Always ignore supplied ids.\n  - Because injection happens before validation, the schema's required `id` is\n    always present → no schema relaxation needed.\n- On successful mutate, print `assigned id: <n>\\n` to stdout so the agent learns\n  the id.\n- Reservation is done once before the mutate, so a mutate retry reuses the same\n  `assignedId` (does not burn a fresh id per attempt).\n\n### `src/commands/run.ts` (executor prompt, DISCOVER AND DOCUMENT block)\n- Dropped `id` from the \"New tasks need at minimum\" list and added a leading\n  sentence: \"Do NOT supply an id — the CLI assigns one for you and prints it\n  ('assigned id: <n>').\"\n\n## TDD\nAdded 3 tests to `test/commands/task.test.ts` `describe('task add')` FIRST,\nwatched them fail, then implemented. defaultTasks() has ids 1,2 so seed → 3:\n- (8d) payload with NO id → reserved id 3 assigned + appended.\n- (8e) payload WITH id 999 → overwritten by 3; no task with id 999 remains.\n- (8f) stdout receives exactly `assigned id: 3\\n`.\n\n## Verification\n- `bun test test/commands/task.test.ts` → 31 pass, 0 fail.\n- `bun test test/agent-prompt.test.ts` → 5 pass, 0 fail.\n- `bun test` (full) → 710 pass, 0 fail.\n- `bun run build` → succeeds.\n\n## Heads-up for next agents\n- `taskAdd` now reserves an id even when the payload later fails validation\n  (reservation precedes validation by design). That advances `state.json`'s\n  counter, so a rejected `task add` \"uses up\" an id. This is intentional and\n  harmless (ids are non-contiguous-tolerant) but worth knowing.\n- `TaskAddOpts.dataDir` is now required — any new caller must pass it.\n"
+    },
+    {
+      "id": 20,
+      "priority": 5,
+      "title": "ralph init seeds state.json",
+      "description": "In initCoreFiles (src/commands/init.ts:37), create <dataDir>/state.json if it does not already exist: write { \"nextTaskId\": N } where N is 1 for a fresh project, or max(existing ids across tasks.completed.json + tasks.json) + 1 on re-init of a project with prior tasks. Reuse the seeding logic from src/task-counter.ts (import the exported seedNextId/equivalent rather than duplicating). Do NOT add state.json to GITIGNORE_CONTENT — it must be committed to git (current .ralph/.gitignore does not exclude it). Print 'Created: .ralph/state.json' (or 'state.json already exists.') matching the surrounding console-log style. TDD: add tests to test/commands/init.test.ts covering fresh init → { nextTaskId: 1 }; re-init with an archive whose max id is 15 → { nextTaskId: 16 }; and existing state.json left untouched. Write tests first, watch them fail, then implement.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "src/commands/init.ts",
+        "src/task-counter.ts",
+        "test/commands/init.test.ts"
+      ],
+      "dependencies": [
+        17
+      ],
+      "tests": [
+        "bun test test/commands/init.test.ts"
+      ],
+      "model": "sonnet",
+      "completedAt": "2026-06-08T19:02:07.842Z",
+      "completedBy": "iteration-5",
+      "notes": "# Task #20: ralph init seeds state.json\n\n## What was done\n\nAdded `state.json` seeding to `initCoreFiles` in `src/commands/init.ts`.\n\n### `src/commands/init.ts`\n- Imported `seedNextId` from `../task-counter` (reusing existing logic — no duplication).\n- After creating `tasks.json`, added a new block to create `state.json` if it does not already exist:\n  - If absent: calls `seedNextId(dataDir)` to compute the correct starting id (1 for fresh project; max(existing ids) + 1 for re-init), writes `{ nextTaskId: N }` as pretty JSON with trailing newline, prints `  Created: .ralph/state.json`.\n  - If present: prints `  state.json already exists.` and leaves the file untouched.\n- `state.json` is NOT added to `.ralph/.gitignore` — it is committed to git.\n\n### `test/commands/init.test.ts`\nAdded 5 new tests inside the `initCoreFiles` describe block (written first, watched fail, then implemented):\n1. `creates state.json with { nextTaskId: 1 } on fresh init` — verifies file exists and content is correct.\n2. `prints Created: .ralph/state.json on fresh init` — verifies console output.\n3. `re-init with archive max id 15 seeds state.json with nextTaskId: 16` — pre-populates `tasks.completed.json` with ids [10, 15, 3], confirms seeded id is 16.\n4. `leaves existing state.json untouched` — pre-existing `{ nextTaskId: 99 }` survives the call unchanged.\n5. `prints state.json already exists. when state.json is present` — checks console output for the already-exists message.\n\n## Verification\n- `bun test test/commands/init.test.ts` → 101 pass, 0 fail.\n- `bun test` (full suite) → 715 pass, 0 fail.\n- `bun run build` → succeeds.\n"
+    },
+    {
+      "id": 21,
+      "priority": 6,
+      "title": "Rewrite the ID rule in commands/generate-tasks.md",
+      "description": "Edit the SOURCE commands/generate-tasks.md (repo root — NOT the installed .claude/commands/ copy). Find the rule that tells the subagent to 'continue from the highest existing ID' in tasks.json (around line 149) and the related ID-assignment guidance. Replace it with: after the user approves the breakdown, reserve a contiguous block of ids by running `ralph task next-id --count <n>` (where n = number of NEW tasks) and assign those returned ids sequentially to the new tasks; never reuse archived ids; preserve any already-complete tasks' existing ids and all their metadata unchanged. Match the exact output format (one id per line) implemented in task 18. Keep the rest of the prompt intact.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "commands/generate-tasks.md"
+      ],
+      "dependencies": [
+        18
+      ],
+      "tests": [],
+      "model": "sonnet",
+      "completedAt": "2026-06-08T19:04:41.810Z",
+      "completedBy": "iteration-6",
+      "notes": "# Task #21: Rewrite the ID rule in commands/generate-tasks.md\n\n## What was done\n\nEdited `commands/generate-tasks.md` (the source file at the repo root, not the installed copy).\n\n### Two targeted changes:\n\n**1. RULES section (line 149):**\n- Old: `Keep task IDs unique and sequential (continue from the highest existing ID if preserving completed tasks)`\n- New: `Assign IDs to new tasks only after user approval: run \\`ralph task next-id --count <n>\\` (where \\`n\\` = the number of new tasks), then assign the returned IDs sequentially. The command outputs one integer per line. Never reuse archived IDs. Preserve existing completed tasks' IDs and all their metadata unchanged.`\n\n**2. \"After receiving\" paragraph (line 159):**\n- Old: `Once approved, write \\`.ralph/tasks.json\\` directly using the Write tool — do NOT spawn another agent just to write the file.`\n- New: `Once approved: (1) run \\`ralph task next-id --count <n>\\` (where \\`n\\` = the number of new tasks) and assign the returned IDs sequentially to the new tasks — the command outputs one integer per line; (2) write \\`.ralph/tasks.json\\` directly using the Write tool — do NOT spawn another agent just to write the file.`\n\n### Why two places:\nThe RULES section governs the subagent's behavior during task proposal. The \"After receiving\" paragraph governs the parent agent's behavior after the user approves. Both needed updating: the rule clarifies that IDs are assigned post-approval (not during proposal), and the approval paragraph describes the exact steps (call `next-id`, assign, then write).\n\n### Output format note:\n`ralph task next-id --count 3` outputs integers one per line (e.g., `23\\n24\\n25`), matching the implementation from task 18. The prompt now references \"one integer per line\" in both locations.\n\n## No tests needed\nThis is a markdown prompt file — no unit tests apply.\n"
+    },
+    {
+      "id": 22,
+      "priority": 7,
+      "title": "Update README and CLAUDE.md for the monotonic ID system",
+      "description": "Document the new ID system in README.md and CLAUDE.md. Add: (1) .ralph/state.json to the per-project data layout in CLAUDE.md (the directory tree under 'Per-project data layout'), described as the monotonic task-ID counter { \"nextTaskId\": N }; (2) the never-reused-id guarantee and lazy-seeding behavior; (3) the `ralph task next-id [--count <n>]` command in the agent-workflow command list in CLAUDE.md; (4) a note that state.json is committed to git (not gitignored), like tasks.json. Keep edits concise and consistent with existing doc tone.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "README.md",
+        "CLAUDE.md"
+      ],
+      "dependencies": [],
+      "tests": [],
+      "model": "sonnet",
+      "completedAt": "2026-06-08T19:07:03.164Z",
+      "completedBy": "iteration-7",
+      "notes": "# Task #22: Update README and CLAUDE.md for the monotonic ID system\n\n## What was done\n\n### CLAUDE.md — three changes:\n\n1. **Per-project data layout tree** (under \"Per-project data layout\"): added `state.json` entry:\n   ```\n   ├── state.json              # Monotonic task-ID counter { \"nextTaskId\": N } — committed to git\n   ```\n\n2. **Agent workflow command list**: added `ralph task next-id [--count <n>]` between `ralph task add` and `ralph task show`.\n\n3. **ID guarantee paragraph** (added after the command list, before the \"Direct Edit or Write\" line): explains that IDs are allocated by `ralph task next-id`, never reused even if the task is deleted/archived, `state.json` is seeded lazily on first call, and is committed to git alongside `tasks.json`.\n\n### README.md — one change:\n\n**Per-project data tree** (under \"File Structure → Per-project data\"): added `state.json` entry:\n```\n├── state.json              # Monotonic task-ID counter — never reuses IDs (committed to git)\n```\n\n## No tests needed\n\nThis is a documentation-only change.\n"
     }
   ]
 }

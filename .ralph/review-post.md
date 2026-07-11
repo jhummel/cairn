@@ -1,3 +1,491 @@
+## Task #22: Update README and CLAUDE.md for the monotonic ID system
+Reviewed: 2026-06-08T19:30:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Add .ralph/state.json to per-project data layout in CLAUDE.md
+│           with { "nextTaskId": N } format description
+├── [DONE] Add never-reused-id guarantee and lazy-seeding behavior
+├── [DONE] Add `ralph task next-id [--count <n>]` to agent-workflow command list in CLAUDE.md
+├── [DONE] Note that state.json is committed to git (not gitignored)
+└── [DONE] Add state.json entry to README.md per-project data tree
+```
+
+### Files Changed
+- `CLAUDE.md` — state.json added to data layout tree; next-id command added to command list; ID guarantee paragraph added
+- `README.md` — state.json added to per-project data tree
+- `.ralph/.ralph_task_22_notes.md` — task notes file (housekeeping)
+
+### Gaps
+None detected. All four documented requirements were addressed:
+1. state.json in CLAUDE.md directory tree with `{ "nextTaskId": N }` and "committed to git" note
+2. Lazy-seeding behavior and never-reused guarantee in the new paragraph
+3. `ralph task next-id [--count <n>]` added to the command list
+4. README.md entry includes "never reuses IDs (committed to git)"
+
+### Regression Risks
+None detected — documentation-only change; no source code or tests modified.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #21: Rewrite the ID rule in commands/generate-tasks.md
+Reviewed: 2026-06-08T19:12:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Edit SOURCE commands/generate-tasks.md (repo root, not installed copy)
+├── [DONE] Find and remove the "continue from the highest existing ID" rule (~line 149)
+├── [DONE] New rule: run `ralph task next-id --count <n>` after user approves
+├── [DONE] Never reuse archived IDs (explicitly stated in new text)
+├── [DONE] Preserve already-complete tasks' IDs and all metadata unchanged
+├── [DONE] Match output format from task 18 (one integer per line, referenced in both locations)
+└── [DONE] Keep the rest of the prompt intact
+```
+
+### Files Changed
+- `commands/generate-tasks.md` — two targeted edits: RULES section (line 149) and "After receiving" paragraph (line 159)
+- `.ralph/tasks.json` — task 21 marked complete, task 20 archived
+- `.ralph/.ralph_task_21_notes.md` — new notes file
+
+### Gaps
+None detected.
+
+### Regression Risks
+One minor ambiguity worth noting: the new text in the RULES section (which is part of the *subagent's* prompt) now says "run `ralph task next-id --count <n>`", but the subagent's role is to *propose* tasks, not to assign IDs — ID assignment is the parent agent's job after approval. The phrasing "only after user approval" within the subagent's RULES does signal the intent correctly, and the "After receiving" paragraph (which the parent agent reads) contains the actual step-by-step instruction. In practice the parent agent will follow the "After receiving" paragraph, so execution should be correct. The RULES entry is slightly misleadingly placed but not harmful. No existing functionality is affected — this is a prompt-only change.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #20: ralph init seeds state.json
+Reviewed: 2026-06-08T19:10:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Create state.json in initCoreFiles if it does not already exist
+├── [DONE] Write { nextTaskId: N } — 1 for fresh project, max+1 for re-init
+├── [DONE] Reuse seedNextId from src/task-counter.ts (no duplication)
+├── [DONE] state.json NOT added to GITIGNORE_CONTENT
+├── [DONE] Print 'Created: .ralph/state.json' or 'state.json already exists.' matching surrounding style
+├── [DONE] TDD: fresh init → { nextTaskId: 1 }
+├── [DONE] TDD: re-init with archive max id 15 → { nextTaskId: 16 }
+└── [DONE] TDD: existing state.json left untouched (5 tests added total)
+```
+
+### Files Changed
+- `src/commands/init.ts` — imported `seedNextId`; added state.json block at end of `initCoreFiles`
+- `test/commands/init.test.ts` — 5 new tests inside `initCoreFiles` describe block
+- `.ralph/.ralph_task_20_notes.md` — agent notes (expected)
+- `.ralph/tasks.completed.json` / `.ralph/tasks.json` — lifecycle bookkeeping (expected)
+
+### Gaps
+None detected.
+
+### Regression Risks
+None detected. The change is purely additive — a new block appended at the end of `initCoreFiles` with no modifications to existing logic. `GITIGNORE_CONTENT` is unchanged; `state.json` is correctly left unignored. `seedNextId` was already exported and tested in task #17; no new surface area introduced there. Full suite: 715 pass, 0 fail.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #19: Auto-assign id in ralph task add
+Reviewed: 2026-06-08T00:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Call reserveTaskIds(dataDir, 1) inside taskAdd
+├── [DONE] Inject assignedId into payload before AJV validation
+│   ├── [DONE] Overwrite any agent-supplied id unconditionally
+│   └── [DONE] No schema relaxation needed (id present before validate)
+├── [DONE] Print 'assigned id: <n>' to stdout on success
+├── [DONE] Reserve id once before mutate callback (retry-safe)
+├── [DONE] Update run.ts DISCOVER AND DOCUMENT executor prompt
+│   ├── [DONE] Drop `id` from 'New tasks need at minimum' list
+│   └── [DONE] Add note: CLI assigns and prints the id
+└── [DONE] TDD — tests written first, three cases
+    ├── [DONE] (8d) payload with no id → reserved id assigned + appended
+    ├── [DONE] (8e) payload with supplied id → overwritten by reserved id
+    └── [DONE] (8f) assigned id printed to stdout
+```
+
+### Files Changed
+- `src/commands/task.ts` — id reservation, injection, stdout output, `dataDir` required, `stdout` injectable
+- `src/commands/run.ts` — executor prompt DISCOVER AND DOCUMENT block updated
+- `test/commands/task.test.ts` — three new tests (8d, 8e, 8f)
+- `.ralph/.ralph_task_19_notes.md` — implementation notes (non-source)
+
+### Gaps
+None detected.
+
+### Regression Risks
+- `TaskAddOpts.dataDir` changed from optional (`string?`) to required (`string`). The one CLI call site at `src/commands/task.ts:407–411` already passes `dataDir: dataDir()`, and `bun run build` succeeds — so no live breakage. Any hypothetical external consumer of this interface would hit a compile error, but this is a project-internal type.
+- Tests (8d) and (8e) do not pass a `stdout` override, so `assigned id: 3` leaks to the real console during `bun test` runs (visible as three stray lines in test output). Harmless but mildly noisy; a future cleanup could add `stdout` capture to those two tests as well.
+- When `reserveTaskIds` succeeds but AJV validation subsequently fails, the reserved id is consumed without being used. The task notes this as intentional and ids are non-contiguous-tolerant, so no functional impact.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #9: Task-id-labeled stream output
+Reviewed: 2026-05-31T23:38:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Add taskId?: number to ProcessStreamOptions (~line 163)
+│         (added at line 168, immediately after taskContext?)
+├── [DONE] Prefix each emitted output line with [#<id>] when taskId is set
+│   ├── [DONE] writeLine helper: prefix = options?.taskId != null ? `[#${options.taskId}] ` : ''
+│   ├── [DONE] Non-JSON passthrough: writeLine(line + '\n')
+│   ├── [DONE] system/init event: writeLine(`  ${DIM}[init]...`)
+│   ├── [DONE] assistant/tool_use: writeLine(`  > ${fmtTool(block)}\n`)
+│   ├── [DONE] assistant/text (truncated): writeLine(`  ${YELLOW}${firstLine}${RESET}\n`)
+│   ├── [DONE] assistant/text (multi-line, each tline): writeLine(`  ${YELLOW}${tline}${RESET}\n`)
+│   └── [DONE] result event: writeLine(`  ${fmtResult(e)}\n`)
+├── [DONE] When taskId unset, output byte-for-byte unchanged (serial mode no-regression)
+│         (prefix = '' when taskId is null/undefined; writeLine ≡ output.write)
+└── [DONE] TDD: failing tests written first, then implementation
+    ├── [DONE] Test: prefixes every output line with [#<id>] when taskId is provided
+    │         (covers init, tool_use, result events; asserts every line matches /^\[#5\] /)
+    └── [DONE] Test: does not prefix lines when taskId is omitted — byte-for-byte unchanged
+              (compares no-options vs {} options; asserts out1() === out2() and no '[#' in output)
+```
+
+### Files Changed
+- `src/stream-filter.ts` — `taskId?: number` added to `ProcessStreamOptions`; `writeLine` helper introduced; all 6 `output.write(...)` calls replaced with `writeLine(...)`
+- `test/stream-filter.test.ts` — new `describe('processStream taskId prefix')` block with 2 tests appended before the narration suite
+- `.ralph/` bookkeeping files (tasks.json, tasks.completed.json, notes)
+
+### Gaps
+None detected.
+
+Notes:
+- The "byte-for-byte unchanged" test compares `undefined` vs `{}` options rather than a
+  pre-recorded historical baseline. This is correct: both paths produce `prefix = ''`, and
+  the 57 pre-existing passing tests already serve as the behavioral baseline. The extra
+  `expect(out1()).not.toContain('[#')` assertion confirms no stray prefix.
+- `taskId: 0` edge case: `options?.taskId != null` evaluates `0 != null` as `true`, so
+  `[#0] ` is correctly applied. No test covers this but the implementation is correct by
+  construction and not required by the spec.
+- TDD sequence is sound: notes confirm 58 pass/1 fail before implementation. The
+  byte-equality test passed even before the fix (both paths produce no-prefix output),
+  while the prefix-existence test failed — consistent with correct red-green flow.
+
+### Regression Risks
+None detected.
+- The `writeLine` helper is a strict identity to `output.write` when `prefix === ''`,
+  preserving all existing call-site behavior for serial-mode callers that pass no `taskId`.
+- All 6 `output.write` call sites were replaced (non-JSON passthrough, init, tool_use,
+  truncated text, multi-line text, result). No write path was missed.
+- No existing exports were removed or renamed.
+- Test count went from 57 to 59 (2 new). All 59 pass post-implementation.
+- `bun run build` succeeded with no TypeScript errors.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #8: Plural ready-set selector
+Reviewed: 2026-05-31T23:36:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Add selectReadyTasks(tasks, completedIds, opts?) to src/task-selector.ts
+├── [DONE] Keep selectNextTask unchanged for serial mode
+├── [DONE] Return pending tasks with ALL dependencies satisfied
+├── [DONE] Use same active+archived complete-id logic as selectNextTask (~lines 51-54)
+├── [DONE] Sort by priority ascending
+├── [DONE] Cap at opts.limit
+├── [DONE] Conflict-filter: no two tasks share the same non-empty directory
+├── [DONE] Decide AND document in-progress task interaction in a code comment
+│   └── [DONE] In-progress tasks treat their dirs as occupied; pending tasks
+│             sharing that dir are excluded before the sort even begins
+└── [DONE] TDD: failing tests added first, then implementation
+    ├── [DONE] Dependency gating (unsatisfied dep excluded)
+    ├── [DONE] Dep satisfied via active complete tasks
+    ├── [DONE] Dep satisfied via completedIds set
+    ├── [DONE] Dep satisfied via union of both sources
+    ├── [DONE] Priority ordering
+    ├── [DONE] Limit capping
+    ├── [DONE] Directory-conflict exclusion (batch-internal)
+    ├── [DONE] In-progress dir occupation (cross-task conflict)
+    ├── [DONE] Empty directory is not a conflict
+    ├── [DONE] In-progress tasks excluded from result entirely
+    ├── [DONE] Blocked/complete tasks ignored
+    ├── [DONE] Empty result when all pending tasks unsatisfied
+    └── [DONE] Empty input returns empty array
+```
+
+### Files Changed
+- `src/task-selector.ts` — new `selectReadyTasks` export added after `selectNextTask`
+- `test/task-selector.test.ts` — import updated to include `selectReadyTasks`; 13 new tests added in `describe('selectReadyTasks', ...)`
+- `.ralph/` bookkeeping files (tasks.json, tasks.completed.json, snapshots, logs, notes)
+
+### Gaps
+None detected. The agent's notes claimed 11 new tests; 13 were actually added — a surplus, not a deficit.
+
+### Regression Risks
+None detected.
+- `selectNextTask` is byte-for-byte unchanged.
+- `buildIterationPrompt` is untouched.
+- `loadCompletedIds` is untouched.
+- The test-file import change is purely additive (`selectReadyTasks` appended to the existing import list).
+- All 38 pre-existing tests remain intact; new tests are purely additive.
+- The pre-existing import mismatch (`getNextTask`/`isTaskReady`) noted in Task #7's notes was already fixed before this task ran — the test file already imports `selectNextTask` correctly.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #7: Concurrency-safe tasks.json writes
+Reviewed: 2026-05-31T23:35:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] (a) Per-process unique tmp path via uniqueTmpPath()
+│   ├── [DONE] Incorporates process.pid + crypto.randomBytes(6) hex suffix
+│   ├── [DONE] writeTasksFile() uses uniqueTmpPath() — no more shared ${filePath}.tmp
+│   └── [DONE] writeTasksFile() self-cleans its own tmp on failure (catch + unlinkSync)
+│             (mutateTasksFile's old finally-cleanup replaced by writeTasksFile self-cleanup)
+├── [DONE] (b) Cross-process O_EXCL lockfile around read->modify->write in mutateTasksFile
+│   ├── [DONE] acquireLock() uses fs.openSync(lockPath, 'wx') — O_CREAT|O_EXCL
+│   ├── [DONE] Bounded retry/backoff: 15–30ms jitter, 15s max (LOCK_MAX_WAIT_MS)
+│   ├── [DONE] Stale-lock breaking: locks older than 60s (LOCK_STALE_MS) auto-removed
+│   ├── [DONE] Released in finally: closeSync(fd) + unlinkSync(lockPath)
+│   └── [DONE] Clear TasksFileError if lock can't be acquired, with recovery instructions
+├── [DONE] Existing snapshot-after-write behavior preserved
+│         (snapshotTasksFile call moved inside the lock — strictly better)
+└── [DONE] TDD: failing concurrent-writer test (m-g) written FIRST, then implementation
+    ├── [DONE] 5 real OS subprocesses via Bun.spawn, each incrementing own counter 30×
+    ├── [DONE] Asserts all processes exit 0 (no failures)
+    ├── [DONE] Asserts valid JSON (no corruption)
+    ├── [DONE] Asserts every counter == 30 (no lost updates)
+    └── [DONE] Asserts no leftover .tmp* or .lock files
+```
+
+### Files Changed
+- `src/tasks-file.ts` — added `uniqueTmpPath()`, `sleepSync()`, `acquireLock()`; refactored `writeTasksFile()` and `mutateTasksFile()` for concurrency safety
+- `test/tasks-file.test.ts` — added test (m-g); updated (m-a) prefix match, (m-b) readdirSync check, (m-c) lock-release verification
+
+### Gaps
+None detected.
+
+### Regression Risks
+- **Advisory lock only**: `acquireLock` is only called by `mutateTasksFile`. Direct callers of `writeTasksFile` (task-archiver, test-validator) bypass the lock. The notes acknowledge this explicitly — those callers run in the serial loop, not concurrently with agents. Documented design boundary, not a regression.
+- **`unlinkSpy` in (m-c) calls through**: `spyOn(fs, 'unlinkSync')` without `.mockImplementation()` passes through to the real implementation. This is correct — the test verifies the lock IS released (call recorded + no lock file on disk).
+- **Stale lock TOCTOU**: If a stale lock is removed by one process and immediately claimed by another before the original retries, the original loops and tries again — expected advisory-lock behavior, not a correctness hazard.
+- No removed exports, no deleted tests, no changed public API. 18/18 targeted tests pass; full suite (670) green per agent notes (pre-existing task-selector import mismatch is unrelated, noted as task #101).
+
+### Verdict
+CLEAN
+
+---
+
+## Task #5: Gate the planner's write in planner.md
+Reviewed: 2026-05-31T23:40:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Replace WORKFLOW step 5 with an explicit user-go-ahead gate
+│         (old: "When the discussion feels complete, write planning-notes.md"
+│          new: ask user → wait for explicit yes → then write)
+├── [DONE] Planner must NOT write based on its own judgment ("feels complete")
+│         — "never decide on your own that the discussion 'feels complete.'"
+├── [DONE] Planner MAY ask user whether they are ready to capture the plan
+│         — "ask the user if they are ready to capture the plan"
+├── [DONE] Must only write AFTER user explicitly gives go-ahead
+│         — "Do NOT write planning-notes.md until the user explicitly says yes."
+├── [DONE] Assume there may always be more to discuss
+│         — "Assume there may always be more to discuss"
+├── [DONE] Keep existing constraint (~line 47) that it only ever writes planning-notes.md
+│         — Line 47 ("ONLY write to planning-notes.md...") is untouched
+└── [DONE] No code or tests (prompt/documentation edit only)
+```
+
+### Files Changed
+- `agents/planner.md` — WORKFLOW step 5 rewritten with explicit user-go-ahead gate
+- `.ralph/.ralph_task_5_notes.md` — task notes replaced with description of this task's work (bookkeeping only)
+
+### Gaps
+None detected.
+
+### Regression Risks
+None detected. Pure prompt text change — no code, no tests, no exports. The
+existing RULES constraint at line 47 ("ONLY write to planning-notes.md") is
+untouched and still in force. The new wording is additive in behavioral
+restriction (stricter gating) rather than loosening anything.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #4: Rewrite AGENT SELECTION in generate-tasks.md
+Reviewed: 2026-05-31T23:30:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Rewrite AGENT SELECTION section (~lines 140-143) in commands/generate-tasks.md
+├── [DONE] State plainly that post-task review runs AUTOMATICALLY after every task
+│         (gated on config) — new first bullet: "Post-task code review runs
+│         **automatically** after every task (gated on project config)"
+├── [DONE] Task-generation agent must NEVER create "review code" / "review the work" tasks
+│         — explicit "do NOT create 'review code', 'review the work', or similar
+│           review tasks" in the new bullet
+├── [DONE] Must NEVER assign `post-task-reviewer` (or any internal agent) to `agent` field
+│         — explicit "do NOT assign `post-task-reviewer` or any other internal agent
+│           to a task's `agent` field" in the new bullet
+├── [DONE] Keep legitimate guidance that specialist executor agents may be assigned
+│         — second bullet retained (wording sharpened: "executor" added for clarity)
+├── [DONE] Keep guidance that most tasks use the default generalist
+│         — third bullet unchanged
+└── [DONE] No code changes, no tests (prompt/documentation edit only)
+```
+
+### Files Changed
+- `commands/generate-tasks.md` — one bullet prepended to AGENT SELECTION block; "executor" added to second bullet
+- `.ralph/.ralph_task_4_notes.md` — task notes updated to describe this task's work (bookkeeping only)
+
+### Gaps
+None detected.
+
+### Regression Risks
+None detected. The change is purely additive — one new bullet prepended before the two
+existing bullets. The minor word addition of "executor" to "specialist agents" is a
+clarification that restricts the scope of that guidance to executor agents only (correct,
+since internal agents like `post-task-reviewer` are not executor agents). No code paths,
+exports, tests, or contracts were altered.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #3: Filter internal agents from the planner's agent list
+Reviewed: 2026-05-31T23:20:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Filter agents where internal=true before building AVAILABLE SPECIALIST AGENTS section
+│         (src/commands/plan.ts line 81: `const visibleAgents = agents.filter(a => !a.internal)`)
+├── [DONE] If all agents filtered out, omit section entirely
+│         (guard changed from `agents.length > 0` to `visibleAgents.length > 0`)
+├── [DONE] Map over visibleAgents instead of all agents
+│         (line 83: `visibleAgents.map(a => { ... })`)
+└── TDD: test/commands/plan.test.ts
+    ├── [DONE] Test added first (red phase confirmed in notes)
+    ├── [DONE] "excludes internal agents while keeping normal agents"
+    │         — mixed array: asserts post-task-reviewer absent, specialist present,
+    │           AVAILABLE SPECIALIST AGENTS header still present
+    └── [DONE] "omits agent section entirely when all agents are internal"
+              — all-internal array: asserts neither agent name nor section header appear
+```
+
+### Files Changed
+- `src/commands/plan.ts` — one filter line added; guard and map updated to use `visibleAgents`
+- `test/commands/plan.test.ts` — two new tests in `describe('buildDynamicContext')` block
+- `.ralph/.ralph_task_3_notes.md` — task notes updated (bookkeeping only)
+
+### Gaps
+None detected.
+
+### Regression Risks
+None detected. The filter uses `!a.internal`, so agents without the `internal` field (`undefined` is falsy) pass through unchanged — preserving all prior behavior for normal agents. The `AgentInfo.internal?: boolean` type and the frontmatter parsing in `src/config.ts` were both established in Task #1. Full suite went from 662 to 669 tests (7 total additions, 2 from this task). No exports removed, no contracts changed.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #2: Executor guard in buildSystemPrompt
+Reviewed: 2026-05-31T23:10:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Guard agentInfo?.internal in buildSystemPrompt specialist-injection block
+├── [DONE] Emit console.warn naming the internal agent when skipped
+├── [DONE] Fall back to generalist prompt (specialistSection left empty)
+├── [DONE] Non-internal agents inject exactly as before (else branch unchanged)
+└── TDD: test/agent-prompt.test.ts
+    ├── [DONE] Test added first (red phase documented in notes)
+    ├── [DONE] Assert prompt DOES contain body for normal specialist
+    ├── [DONE] Assert prompt does NOT contain body for internal agent
+    ├── [DONE] Assert SPECIALIST INSTRUCTIONS: absent for internal agent
+    └── [DONE] Assert console.warn called once with agent name
+```
+
+### Files Changed
+- `src/commands/run.ts` — specialist-injection block wrapped in `if (agentInfo.internal)` / `else`
+- `test/agent-prompt.test.ts` — two new tests in `describe("buildSystemPrompt")`, imports for `buildSystemPrompt`, `SystemPromptInput`, `AgentInfo`, `RalphConfig`, `spyOn`
+- `.ralph/.ralph_task_2_notes.md` — task notes updated (non-source, bookkeeping only)
+
+### Gaps
+None detected.
+
+### Regression Risks
+None detected. The `else` branch preserves the original file-read path verbatim; the only new code path is the early `console.warn` + return-empty for `internal: true`. The `internal` field is `optional` in `AgentInfo` (confirmed in `src/types.ts:39`), so existing agents without the flag are unaffected.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #1: Add `internal` agent flag to discovery
+Reviewed: 2026-05-31T23:02:41Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] (a) Add YAML frontmatter to agents/post-task-reviewer.md
+│   ├── [DONE] name: post-task-reviewer
+│   ├── [DONE] description field present
+│   ├── [DONE] internal: true
+│   └── [DONE] Existing body prose preserved verbatim below closing ---
+├── [DONE] (b) Parse boolean `internal` field in discoverAgents (src/config.ts)
+│   └── [DONE] Coerces meta.internal === 'true' to boolean true
+├── [DONE] (c) Add `internal?: boolean` to AgentInfo interface (src/types.ts)
+└── [DONE] TDD: failing tests written first, then implementation
+    ├── [DONE] Test: internal: true frontmatter yields agent.internal === true
+    ├── [DONE] Test: agent without internal field yields falsy
+    └── [DONE] Test: agent with no frontmatter yields falsy
+```
+
+### Files Changed
+- `agents/post-task-reviewer.md` — YAML frontmatter block prepended
+- `src/config.ts` — spread `{ internal: true }` when `meta.internal === 'true'`
+- `src/types.ts` — `internal?: boolean` added to `AgentInfo` interface
+- `test/config.test.ts` — 3 new tests covering internal flag parsing
+- `.ralph/.ralph_task_1_notes.md` — task notes updated (housekeeping)
+
+### Gaps
+None detected
+
+### Regression Risks
+None detected — the change is purely additive: a new optional field on `AgentInfo` and a new frontmatter key in one agent file. No existing callers of `discoverAgents` are broken; absent `internal` key leaves the field `undefined` (falsy), matching prior behavior. All 42 config tests pass.
+
+### Verdict
+CLEAN
+
+---
+
 ## Task #11: Migrate run.ts reads + snapshot + corruption counter + tempfile cleanup
 Reviewed: 2026-04-20T00:00:00Z
 
@@ -2043,6 +2531,325 @@ None detected. `src/commands/init.ts` was not modified, which is correct — the
 
 ### Regression Risks
 None detected. The new tests are purely additive and self-contained (fresh temp dirs, cleaned in `finally`). The existing `'copies actual ralph agents to .claude/agents/'` test already asserts `audit-planner.md` exists against the real `agents/` directory; the new test is complementary (isolated content check), not a duplicate or conflict. The `installSlashCommands()` and `installAgents()` implementations use `readdirSync(...).filter(f => f.endsWith('.md'))`, confirming automatic pickup of any new `.md` file without source changes.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #5: End-to-end verification — build, test, and smoke test
+Reviewed: 2026-05-25T05:30:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] (1) bun test — all tests pass
+│         662 pass, 0 fail (4.62s across 25 files) — documented in task notes
+├── [DONE] (2) bun run build — compiled binary produced cleanly
+│         105 modules bundled → dist/ralph in ~142ms — documented in task notes
+├── [DONE] (3) File existence verified
+│   ├── [DONE] agents/audit-planner.md — exists ✓ (source; new file from task 1)
+│   └── [DONE] commands/codebase-audit.md — exists ✓ (source; new file from task 2)
+├── [DONE] (4) audit-planner.md structural elements verified
+│   ├── [DONE] Two-lens separation (security adversarial + SOLID/structural)
+│   ├── [DONE] Confirm-then-remediate framing (dedicated section with 3-part structure)
+│   ├── [DONE] Spike demotion (unbounded findings → Investigation Items)
+│   ├── [DONE] Bounded confirmation ("read lines 40-60 of src/foo.ts" example)
+│   ├── [DONE] Structured findings format (Security / SOLID / Investigation / Sound / Unresolved)
+│   └── [DONE] Project context reading (planning-notes.md cited in briefing materials)
+├── [DONE] (5) codebase-audit.md slash command verified
+│   ├── [DONE] References audit-planner agent by name (reads agents/audit-planner.md verbatim)
+│   ├── [DONE] Instructions to spawn it (Agent tool, subagent_type: "general-purpose")
+│   ├── [DONE] Present findings (by severity for security, by impact for structural)
+│   ├── [DONE] Continue conversation (explicit discussion-mode gate, no rush to write notes)
+│   └── [DONE] Write planning-notes.md (Write tool directly, 6-section format specified)
+├── [DONE] (6) ralph init installs both new files
+│   ├── [DONE] Smoke test output logged: "Installed: .claude/commands/codebase-audit.md"
+│   │         and "Installed: .claude/agents/audit-planner.md"
+│   └── [DONE] Unit test coverage: init.test.ts lines 974–1104 verify content fidelity
+└── [DONE] (7) All results documented in task notes (.ralph/.ralph_task_5_notes.md)
+```
+
+### Files Changed
+- `.claude/agents/audit-planner.md` — installed copy of agents/audit-planner.md (source already existed from task 1)
+- `.claude/agents/post-task-reviewer.md` — added write-restriction line (scope tightening, not part of task 5)
+- `.claude/commands/codebase-audit.md` — installed copy of commands/codebase-audit.md
+- `.ralph/.ralph_task_3_notes.md` — task 3 completion notes (prior iteration artifact in this commit)
+- `.ralph/.ralph_task_5_notes.md` — task 5 verification results documented
+- `.ralph/.ralph_tasks_snapshot.json` — updated snapshot
+- `.ralph/.ralph_iterations.log` — iterations 3–5 appended
+- `.ralph/planning-notes.md` — updated (prior iteration artifact)
+- `.ralph/review-post.md` — prior task reviews appended (tasks #15, #1, #4, #2, #3 from this session)
+- `.ralph/tasks.completed.json` — tasks 2 and 3 archived
+- `.ralph/tasks.json` — task 5 marked complete
+- `src/test-validator.ts` — **unsolicited behavior change**: cwd now resolves from task.directory instead of always using projectRoot
+- `test/test-validator.test.ts` — three tests updated/added to match new cwd behavior
+
+### Gaps
+None detected. All six verification steps are fully addressed and documented in task notes.
+
+### Regression Risks
+
+1. **Unsolicited behavioral change in `src/test-validator.ts`**: Task 5 was scoped to verification only — no source changes were requested. The agent modified `src/test-validator.ts` to resolve the test working directory from `task.directory` rather than always using `projectRoot`. This reversed explicitly documented prior behavior.
+
+   - **Before**: `const cwd = projectRoot;` — tests always ran at projectRoot regardless of `task.directory`
+   - **After**: `const cwd = path.resolve(projectRoot, taskDir);` — tests run inside `task.directory` when set
+
+   The test that documented the old behavior (`'runs tests in projectRoot even when task has a directory'`) was renamed and its assertion inverted. A new negative test confirms a file at projectRoot is *not* found when `task.directory` points elsewhere.
+
+2. **Impact on tasks with non-empty `directory` fields**: `.ralph/tasks.completed.json` contains at least 12 archived tasks with non-empty directory values (`"src"`, `"test"`, `"src/commands"`, `"test/commands"`, `"commands"`, `".ralph"`). Under the old behavior, their test commands (e.g., `bun test`) ran at projectRoot — the typical correct location for Bun's test runner. Under the new behavior, future tasks following the same pattern would run tests from the subdirectory, which may fail silently or produce unexpected results if the test command assumes projectRoot context.
+
+3. **No documentation of the breaking change**: The behavioral change is not mentioned in CLAUDE.md, task notes for task 5, or any changelog. Agents building future task lists may set `directory` assuming the old behavior (tests always run at root).
+
+Note: the change itself may be a correct bug fix — test isolation in the right directory is generally desirable. But it was introduced without task scope, without documenting the behavioral reversal, and without validating that existing task patterns still work under the new cwd semantics.
+
+### Verdict
+HAS_RISKS
+
+---
+
+## Task #6: Parallel-execution RFC
+Reviewed: 2026-05-31T23:45:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] ISOLATION MODEL — git worktrees-per-task (Option A) vs directory-
+│         disjoint scheduling (Option B), full pros/cons for both options
+│         (§3: merge complexity, disk cost, footprint enforcement, history clarity)
+├── [DONE] Isolation model left as THE central OPEN decision — §3 explicitly
+│         titled "UNRESOLVED", provides a decision procedure not a verdict,
+│         remainder of doc written isolation-agnostic
+├── [DONE] SCHEDULING — plural selectReadyTasks selector capped at N with
+│         conflict filtering (dependency-internal + footprint/Option B),
+│         edge cases, wave vs. rolling discussion (§4)
+├── [DONE] OUTPUT RENDERING — task-id line prefixes, per-task log files,
+│         optional sectioned TUI gated on isTTY, serial path unchanged (§5)
+├── [DONE] NARRATION & NOTIFICATIONS — parallel mode drops per-agent streaming,
+│         narrates started/completed/failed via serialized queue, batches ntfy
+│         into wave summaries; serial mode explicitly preserved unchanged (§6)
+├── [DONE] KNOCK-ON EFFECTS:
+│   ├── [DONE] prevNotes carry-forward — no single predecessor per wave,
+│   │         per-lineage recommendation (§7.1)
+│   ├── [DONE] per-iteration tasks.json snapshot timing (§7.2)
+│   ├── [DONE] test-validation timing — post-wave, per-worktree under
+│   │         Option A, failure isolation from siblings (§7.4)
+│   └── [DONE] post-task review under parallelism — per-branch diff (A) vs
+│              per-task beforeSha footprint-scoped diff (B) (§7.5)
+├── [DONE] ROLLOUT — opt-in --parallel N, serial as unmodified default,
+│         sequenced independently-shippable work, --parallel 1 kill switch (§8)
+├── [DONE] Grounded in current serial behavior with file:line references
+│   ├── [DONE] selectNextTask (src/task-selector.ts:44)
+│   ├── [DONE] focused commits / shared working tree (src/commands/run.ts:129)
+│   ├── [DONE] unlocked mutateTasksFile (src/tasks-file.ts:174)
+│   ├── [DONE] single-socket narration (src/narration.ts + run.ts:539-543)
+│   ├── [DONE] per-iteration snapshot (src/commands/run.ts:454-463)
+│   └── [DONE] single prevNotes predecessor (src/commands/run.ts:624-625)
+└── [DONE] Documentation only — no code or tests added
+```
+
+### Files Changed
+- `docs/parallel-execution-rfc.md` — created (350 lines, the deliverable)
+- `.ralph/.ralph_iterations.log` — harness bookkeeping (iteration log entries)
+- `.ralph/.ralph_tasks_snapshot.json` — harness bookkeeping (task #6 marked complete, tasks #7-9 added as follow-on)
+- `.ralph/tasks.completed.json` — harness bookkeeping (tasks #1-5 archived)
+- `.ralph/tasks.json` — harness bookkeeping (task #6 complete, tasks #7-9 pending)
+
+### Gaps
+None detected. All six required topics are covered with the specified depth:
+- §3 isolation model explicitly marked UNRESOLVED with a decision procedure
+- §4 scheduling covers plural selector, cap, conflict filtering, and wave/rolling
+- §5 output covers all three rendering options with a recommendation
+- §6 narration covers milestone-only parallel mode and unchanged serial mode
+- §7 knock-on effects covers all four specified items plus an extra §7.3
+  (concurrent mutateTasksFile race) which is a legitimate and well-grounded addition
+- §8 rollout includes flag, serial default, shippable sequence, and kill switch
+
+Minor observation: the task description cites "focused commits in the shared
+working tree (`src/commands/run.ts` ~line 548)" but the RFC references line 129
+(where `buildSystemPrompt` constructs the commit instruction) rather than the
+loop site around line 548. The concept is fully covered; the line reference is
+slightly off from the cited baseline but does not constitute a content gap.
+
+### Regression Risks
+None detected. This is a documentation-only change — no source files, no tests,
+no exports, and no runtime behavior were modified. The `.ralph/` files updated
+are normal harness bookkeeping that the ralph task system manages exclusively
+through `ralph task` subcommands (as required). No existing behavior can break
+from adding a markdown file under `docs/`.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #16: Extract shared file-lock helper into src/file-lock.ts
+Reviewed: 2026-06-08T18:55:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Create src/file-lock.ts
+│   ├── [DONE] acquireLock(lockPath) — exported
+│   ├── [DONE] sleepSync(ms) — exported
+│   ├── [DONE] LOCK_RETRY_MS / LOCK_MAX_WAIT_MS / LOCK_STALE_MS constants (module-private)
+│   ├── [DONE] FileLockError (local class, avoids tasks-file.ts dependency)
+│   ├── [DONE] O_EXCL ('wx') open preserved exactly
+│   ├── [DONE] Stale-lock break: Date.now() - st.mtimeMs > LOCK_STALE_MS → unlink + continue
+│   ├── [DONE] Bounded retry/backoff with jitter
+│   └── [DONE] Returns open fd to caller
+├── [DONE] Lock-timeout error message text preserved verbatim
+│         ("Could not acquire tasks-file lock at ... within 15000ms; ...")
+├── [DONE] Refactor src/tasks-file.ts
+│   ├── [DONE] import { acquireLock } from './file-lock' added
+│   ├── [DONE] Duplicated sleepSync, acquireLock, constants removed
+│   └── [DONE] mutateTasksFile calls imported acquireLock unchanged
+└── [DONE] TDD: test/file-lock.test.ts
+    ├── [DONE] sleepSync duration sanity check
+    ├── [DONE] (1) acquire → release → re-acquire
+    ├── [DONE] (2) second acquire on held fresh lock blocks/retries until released
+    │         (real subprocess via Bun.spawn; sentinel written only after release)
+    ├── [DONE] (3) stale lockfile (mtime 5 min old, well past 60s threshold) is broken
+    └── [DONE] (4) FileLockError exported, instanceof Error, name === 'FileLockError'
+```
+
+### Files Changed
+- `src/file-lock.ts` — new file; contains acquireLock, sleepSync, FileLockError, lock constants
+- `src/tasks-file.ts` — removed 53-line lock block; added import from ./file-lock
+- `test/file-lock.test.ts` — new test file; 5 tests across 2 describe blocks
+- `.ralph/tasks.json` — task lifecycle bookkeeping; tasks 17–22 added as upcoming work
+- `.ralph/.ralph_task_16_notes.md` — task notes (bookkeeping)
+
+### Gaps
+None detected.
+
+Notes:
+- The task description loosely referenced "mtimeMs > LOCK_STALE_MS" as the stale-check
+  expression, but the actual (and correct) expression is `Date.now() - st.mtimeMs > LOCK_STALE_MS`
+  — checking age, not raw timestamp. Both the original tasks-file.ts code (Task #7) and the
+  extracted file-lock.ts use this same correct expression. Behavior preserved exactly.
+- No test explicitly triggers a FileLockError timeout (would require holding a lock for 15s).
+  The task required testing "blocks/retries" (test 2) and the stale path (test 3); the
+  timeout path is impractical to unit-test without a 15s wall-clock wait.
+- The child in test 2 closes its fd but does not unlink the lockfile after acquiring it.
+  This leaves a dangling lockfile in tmpDir, but afterEach's rmSync(tmpDir, recursive) cleans
+  it. No leakage between tests.
+
+### Regression Risks
+- **Error type change (low risk, verified safe):** The lock-timeout error was previously
+  thrown as `TasksFileError`; it is now `FileLockError`. Callers that specifically catch
+  `TasksFileError` (`run.ts:465`, `test-validator.ts:83`, `task-archiver.ts:37`) only wrap
+  calls to `readTasksFile` — none wrap `mutateTasksFile`. The sole callers of
+  `mutateTasksFile` are in `src/commands/task.ts`, which catches `instanceof Error` —
+  `FileLockError extends Error`, so it is caught correctly with the same message.
+- No exports removed from tasks-file.ts (TasksFileError, readTasksFile, writeTasksFile,
+  mutateTasksFile, snapshotTasksFile all remain).
+- Full test suite: 690 pass / 0 fail per agent notes; build succeeds.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #17: Task-counter module src/task-counter.ts
+Reviewed: 2026-06-08T19:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Create src/task-counter.ts with state.json as { "nextTaskId": N }
+├── [DONE] Export reserveTaskIds(dataDir, count=1): number[]
+│   ├── [DONE] Atomic read→increment-by-count→write inside file lock
+│   ├── [DONE] Lock path: state.json.lock (acquireLock from ./file-lock)
+│   ├── [DONE] Temp-file-rename atomic write (pid + crypto hex suffix)
+│   └── [DONE] Rejects non-positive / non-integer count values
+├── [DONE] Lazy seeding when state.json missing
+│   ├── [DONE] seed = max(ids across tasks.completed.json + tasks.json) + 1
+│   └── [DONE] Floor at 1 for brand-new projects
+├── [DONE] Read ids cheaply (readTaskIds: JSON.parse → map tasks[].id)
+│   └── [DONE] Tolerates missing / empty tasks.completed.json and tasks.json
+├── [DONE] Export seedNextId(dataDir) for reuse by ralph init (task 20)
+└── [DONE] TDD: tests written first, watched fail, then implemented
+    ├── [DONE] (a) seed-from-archive: max archived id 15 + empty active → reserve [16]
+    ├── [DONE] (b) single reserve increments counter by 1
+    ├── [DONE] (c) block reserve count=3 → [1,2,3], counter advances to 4
+    ├── [DONE] (d) lazy-seed when state.json absent
+    ├── [DONE] (e) two sequential reserves never overlap
+    └── [DONE] (f) floor of 1 when no prior ids exist
+```
+
+### Files Changed
+- `src/task-counter.ts` — new file; exports `reserveTaskIds` and `seedNextId`
+- `test/task-counter.test.ts` — new test file; 11 tests across `seedNextId` and `reserveTaskIds` describe blocks
+- `.ralph/` bookkeeping files (tasks.json, tasks.completed.json, snapshots, notes)
+
+### Gaps
+None detected.
+
+Notes:
+- `seedNextId` is a pure computation (no writes); `reserveTaskIds` calls it only when `state.json`
+  is missing. This cleanly separates seeding from reservation — task 20 can call `seedNextId`
+  to compute the initial value and write `state.json` without triggering the lock.
+- The test for (b) calls `reserveTaskIds` twice sequentially verifying counter advances 1→2→3.
+  This implicitly covers (e); the dedicated (e) test additionally uses `count=2` blocks to be explicit.
+- `readState` returns `null` for malformed `state.json`, falling back to `seedNextId`. A
+  `state.json` with `nextTaskId: 0` would be treated as valid and reserve id 0 — but the
+  floor-of-1 guarantee applies only to the seed path; existing persisted state wins verbatim per spec.
+- TDD confirmed: agent notes record initial failure as "Cannot find module '../src/task-counter'";
+  all 11 tests were added before the source file existed.
+
+### Regression Risks
+None detected.
+- Purely additive: no existing source files were modified (file-lock.ts is only imported, not changed).
+- `reserveTaskIds` is a new export with no callers yet in the codebase — cannot break existing code.
+- `seedNextId` is likewise new; no existing callers.
+- Full test suite: 701 pass / 0 fail (verified by running `bun test`); build succeeds.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #18: ralph task next-id [--count <n>] CLI command
+Reviewed: 2026-06-08T19:00:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Add next-id subcommand to task group in src/commands/task.ts
+├── [DONE] Confirm wiring through src/index.ts (no change needed, already wired)
+├── [DONE] Export testable handler taskNextId (dataDir, count, stdout/stderr writers, exit code)
+├── [DONE] Handler calls reserveTaskIds(dataDir, count), prints ids one per line
+├── [DONE] --count defaults to 1
+├── [DONE] Reject non-positive/non-integer --count with stderr message + exit 1
+├── [DONE] Use existing dataDir() / RALPH_DATA_DIR closure for live command
+└── [DONE] TDD — tests written first in test/commands/task.test.ts
+    ├── [DONE] (10a) default single id
+    ├── [DONE] (10b) --count 3 prints 3 ids and advances counter
+    └── [DONE] (10c) invalid --count 0 / -2 / abc → exit 1
+              (tested as [0, -2, NaN, 1.5]; NaN is what parseInt('abc',10) yields)
+```
+
+### Files Changed
+- `src/commands/task.ts` — added `TaskNextIdOpts` interface, `taskNextId()` handler, CLI `next-id` subcommand wiring
+- `test/commands/task.test.ts` — added `describe('task next-id')` block with tests (10a), (10b), (10c×4)
+- `.ralph/tasks.json` — task 18 marked complete, task 17 archived
+- `.ralph/tasks.completed.json` — task 17 appended
+- `.ralph/.ralph_task_18_notes.md` — agent notes file created
+
+### Gaps
+None detected.
+
+The task description asked for `--count abc` coverage; the tests parametrize over `[0, -2, NaN, 1.5]` instead. `NaN` is exactly what `parseInt('abc', 10)` produces, so the handler path exercised is identical — not a gap.
+
+### Regression Risks
+None detected.
+
+- All additions are purely additive: new export, new CLI subcommand, new tests.
+- No existing exports removed or signatures changed.
+- The `reserveTaskIds` import is new but does not alter any existing code paths.
+- Full suite: 707 pass, 0 fail (per agent notes). Build succeeds.
+- `state.json` (the task-id counter file) is not yet in `.gitignore` — flagged by the agent as a future concern, not a regression introduced by this task.
 
 ### Verdict
 CLEAN

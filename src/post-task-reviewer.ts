@@ -116,11 +116,18 @@ export async function spawnPostTaskReviewer(
 
   const userPrompt = buildPostTaskReviewUserPrompt({ task, diff, log, files, dataDir });
 
+  // Permission-rule paths must be absolute (leading "//"). A relative pattern like
+  // Edit(.ralph/review-post.md) is resolved against the shell's CURRENT working
+  // directory at evaluation time — so after the reviewer cd's into a service dir to
+  // run tests, the rule no longer matches and every Edit/Write is silently denied
+  // in -p mode (observed 2026-07-11: reviews lost or prepended at the top of the file).
+  const reviewFileRule = `/${projectRoot}/.ralph/review-post.md`;
+
   const args = [
     "-p",
     ...buildAgentArgs("post-task-reviewer", "Sr. Dev code reviewer", projectRoot),
     "--allowedTools",
-    "Read,Glob,Grep,Edit(.ralph/review-post.md),Write(.ralph/review-post.md)",
+    `Read,Glob,Grep,Edit(${reviewFileRule}),Write(${reviewFileRule})`,
     "--output-format",
     "stream-json",
     "--model",

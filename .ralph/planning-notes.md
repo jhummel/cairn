@@ -1,110 +1,73 @@
 ## Context
 
-Ralph's plan command (`ralph plan`) launches an interactive planner session where the user discusses what to build. The planner agent writes `planning-notes.md`, then the user runs `/generate-tasks` to turn those notes into `tasks.json`. This flow works well when the user knows what they want, but there's no automated alternative — no way to say "go find what needs work."
+This round addresses a single focused defect: **Ralph reuses task IDs across planning rounds.** The `generate-tasks` subagent prompt (`commands/generate-tasks.md:149`) tells it to "continue from the highest existing ID" — but it only inspects the *current* `.ralph/tasks.json`, and by the time you re-plan, completed tasks have been archived *out* of `tasks.json` into `tasks.completed.json` (`src/task-archiver.ts:89-105` appends them to the archive and removes them from the active file). So each fresh `ralph plan` round sees a near-empty `tasks.json` and restarts IDs at 1.
 
-The existing slash command pattern is established: `commands/generate-tasks.md` and `commands/review-tasks.md` live in Ralph's `commands/` directory, get installed into target projects via `ralph init` → `installSlashCommands()` (copies to `.claude/commands/`). Agent definitions live in `agents/` and get installed via `installAgents()` (copies to `.claude/agents/`). The planner agent is spawned by `plan.ts` with `--allowedTools Read,Glob,Grep,Write,Edit` and `--append-system-prompt` for dynamic project context.
+Confirmed empirically: grepping every `"id":` in `.ralph/tasks.completed.json` shows IDs reset to 1 roughly a dozen times — one block per planning round (`1..7`, `1..5`, `1..12`, `1..15`, `1..9`, ...). IDs are already being reused heavily.
 
-Prior session completed the corruption-defense work: CLI subcommands for task mutations, atomic `readTasksFile`/`writeTasksFile`, snapshot recovery, post-task-reviewer scope tightening. All 15 tasks archived.
+Important correction to the initial "tail the file to get the last id" idea: because each round resets to 1, **the last entry in the archive is not the highest id ever used.** The file currently *ends* at id 9, but an earlier round reached id 15 — so "tail + 1" would hand out 10 and collide. The true requirement is the **maximum id across the whole archive + the active `tasks.json`**, which can be computed cheaply (extract just the `"id":` numbers, take the max) without reading the whole 3,286-line file into context.
+
+Two distinct code paths hand out IDs today, and both must draw from the counter to truly guarantee no reuse:
+1. **`generate-tasks`** writes the entire `tasks.json` and picks IDs for the whole batch.
+2. **Executor agents mid-run** call `ralph task add --file <path>` (`run.ts:132`). `taskAdd` (`task.ts:218-253`) does *not* assign an id — the agent supplies its own `id` in the payload (schema requires it), so those IDs are agent-chosen and also ignore the archive.
+
+Relevant prior context: the previous round shipped concurrency-safe `tasks.json` writes — `tasks-file.ts` now has a cross-process `O_EXCL` advisory lock (`acquireLock`, `tasks-file.ts:204`) with stale-lock break + bounded retry/backoff, plus `uniqueTmpPath()` and atomic temp-file rename (`writeTasksFile`). The counter will reuse these proven primitives.
+
+Source-of-truth note (carried from prior sessions): agent definitions live in `agents/` (repo root) and slash commands in `commands/` (repo root); `ralph init` installs them into a target project's `.claude/`. Edits must target the `agents/`/`commands/` source dirs, not the installed `.claude/` copies.
 
 ## Goals
 
-Add a `/codebase-audit` slash command that launches an autonomous agent to do a full-codebase security + SOLID-design audit, producing findings that the planner agent then formats into `planning-notes.md`. This serves as an alternative to the user-driven planning conversation — the user kicks it off, the agent does a cold read of the codebase, and returns structured findings. The user can then continue chatting with the planner to refine before running `/generate-tasks` as usual.
-
-Key design decisions already made:
-- **The audit agent is a recon specialist, not a planner.** It returns findings to the planner, which does the formatting. The agent doesn't know about planning-notes.md structure.
-- **Two fixed lenses**: security (adversarial) and SOLID/structural. Not configurable per-invocation for now.
-- **Slash command + agent file**: `commands/codebase-audit.md` (slash command wrapper) + `agents/audit-planner.md` (the recon agent prompt). Both installed by `ralph init`.
-- **No code changes to `plan.ts` or `index.ts`** — this is purely additive (new files).
+1. **Never reuse a task ID.** Once an id has been used (in any planning round, whether the task is active, complete, or archived), it must never be handed out again.
+2. Cover **both** ID-assigning paths — `generate-tasks` batch creation and mid-run `ralph task add` — from a single source of truth.
+3. Require **no manual migration** for existing projects (this repo included): the mechanism seeds itself from existing data on first use.
 
 ## Approach
 
-### Architecture
+A **CLI-owned monotonic counter** persisted in a new `.ralph/state.json` file (`{ "nextTaskId": N }`). All ID assignment routes through the CLI, consistent with Ralph's existing "all `tasks.json` mutations go through the CLI, atomic + lock-protected" ethos.
 
-Two new files, following existing patterns:
+Key design decisions:
+- **Counter storage:** a separate `.ralph/state.json`, not a field inside `tasks.json` — it survives `tasks.json` rewrites by `generate-tasks` and is conceptually distinct runtime state. **Committed to git** (like `tasks.json` already is) so the high-water mark survives clones and machine switches — not gitignored.
+- **Lazy seeding (the migration story):** on the first reserve, if `state.json` is missing, compute `seed = max(all ids in tasks.completed.json + active tasks.json) + 1` (floor of 1). This makes existing projects Just Work — this repo will start at 16 automatically with zero manual steps.
+- **Atomicity:** reserves go through the same cross-process lock primitive as `mutateTasksFile`. To avoid duplication, extract the lock helper from `tasks-file.ts` into a shared `src/file-lock.ts` and have both the counter and `mutateTasksFile` use it.
+- **CLI surface:** `ralph task next-id [--count <n>]` reserves N contiguous IDs atomically (read → increment by N → write), printing the reserved id(s). `generate-tasks` reserves a block sized to the number of *new* tasks; `ralph task add` reserves a single id internally.
+- **`ralph task add` auto-assign:** inject the reserved id into the payload before validation, make `id` optional for the add path, and print the assigned id so the agent knows it. Update the executor prompt (`run.ts:132`) so agents no longer supply an id.
+- **`generate-tasks` prompt:** replace the "continue from the highest existing id in `tasks.json`" rule with: after user approval, reserve a contiguous block via `ralph task next-id --count <n>` and assign those IDs sequentially to new tasks; never reuse archived IDs; preserve any already-complete tasks' existing IDs and metadata unchanged.
+- **`ralph init`:** create `state.json` — seeded to 1 for a fresh project, or from `max(existing) + 1` on re-init of an existing project (lazy seeding also covers this, but init makes it explicit).
 
-1. **`agents/audit-planner.md`** — The recon specialist agent prompt. Read-only against the codebase. Its job:
-   - Read briefing materials (CLAUDE.md, IMPLEMENTATION.md, tasks.completed.json, prior planning-notes.md) to understand project context and avoid re-flagging fixed issues
-   - Do a cold sweep through the codebase using two separate cognitive passes (security lens, then SOLID lens)
-   - Return structured findings (not planning notes) to the planner
-
-2. **`commands/codebase-audit.md`** — The slash command, structured like `generate-tasks.md`. Tells the planner to:
-   - Spawn the audit agent (via Agent tool)
-   - Receive the findings
-   - Present a summary to the user
-   - Continue the conversation so the user can discuss, challenge, or refine findings
-   - When the user is satisfied, write `planning-notes.md` in the standard format
-
-### Audit agent design (from user's draft, adapted)
-
-The agent prompt preserves these concepts from the user's original draft:
-- **Two-lens cognitive separation**: Security and SOLID held as separate mental modes, never blended in a single finding. Security is adversarial ("how do I abuse this?"), SOLID is structural ("what will hurt to change in six months?").
-- **Recon, not findings-exhaustion**: The agent is pattern-matching in one cold sweep, not proving. Findings are leads, not verdicts.
-- **Confirm-then-remediate framing**: Every finding is framed as "X appears to have issue Y; confirm by checking [bounded locations]; if confirmed, remediate by [approach]; if already safe, document why and close." This handles false positives from cold reads.
-- **Spike demotion**: If a finding can't be bounded to a confirmable-and-fixable scope, it gets demoted to an investigation item — honestly flagged as needing a deeper look, not crammed into a fix.
-- **Bounded confirmation**: Every finding must name specific files/functions/call-sites so downstream executors aren't doing unbounded spelunking.
-
-Changes from the user's original draft:
-- **Removed all planning-notes formatting** — the agent returns findings, not a planning document. The planner handles formatting.
-- **Removed time-box enforcement** (`~N min` tokens, atomicity grader references) — that's the planner's and task generator's concern, not the audit agent's.
-- **Generalized away from service-oriented language** — the agent describes the codebase structure it *finds* (modules, packages, directories, components) rather than assuming a microservice architecture.
-- **Added project context reading** — agent reads CLAUDE.md, IMPLEMENTATION.md, tasks.completed.json, and prior planning-notes.md before scanning.
-
-### Findings return format
-
-The audit agent returns structured findings (not planning notes):
-
-```
-## Codebase Overview
-Factual inventory — what was inspected, structure observed, entry points,
-trust boundaries, tech stack. File references throughout.
-
-## Security Findings
-Each finding: observation, severity (critical/high/medium/low), specific
-locations to confirm, remediation direction if confirmed.
-
-## SOLID / Structural Findings
-Same structure — observation, specific locations, suggested direction.
-
-## Reviewed and Judged Sound
-Areas inspected where nothing actionable was found. Brief reason why.
-
-## Unresolved
-Things the cold read couldn't determine — needs human judgment or
-runtime observation.
-```
-
-### Slash command flow
-
-The `commands/codebase-audit.md` slash command instructs the planner to:
-1. Spawn the `audit-planner` agent via the Agent tool
-2. Receive its findings report
-3. Present a concise summary to the user (not the full raw output — a digestible overview of what was found, organized by severity/lens)
-4. Invite the user to discuss — "anything surprising? anything you know is already handled? anything to add?"
-5. When the conversation feels complete, write `planning-notes.md` incorporating the audit findings into the standard format (Context, Goals, Approach, Rejected Alternatives, Rough Task Outline, Open Questions)
-
-This preserves the user's ability to course-correct before anything gets generated.
+Personal instruction: TDD within each task — write the test, watch it fail, make it pass. Do not split a unit of work into separate test/impl tasks.
 
 ## Rejected Alternatives
 
-- **Audit agent writes planning-notes.md directly.** Considered and rejected. The audit agent is a recon specialist — it finds things. The planner knows the planning-notes format and has conversational context with the user. Separating these concerns means the user can refine findings before they become notes, and the audit agent doesn't need to know about document formatting.
-- **Configurable lenses per invocation** (e.g., `/codebase-audit security` or `/codebase-audit solid,performance`). Decided to keep fixed (security + SOLID) for simplicity. Can be extended later by adding lens parameters or additional audit profiles.
-- **Separate command instead of slash command** (e.g., `ralph audit`). The slash command pattern fits better — it runs inside the planner session so the user can continue chatting. A separate CLI command would break the conversational flow.
-- **Embed the full agent prompt in the slash command** (like `generate-tasks.md` embeds its subagent prompt). Rejected in favor of a separate `agents/audit-planner.md` file — the prompt is substantial, and having it as a named agent enables potential reuse outside the plan flow.
+This round:
+- **Tail `tasks.completed.json` for the last id, then +1.** Rejected — IDs reset to 1 each planning round, so the tail is not the global max and "+1" collides with earlier rounds. We compute the max across all IDs instead.
+- **Prompt-only fix (instruct the subagent to grep the max id from both files).** Rejected in favor of the CLI counter. Prompt-only relies on the LLM running the right command every time and doesn't cover the `ralph task add` path or give atomicity.
+- **Agent-managed `state.json` (generate-tasks reads/writes it directly, no CLI command).** Rejected — no atomicity guarantee and doesn't cover mid-run `task add`. The CLI-owned counter is the right fit for Ralph's mutation-routing model.
+- **CLI counter for `generate-tasks` only (leave `task add` picking its own id).** Rejected — leaves a residual collision window where a mid-run discovered task could grab an id a future round also hands out. Both paths must share the counter.
+- **Store `nextTaskId` as a field inside `tasks.json`.** Rejected — a separate `state.json` survives `tasks.json` rewrites cleanly and keeps runtime counter state distinct from the task list.
 
-Carried from prior sessions:
-- **Use Anthropic TS SDK instead of shelling out to claude** — shelling out gives us Claude Code's full tool suite, permissions model, and MCP support for free.
+Carried from prior sessions (still relevant):
+- **Audit agent writes `planning-notes.md` directly** — rejected; the audit agent is a recon specialist that returns findings, and the planner (with conversational context) owns formatting.
+- **Configurable audit lenses per invocation** — kept fixed (security + SOLID) for simplicity; extensible later.
+- **Separate `ralph audit` CLI command instead of a slash command** — rejected; the slash command runs inside the planner session so the user can keep chatting.
+- **Use the Anthropic TS SDK instead of shelling out to `claude`** — shelling out gives Claude Code's full tool suite, permissions model, and MCP support for free.
 - **Port narration to TypeScript** — Kokoro TTS and sounddevice are Python-specific.
 - **Skills instead of subagents for task generation/review** — clean context matters; subagents get fresh context while keeping full tool access.
-- **Change storage format (SQLite / per-task files / JSONL)** — structurally solves corruption but a much larger change with migration cost. CLI-subcommand approach gets 95% of the benefit.
+- **Change storage format (SQLite / per-task files / JSONL)** — structurally solves corruption but a much larger change with migration cost; the CLI-subcommand approach gets ~95% of the benefit.
+- **Pre-commit to git worktrees as the parallel-execution isolation model** — left as the central question for the parallel-execution RFC (deferred round), weighed against directory-disjoint scheduling.
 
 ## Rough Task Outline
 
-1. Create `agents/audit-planner.md` — the recon specialist agent prompt. Adapted from user's draft: two-lens separation (security + SOLID), confirm-then-remediate framing, spike demotion, bounded confirmation, project context reading, generalized module/component language. Returns structured findings format. Read-only. — `agents/`
-2. Create `commands/codebase-audit.md` — slash command wrapper following the `generate-tasks.md` pattern. Instructs the planner to spawn the audit agent, present findings summary, continue conversation, then write planning-notes.md in standard format when discussion is complete. — `commands/`
-3. Update `commands/codebase-audit.md` mirror — ensure `ralph init` installs the new slash command. Currently `installSlashCommands()` copies all `commands/*.md`, so this is automatic. But also ensure `installAgents()` copies the new agent file. Verify by reading `init.ts` logic — if both functions glob `*.md` from their respective directories, no code change needed, just a verification task. — `src/commands/`, `commands/`, `agents/`
-4. Write tests for the new files — verify the agent file and slash command are present, well-formed, and get installed by `ralph init`. Add a test to `test/commands/init.test.ts` that confirms `installSlashCommands` and `installAgents` pick up the new files. — `test/`
-5. End-to-end smoke test — run `ralph plan` on a scratch project, type `/codebase-audit`, verify the agent spawns, produces findings, and the planner presents them. Manual verification, document results in task notes. — project root
+In rough priority order. Each is one agent-sized (~5 min) unit; TDD applied within each task that touches code. Dependency flow: 1 → 2 → {3, 4, 5}; 6 depends on 3; 7 last.
+
+1. **Extract shared file-lock helper.** Pull `acquireLock`/`sleepSync`/stale-break logic out of `src/tasks-file.ts` into a new `src/file-lock.ts`, export it, and refactor `mutateTasksFile` to consume it (behavior unchanged). Test in `test/file-lock.test.ts`. — `src/`, `test/`
+2. **Task counter module.** New `src/task-counter.ts`: lazy-seed `nextTaskId` from `max(ids in tasks.completed.json + active tasks.json) + 1` (floor 1) when `state.json` is missing; `reserveTaskIds(dataDir, count)` performs an atomic read→increment→write under the shared file-lock and returns the reserved id(s); persists `.ralph/state.json`. Test: seed-from-archive, single + block reserve, lazy-seed-when-missing, sequential reserves don't overlap. Depends on #1. — `src/`, `test/`
+3. **`ralph task next-id` CLI command.** Wire `next-id [--count <n>]` into `src/commands/task.ts` + `src/index.ts`; prints the reserved id(s). Depends on #2. Test in `test/commands/task.test.ts`. — `src/commands/`, `src/`, `test/`
+4. **Auto-assign id in `ralph task add`.** Inject a reserved id into the payload before validation (ignore/omit any supplied id), make `id` optional for the add path, print the assigned id; update the executor prompt at `run.ts:132` so agents don't supply an id. Depends on #2. Test in `test/commands/task.test.ts`. — `src/commands/`, `test/`
+5. **`ralph init` seeds `state.json`.** Create `.ralph/state.json` — `{ "nextTaskId": 1 }` for a fresh project, seeded from `max(existing) + 1` on re-init. Depends on #2. Test in `test/commands/init.test.ts`. — `src/commands/`, `test/`
+6. **Rewrite the ID rule in `commands/generate-tasks.md`.** Replace the "continue from the highest existing id in `tasks.json`" instruction with: after approval, reserve a contiguous block via `ralph task next-id --count <n>` and assign IDs sequentially to new tasks; never reuse archived IDs; preserve already-complete tasks' existing IDs and metadata. Edit the **source** `commands/generate-tasks.md`, not the installed `.claude/` copy. Doc change. Depends on #3. — `commands/`
+7. **Docs.** Update README and CLAUDE.md to document `.ralph/state.json`, the monotonic-id (never-reused) guarantee, the `ralph task next-id` command, and that `state.json` is committed (not gitignored). — project root
 
 ## Open Questions
 
-1. **Planner `--allowedTools` and the Agent tool.** The planner is spawned with `--allowedTools Read,Glob,Grep,Write,Edit` (plan.ts:162). The `/generate-tasks` slash command instructs the planner to use the `Agent` tool, which isn't in that list — yet it works in practice. Need to verify whether `--allowedTools` restricts the `Agent` tool or whether `Agent` is always available. If it *is* restricted, we'd need to add `Agent` to the allowlist in `plan.ts`. This affects both the new `/codebase-audit` command and the existing `/generate-tasks` command.
+1. **Command naming** — defaulting to `ralph task next-id [--count <n>]`. A separate `ralph task reserve <n>` was considered; folding count into `next-id` keeps the surface smaller. Reconfirm at implementation if a clearer verb emerges.
+2. **`state.json` git tracking** — decided: committed (matches `tasks.json`). Confirm `.ralph/.gitignore` doesn't accidentally exclude it; task #7/#5 should verify.
+3. **Supplied-id handling in `task add`** — leaning toward always ignoring any agent-supplied id and auto-assigning. Alternative (honor a supplied id if present, only reserve when omitted) reopens the collision risk, so default is ignore-and-reserve. Confirm in task #4.
