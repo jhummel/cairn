@@ -1,10 +1,13 @@
 import { execSync, spawn as nodeSpawn, type ChildProcess } from "child_process";
+import { mkdirSync } from "fs";
+import * as path from "path";
 import type { Readable, Writable } from "stream";
 import {
   processStream,
   type ProcessStreamOptions,
 } from "./stream-filter";
 import { buildAgentArgs } from "./agent-prompt";
+import { getRound } from "./task-counter";
 import type { Task } from "./types";
 import type { RalphConfig } from "./types";
 import { loadPersonalInstructions } from "./personal-instructions";
@@ -22,8 +25,9 @@ export function buildPostTaskReviewUserPrompt(opts: {
   log: string;
   files: string[];
   dataDir?: string;
+  reviewFilePath: string;
 }): string {
-  const { task, diff, log, files, dataDir } = opts;
+  const { task, diff, log, files, dataDir, reviewFilePath } = opts;
   const personalInstructions = dataDir ? loadPersonalInstructions(dataDir) : "";
   const filesList = task.files?.length ? task.files.join("\n") : "(none specified)";
   const testsList = task.tests?.length ? task.tests.join("\n") : "(none specified)";
@@ -58,7 +62,7 @@ ${diff || "(empty diff)"}
 
 ---
 
-Please review the above and append your findings to \`.ralph/review-post.md\` using the format specified in your system prompt.
+Please review the above and append your findings to \`${reviewFilePath}\` using the format specified in your system prompt.
 `;
 }
 
@@ -114,14 +118,23 @@ export async function spawnPostTaskReviewer(
 
   const env = { ...process.env, ANTHROPIC_API_KEY: "" };
 
-  const userPrompt = buildPostTaskReviewUserPrompt({ task, diff, log, files, dataDir });
+  // The CLI owns round resolution and path computation — the reviewer agent must
+  // never compute the round or target path itself. Pre-plan reviews land in
+  // round-1.md (getRound's lazy seed).
+  const round = getRound(dataDir);
+  const reviewsDir = path.join(dataDir, "reviews");
+  mkdirSync(reviewsDir, { recursive: true });
+  const reviewFilePath = path.join(reviewsDir, `round-${round}.md`);
 
-  // Permission-rule paths must be absolute (leading "//"). A relative pattern like
-  // Edit(.ralph/review-post.md) is resolved against the shell's CURRENT working
+  const userPrompt = buildPostTaskReviewUserPrompt({ task, diff, log, files, dataDir, reviewFilePath });
+
+  // Permission-rule paths must be absolute (leading "//"). A relative glob like
+  // Edit(.ralph/reviews/**) is resolved against the shell's CURRENT working
   // directory at evaluation time — so after the reviewer cd's into a service dir to
   // run tests, the rule no longer matches and every Edit/Write is silently denied
   // in -p mode (observed 2026-07-11: reviews lost or prepended at the top of the file).
-  const reviewFileRule = `/${projectRoot}/.ralph/review-post.md`;
+  // A directory glob covers every round-<N>.md the reviewer may target.
+  const reviewFileRule = `/${projectRoot}/.ralph/reviews/**`;
 
   const args = [
     "-p",

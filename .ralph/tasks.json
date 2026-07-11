@@ -3,36 +3,12 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 27,
-      "priority": 2,
-      "title": "ralph plan bumps the planning round",
-      "description": "Make runPlan in src/commands/plan.ts bump the planning-round counter at session start, before spawning the interactive claude planner session. TDD: failing test first.\n\nImplementation: import bumpRound from ../task-counter and call bumpRound(dataDir) inside runPlan (src/commands/plan.ts, runPlan currently at ~line 147) after displayPreflight but before spawnSyncFn('claude', ...). This is the CLI-owned deterministic trigger: every planning session consumes a round number. Do NOT add any round logic to the planner prompts or slash commands.\n\nTests (test/commands/plan.test.ts, follow existing patterns — runPlan already accepts an injectable spawnSyncFn so no real claude spawn happens): (a) runPlan writes/increments the round field in <dataDir>/state.json; (b) the bump happens even though spawnSyncFn is a stub; (c) an existing nextTaskId in state.json is preserved across the bump.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "src/commands/plan.ts",
-        "src/task-counter.ts",
-        "test/commands/plan.test.ts"
-      ],
-      "tests": [
-        "bun test test/commands/plan.test.ts",
-        "bun test"
-      ],
-      "dependencies": [
-        26
-      ],
-      "model": "sonnet",
-      "completedAt": "2026-07-11T22:14:33.065Z",
-      "completedBy": "iteration-2",
-      "notes": "# Task #27: ralph plan bumps the planning round\n\n## What changed\n`src/commands/plan.ts`:\n- Imported `bumpRound` from `../task-counter`.\n- Added `bumpRound(dataDir);` inside `runPlan`, right after `displayPreflight(...)` and before `buildDynamicContext(...)`/`spawnSyncFn('claude', ...)`. This is the CLI-owned deterministic trigger: every planning session consumes a round number regardless of what the interactive claude session does. No round logic was added to planner prompts or slash commands — this is purely a CLI-side call.\n\n`src/task-counter.ts` was untouched — `getRound`/`bumpRound` already existed from task #26 and needed no changes.\n\n## Tests (test/commands/plan.test.ts)\nTDD followed: added the three new tests first, ran them, watched them fail (round stayed 1 / no state.json written / nextTaskId undefined), then added the one-line `bumpRound(dataDir)` call in plan.ts to make them pass.\n\nAdded `import { getRound } from '../../src/task-counter'` and four new tests under `describe('runPlan', ...)`:\n- **(a)** `bumps the planning round in state.json` — `getRound(ralphDir)` is 1 before `runPlan`, 2 after.\n- **(b)** `bumps the round even though spawnSyncFn is a stub` — confirms the bump happens purely from the CLI call, independent of the (stubbed) claude spawn; asserts `state.json` is created with `round: 2`.\n- **(c)** `preserves an existing nextTaskId across the bump` — pre-seeds `state.json` with `{ nextTaskId: 42 }`, runs `runPlan`, asserts `nextTaskId` is still 42 and `round` is now 2.\n- Also implicitly covers repeated existing tests (`spawns claude with --agents...`, etc.) still pass with the extra bump call inserted before the spawn.\n\n## Verification\n- `bun test test/commands/plan.test.ts` → 44 pass, 0 fail (was 41 pass / 3 fail before the plan.ts change, confirming TDD red→green)\n- `bun test` → 726 pass, 0 fail (full suite)\n- `bun run build` → compiles clean\n\n## Notes for next agent\n- `bumpRound` is idempotent-safe under the existing file lock (`state.json.lock`) from task #26 — no new locking logic was needed here.\n- Every `ralph plan` invocation now increments `state.json`'s `round` field once per session start, before the interactive claude planner spawns. `nextTaskId` and any other unknown fields on `state.json` are preserved verbatim (verified by test (c)).\n- No CLAUDE.md changes needed — this was a pure application of the already-documented `bumpRound` API from task #26; no new operational quirks were discovered.\n"
-    },
-    {
       "id": 28,
       "priority": 3,
       "title": "Reviewer targets .ralph/reviews/round-<N>.md with directory-scoped allowlist",
       "description": "Point the post-task reviewer at a per-round review file and fix the permission rule structurally. All changes in src/post-task-reviewer.ts (plus its tests). TDD: update/extend test/post-task-reviewer.test.ts first.\n\n1. In spawnPostTaskReviewer (src/post-task-reviewer.ts): read the current planning round via getRound(dataDir) from ./task-counter, mkdirSync(path.join(dataDir, 'reviews'), { recursive: true }), and compute the absolute target path <dataDir>/reviews/round-<N>.md. The reviewer agent must never compute the round or path itself.\n2. Inject the exact target file path into the user prompt: buildPostTaskReviewUserPrompt currently hardcodes 'append your findings to `.ralph/review-post.md`' (line ~61). Add a reviewFilePath (absolute path string) option to buildPostTaskReviewUserPrompt and reference it in that closing instruction instead. spawnPostTaskReviewer passes the computed path.\n3. Replace the single-file permission rule (lines ~124-130): reviewFileRule becomes a directory glob `/${projectRoot}/.ralph/reviews/**` used in both Edit(...) and Write(...) of --allowedTools. KEEP the existing code comment explaining why the path must be absolute (reviewer cd's into service dirs; relative rules silently deny in -p mode, observed 2026-07-11) — update it to reflect the glob.\n4. runPostTaskReview needs no signature change (it already passes dataDir through to spawnPostTaskReviewer).\n\nTests (test/post-task-reviewer.test.ts): (a) update the existing --allowedTools assertion at line ~265 to expect Edit(/<root>/.ralph/reviews/**),Write(/<root>/.ralph/reviews/**); (b) spawnPostTaskReviewer creates .ralph/reviews/ when missing; (c) the user prompt contains .ralph/reviews/round-1.md when state.json has no round (lazy seed — pre-plan reviews land in round-1.md) and round-<N>.md when state.json has round: N; (d) buildPostTaskReviewUserPrompt output contains the injected path and no review-post.md mention.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "src/post-task-reviewer.ts",
         "src/task-counter.ts",
@@ -46,7 +22,10 @@
       "dependencies": [
         26
       ],
-      "model": "opus"
+      "model": "opus",
+      "completedAt": "2026-07-11T22:18:08.795Z",
+      "completedBy": "iteration-3",
+      "notes": "# Task #28: Reviewer targets .ralph/reviews/round-<N>.md with directory-scoped allowlist\n\n## What changed\n\n`src/post-task-reviewer.ts`:\n- Imported `mkdirSync` from `fs`, `path`, and `getRound` from `./task-counter`.\n- `buildPostTaskReviewUserPrompt` now takes a required `reviewFilePath: string` option and references it in the closing instruction (`append your findings to \\`${reviewFilePath}\\``) instead of the hardcoded `.ralph/review-post.md`.\n- `spawnPostTaskReviewer` now (CLI-owned, never the agent):\n  - `const round = getRound(dataDir)` — lazy seed means pre-plan reviews get round 1.\n  - `mkdirSync(path.join(dataDir, 'reviews'), { recursive: true })`.\n  - Computes absolute `reviewFilePath = <dataDir>/reviews/round-<N>.md` and passes it into `buildPostTaskReviewUserPrompt`.\n  - `reviewFileRule` changed from single file `/${projectRoot}/.ralph/review-post.md` to directory glob `/${projectRoot}/.ralph/reviews/**`, used in both `Edit(...)` and `Write(...)` of `--allowedTools`. Kept + updated the absolute-path comment (reviewer cd's into service dirs; relative rules silently deny in -p mode, observed 2026-07-11).\n- `runPostTaskReview` unchanged (already threads `dataDir` through). `src/commands/run.ts` needed no change — it already passes `dataDir` at line ~605.\n\n## Tests (test/post-task-reviewer.test.ts) — TDD red→green\n- Updated `--allowedTools` assertion to expect `Edit(/<root>/.ralph/reviews/**),Write(/<root>/.ralph/reviews/**)`.\n- Added: `creates .ralph/reviews/ directory when missing` (uses `existsSync`).\n- Added: prompt targets `round-1.md` when no state.json (lazy seed) and `round-4.md` when `state.json` has `round: 4`.\n- Added (buildPostTaskReviewUserPrompt): references injected `reviewFilePath` and asserts prompt does NOT contain `review-post.md`.\n- Ran tests first → 5 failed (red), then implemented → 31 pass (green).\n\n## Verification\n- `bun test test/post-task-reviewer.test.ts` → 31 pass, 0 fail (the `fatal: not a git repository` line is expected stderr from an existing getGitDiff test).\n- `bun test` → 730 pass, 0 fail.\n- `bun run build` → compiles clean.\n\n## Notes for next agent\n- `getRound` is a pure read (never mutates/creates state.json); the round is bumped only by `ralph plan` (task #27). So all post-task reviews within one planning round append to the same `round-<N>.md`.\n- The old `.ralph/review-post.md` file is no longer written; existing one in the repo is now stale/orphaned (left untouched — not in scope).\n"
     },
     {
       "id": 29,

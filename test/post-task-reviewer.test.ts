@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { execSync } from "child_process";
@@ -162,6 +162,18 @@ describe("buildPostTaskReviewUserPrompt", () => {
     expect(prompt).toContain("Minimal");
   });
 
+  test("references the injected reviewFilePath and omits review-post.md", () => {
+    const prompt = buildPostTaskReviewUserPrompt({
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      reviewFilePath: "/abs/proj/.ralph/reviews/round-3.md",
+    });
+    expect(prompt).toContain("/abs/proj/.ralph/reviews/round-3.md");
+    expect(prompt).not.toContain("review-post.md");
+  });
+
   test("includes personal instructions when instructions.md exists in dataDir", () => {
     const dataDir = mkdtempSync(join(tmpdir(), "ralph-instr-test-"));
     try {
@@ -262,7 +274,7 @@ describe("spawnPostTaskReviewer", () => {
     expect(args).toContain("--verbose");
     expect(args).toContain("--allowedTools");
     expect(args[args.indexOf("--allowedTools") + 1]).toBe(
-      `Read,Glob,Grep,Edit(/${spawnTmpDir}/.ralph/review-post.md),Write(/${spawnTmpDir}/.ralph/review-post.md)`
+      `Read,Glob,Grep,Edit(/${spawnTmpDir}/.ralph/reviews/**),Write(/${spawnTmpDir}/.ralph/reviews/**)`
     );
     expect(args).toContain("--agents");
     expect(args).toContain("--agent");
@@ -406,6 +418,85 @@ describe("spawnPostTaskReviewer", () => {
     });
 
     expect(spawnOpts.cwd).toBe(spawnTmpDir);
+  });
+
+  test("creates .ralph/reviews/ directory when missing", async () => {
+    const child = createMockChild();
+    const mockSpawn = () => {
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+
+    const dataDir = join(spawnTmpDir, ".ralph");
+    expect(existsSync(join(dataDir, "reviews"))).toBe(false);
+
+    await spawnPostTaskReviewer({
+      projectRoot: spawnTmpDir,
+      dataDir,
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    expect(existsSync(join(dataDir, "reviews"))).toBe(true);
+  });
+
+  test("prompt targets round-1.md when state.json has no round (lazy seed)", async () => {
+    const child = createMockChild();
+    let stdinData = "";
+    child.stdin.on("data", (chunk: Buffer) => {
+      stdinData += chunk.toString();
+    });
+    const mockSpawn = () => {
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+
+    const dataDir = join(spawnTmpDir, ".ralph");
+    mkdirSync(dataDir, { recursive: true });
+    // No state.json -> round defaults to 1.
+
+    await spawnPostTaskReviewer({
+      projectRoot: spawnTmpDir,
+      dataDir,
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    expect(stdinData).toContain(".ralph/reviews/round-1.md");
+  });
+
+  test("prompt targets round-<N>.md when state.json has round: N", async () => {
+    const child = createMockChild();
+    let stdinData = "";
+    child.stdin.on("data", (chunk: Buffer) => {
+      stdinData += chunk.toString();
+    });
+    const mockSpawn = () => {
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+
+    const dataDir = join(spawnTmpDir, ".ralph");
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(join(dataDir, "state.json"), JSON.stringify({ round: 4 }));
+
+    await spawnPostTaskReviewer({
+      projectRoot: spawnTmpDir,
+      dataDir,
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    expect(stdinData).toContain(".ralph/reviews/round-4.md");
   });
 });
 
