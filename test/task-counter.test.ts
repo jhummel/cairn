@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { reserveTaskIds, seedNextId } from '../src/task-counter';
+import { reserveTaskIds, seedNextId, getRound, bumpRound } from '../src/task-counter';
 
 let dataDir: string;
 
@@ -18,7 +18,7 @@ function writeTasks(file: string, ids: number[]): void {
   fs.writeFileSync(path.join(dataDir, file), JSON.stringify({ tasks }, null, 2));
 }
 
-function readState(): { nextTaskId: number } {
+function readState(): { nextTaskId?: number; round?: number } {
   return JSON.parse(fs.readFileSync(path.join(dataDir, 'state.json'), 'utf-8'));
 }
 
@@ -100,5 +100,68 @@ describe('reserveTaskIds', () => {
     writeTasks('tasks.json', []);
     expect(() => reserveTaskIds(dataDir, 0)).toThrow();
     expect(() => reserveTaskIds(dataDir, -2)).toThrow();
+  });
+
+  it('(d) preserves an existing round field (clobber regression)', () => {
+    fs.writeFileSync(
+      path.join(dataDir, 'state.json'),
+      JSON.stringify({ nextTaskId: 7, round: 4 })
+    );
+    expect(reserveTaskIds(dataDir)).toEqual([7]);
+    const state = readState();
+    expect(state.nextTaskId).toBe(8);
+    expect(state.round).toBe(4);
+  });
+});
+
+describe('getRound', () => {
+  it('(a) returns 1 on missing state.json and does not create the file', () => {
+    expect(getRound(dataDir)).toBe(1);
+    expect(fs.existsSync(path.join(dataDir, 'state.json'))).toBe(false);
+  });
+
+  it('returns 1 when round field is absent or invalid, without writing', () => {
+    fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 5 }));
+    expect(getRound(dataDir)).toBe(1);
+    expect(readState().round).toBeUndefined();
+
+    fs.writeFileSync(
+      path.join(dataDir, 'state.json'),
+      JSON.stringify({ nextTaskId: 5, round: 'oops' })
+    );
+    expect(getRound(dataDir)).toBe(1);
+  });
+
+  it('returns the persisted round', () => {
+    fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ round: 6 }));
+    expect(getRound(dataDir)).toBe(6);
+  });
+});
+
+describe('bumpRound', () => {
+  it('(b) increments and persists the round', () => {
+    fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ round: 2 }));
+    bumpRound(dataDir);
+    expect(readState().round).toBe(3);
+    expect(getRound(dataDir)).toBe(3);
+  });
+
+  it('(c) preserves nextTaskId when bumping round', () => {
+    fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 9 }));
+    bumpRound(dataDir);
+    const state = readState();
+    expect(state.nextTaskId).toBe(9);
+    expect(state.round).toBe(2);
+  });
+
+  it('(e) seeds round: 2 when round is absent (absent === 1)', () => {
+    fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 3 }));
+    bumpRound(dataDir);
+    expect(readState().round).toBe(2);
+  });
+
+  it('seeds round: 2 when state.json is missing entirely', () => {
+    bumpRound(dataDir);
+    expect(readState().round).toBe(2);
   });
 });

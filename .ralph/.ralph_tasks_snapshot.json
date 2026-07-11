@@ -1,5 +1,111 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "project": "ralph-cli-tool",
-  "tasks": []
+  "tasks": [
+    {
+      "id": 26,
+      "priority": 1,
+      "title": "Field-preserving state.json I/O + round counter",
+      "description": "In src/task-counter.ts, make state.json read/write field-preserving and add a planning-round counter. TDD: write failing tests in test/task-counter.test.ts first.\n\n1. Generalize state I/O: readState currently returns only { nextTaskId } and writeStateAtomic writes the state object wholesale, so any other field in state.json would be clobbered by reserveTaskIds. Change the internal state handling so unknown/extra fields in state.json are read and preserved on every write (e.g. read the raw parsed object, spread it, and overwrite only the field being changed). Keep the existing validation that nextTaskId is a finite number when present.\n2. Add getRound(dataDir): returns the round field from <dataDir>/state.json; if the file or field is absent/invalid, return 1 (lazy seed) WITHOUT writing to disk.\n3. Add bumpRound(dataDir): atomic read -> increment -> write of the round field under the same state.json.lock (acquireLock from src/file-lock.ts) and atomic temp-file-rename machinery reserveTaskIds uses. Rule: absent round semantically equals 1, so bumpRound on a state file without a round field writes round: 2. It must preserve nextTaskId (and any other fields) exactly.\n4. Export getRound and bumpRound.\n\nTests (test/task-counter.test.ts): (a) getRound on missing state.json returns 1 and does not create the file; (b) bumpRound increments and persists; (c) bumpRound on state.json containing only { nextTaskId: N } preserves nextTaskId; (d) reserveTaskIds on state.json containing { nextTaskId, round } preserves round — this is the clobber regression test; (e) bumpRound seeds correctly when round is absent (writes round: 2). Follow the existing test patterns in that file (temp dirs, direct fs assertions).",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "src/task-counter.ts",
+        "src/file-lock.ts",
+        "test/task-counter.test.ts"
+      ],
+      "tests": [
+        "bun test test/task-counter.test.ts",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "opus",
+      "completedAt": "2026-07-11T22:11:53.694Z",
+      "completedBy": "iteration-1",
+      "notes": "# Task #26: Field-preserving state.json I/O + round counter\n\n## What changed\n`src/task-counter.ts`:\n- `CounterState` is now an open-ended type (`{ nextTaskId?, round?, [key]: unknown }`) instead of `{ nextTaskId: number }`, so unknown fields survive round-trips.\n- `readState()` now returns the raw parsed object (spread), preserving every field. `nextTaskId` is still validated as a finite number — if invalid it is dropped but sibling fields (e.g. `round`) are kept. Returns `null` only when the file is missing or not a JSON object.\n- `reserveTaskIds()` writes `{ ...existing, nextTaskId: start + count }` instead of `{ nextTaskId }` — this is the clobber fix. `start` now guards on `typeof existing.nextTaskId === 'number'` before falling back to `seedNextId`.\n- Added `getRound(dataDir)`: pure read. Returns the `round` field, or `1` if file/field absent or non-finite. Never creates or mutates state.json.\n- Added `bumpRound(dataDir)`: atomic read→increment→write under the same `state.json.lock` (acquireLock) + temp-file-rename machinery as reserveTaskIds. Absent round === 1, so bumping a file without a round writes `round: 2`. Preserves nextTaskId and all other fields. Returns the new round value.\n- Both `getRound` and `bumpRound` exported.\n\n## Tests (test/task-counter.test.ts)\nAdded `getRound`/`bumpRound` to imports; loosened local `readState()` return type to `{ nextTaskId?; round? }`.\n- reserveTaskIds: `(d)` clobber regression — `{ nextTaskId:7, round:4 }` → reserve → `{ nextTaskId:8, round:4 }`.\n- getRound: `(a)` missing file returns 1 without creating file; invalid/absent round returns 1 without writing; persisted round returned.\n- bumpRound: `(b)` increments+persists; `(c)` preserves nextTaskId; `(e)` seeds round:2 when absent; also seeds round:2 when state.json missing entirely.\n\nTDD followed: wrote tests, saw them fail (`Export named 'getRound' not found`), then implemented.\n\n## Verification\n- `bun test test/task-counter.test.ts` → 19 pass\n- `bun test` → 723 pass, 0 fail\n- `bun run build` → compiles clean\n\n## Notes for next agent\n- `bumpRound` returns the new round; callers (planning flow) can use it directly.\n- Pre-existing `tsc --noEmit` errors exist in run.ts:485, post-task-reviewer.ts:241, and bun-types wasm decls — NOT introduced by this task; task-counter.ts is clean.\n"
+    },
+    {
+      "id": 27,
+      "priority": 2,
+      "title": "ralph plan bumps the planning round",
+      "description": "Make runPlan in src/commands/plan.ts bump the planning-round counter at session start, before spawning the interactive claude planner session. TDD: failing test first.\n\nImplementation: import bumpRound from ../task-counter and call bumpRound(dataDir) inside runPlan (src/commands/plan.ts, runPlan currently at ~line 147) after displayPreflight but before spawnSyncFn('claude', ...). This is the CLI-owned deterministic trigger: every planning session consumes a round number. Do NOT add any round logic to the planner prompts or slash commands.\n\nTests (test/commands/plan.test.ts, follow existing patterns — runPlan already accepts an injectable spawnSyncFn so no real claude spawn happens): (a) runPlan writes/increments the round field in <dataDir>/state.json; (b) the bump happens even though spawnSyncFn is a stub; (c) an existing nextTaskId in state.json is preserved across the bump.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/plan.ts",
+        "src/task-counter.ts",
+        "test/commands/plan.test.ts"
+      ],
+      "tests": [
+        "bun test test/commands/plan.test.ts",
+        "bun test"
+      ],
+      "dependencies": [
+        26
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 28,
+      "priority": 3,
+      "title": "Reviewer targets .ralph/reviews/round-<N>.md with directory-scoped allowlist",
+      "description": "Point the post-task reviewer at a per-round review file and fix the permission rule structurally. All changes in src/post-task-reviewer.ts (plus its tests). TDD: update/extend test/post-task-reviewer.test.ts first.\n\n1. In spawnPostTaskReviewer (src/post-task-reviewer.ts): read the current planning round via getRound(dataDir) from ./task-counter, mkdirSync(path.join(dataDir, 'reviews'), { recursive: true }), and compute the absolute target path <dataDir>/reviews/round-<N>.md. The reviewer agent must never compute the round or path itself.\n2. Inject the exact target file path into the user prompt: buildPostTaskReviewUserPrompt currently hardcodes 'append your findings to `.ralph/review-post.md`' (line ~61). Add a reviewFilePath (absolute path string) option to buildPostTaskReviewUserPrompt and reference it in that closing instruction instead. spawnPostTaskReviewer passes the computed path.\n3. Replace the single-file permission rule (lines ~124-130): reviewFileRule becomes a directory glob `/${projectRoot}/.ralph/reviews/**` used in both Edit(...) and Write(...) of --allowedTools. KEEP the existing code comment explaining why the path must be absolute (reviewer cd's into service dirs; relative rules silently deny in -p mode, observed 2026-07-11) — update it to reflect the glob.\n4. runPostTaskReview needs no signature change (it already passes dataDir through to spawnPostTaskReviewer).\n\nTests (test/post-task-reviewer.test.ts): (a) update the existing --allowedTools assertion at line ~265 to expect Edit(/<root>/.ralph/reviews/**),Write(/<root>/.ralph/reviews/**); (b) spawnPostTaskReviewer creates .ralph/reviews/ when missing; (c) the user prompt contains .ralph/reviews/round-1.md when state.json has no round (lazy seed — pre-plan reviews land in round-1.md) and round-<N>.md when state.json has round: N; (d) buildPostTaskReviewUserPrompt output contains the injected path and no review-post.md mention.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/post-task-reviewer.ts",
+        "src/task-counter.ts",
+        "src/commands/run.ts",
+        "test/post-task-reviewer.test.ts"
+      ],
+      "tests": [
+        "bun test test/post-task-reviewer.test.ts",
+        "bun test"
+      ],
+      "dependencies": [
+        26
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 29,
+      "priority": 4,
+      "title": "Rewrite post-task-reviewer agent prompt for injected file path",
+      "description": "Update the reviewer agent definition so its output target is the file path given in its user prompt, not a hardcoded filename. IMPORTANT: agent definitions live in the SOURCE directory agents/ at the repo root — ralph init installs them into target projects' .claude/. Edit the source file agents/post-task-reviewer.md, then sync this repo's own installed copy .claude/agents/post-task-reviewer.md so the two files are identical.\n\nChanges in agents/post-task-reviewer.md:\n1. Frontmatter description (line 3): currently '...writes results to review-post.md.' — reword to say it appends results to the per-round review file specified in its prompt (keep internal: true).\n2. Line ~11: 'You may only write to `.ralph/review-post.md`' — change to: you may only write to the review file whose path is given in your user prompt; never modify `.ralph/tasks.json`.\n3. Output Format section (line ~42): 'Append your review to `.ralph/review-post.md` using the Edit tool' — change to append to the file path given in the user prompt (Edit if it exists, Write to create it).\n4. Keep the entire existing review format unchanged: coverage ASCII tree with [DONE]/[PARTIAL]/[GAP], Files Changed, Gaps, Regression Risks, Verdict CLEAN | HAS_GAPS | HAS_RISKS.\n5. Verify no review-post.md mention remains in either copy (grep both files).\n\nThis is a markdown/prompt-only task; run the full test suite as a regression check.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "agents/post-task-reviewer.md",
+        ".claude/agents/post-task-reviewer.md"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        28
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 30,
+      "priority": 5,
+      "title": "Delete legacy review-post.md and update docs",
+      "description": "Remove the legacy single-file review log and update all documentation for the per-round system.\n\n1. `git rm .ralph/review-post.md` (git history preserves it — do not archive or copy it anywhere).\n2. CLAUDE.md updates: (a) in the 'Per-project data layout' tree, add `.ralph/reviews/` ('round-<N>.md — per-planning-round post-task review logs') and update the state.json comment from '{ \"nextTaskId\": N }' to include the round field, e.g. '{ \"nextTaskId\": N, \"round\": R }'; (b) in the Agent workflow section, update the sentence about the post-task reviewer running 'with a path-scoped allowlist that excludes .ralph/tasks.json' to describe the directory-scoped rule covering .ralph/reviews/**; (c) mention that `ralph plan` bumps the round counter.\n3. README.md updates: line ~300's data-layout tree entry for state.json ('Monotonic task-ID counter — never reuses IDs') — extend for the round counter, and add the reviews/ directory to that tree.\n4. Scrub any remaining `review-post.md` references repo-wide: `grep -rn review-post . --exclude-dir=node_modules --exclude-dir=.git` must return no hits in source, tests, agents/, .claude/, or docs (checks test/commands/init.test.ts, test/commands/plan.test.ts, test/agent-prompt.test.ts among others; as of planning, those three had no references — verify nothing regressed).\n5. Run the full suite to confirm nothing referenced the deleted file.\n\nDocs-and-deletion task; no new unit tests required beyond the grep gate and the full suite.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "CLAUDE.md",
+        "README.md",
+        ".ralph/review-post.md"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        28,
+        29
+      ],
+      "model": "sonnet"
+    }
+  ]
 }

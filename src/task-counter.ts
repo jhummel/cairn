@@ -3,9 +3,17 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { acquireLock } from './file-lock';
 
-interface CounterState {
-  nextTaskId: number;
-}
+/**
+ * The persisted state object. `nextTaskId` and `round` are the fields Ralph
+ * manages, but any additional keys present on disk are read and written back
+ * verbatim so that independent features storing state here never clobber each
+ * other.
+ */
+type CounterState = {
+  nextTaskId?: number;
+  round?: number;
+  [key: string]: unknown;
+};
 
 /**
  * Cheaply read the `id` values out of a tasks file (tasks.json or
@@ -66,6 +74,13 @@ function writeStateAtomic(filePath: string, state: CounterState): void {
   }
 }
 
+/**
+ * Read the raw persisted state object, preserving every field. Returns `null`
+ * when the file is missing or not a JSON object. When present, `nextTaskId` is
+ * validated to be a finite number; if it fails validation the field is dropped
+ * but the rest of the object is preserved so callers re-seed cleanly without
+ * discarding sibling fields (e.g. `round`).
+ */
 function readState(filePath: string): CounterState | null {
   let text: string;
   try {
@@ -74,9 +89,13 @@ function readState(filePath: string): CounterState | null {
     return null;
   }
   try {
-    const parsed = JSON.parse(text) as { nextTaskId?: unknown };
-    if (parsed && typeof parsed.nextTaskId === 'number' && Number.isFinite(parsed.nextTaskId)) {
-      return { nextTaskId: parsed.nextTaskId };
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const state = { ...(parsed as CounterState) };
+      if (!(typeof state.nextTaskId === 'number' && Number.isFinite(state.nextTaskId))) {
+        delete state.nextTaskId;
+      }
+      return state;
     }
   } catch {
     // Fall through to treat as absent.
@@ -103,13 +122,65 @@ export function reserveTaskIds(dataDir: string, count = 1): number[] {
   const fd = acquireLock(lockPath);
   try {
     const existing = readState(statePath);
-    const start = existing ? existing.nextTaskId : seedNextId(dataDir);
+    const start =
+      existing && typeof existing.nextTaskId === 'number'
+        ? existing.nextTaskId
+        : seedNextId(dataDir);
 
     const ids: number[] = [];
     for (let i = 0; i < count; i++) ids.push(start + i);
 
-    writeStateAtomic(statePath, { nextTaskId: start + count });
+    writeStateAtomic(statePath, { ...(existing ?? {}), nextTaskId: start + count });
     return ids;
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      // Already closed; ignore.
+    }
+    try {
+      fs.unlinkSync(lockPath);
+    } catch {
+      // Lock already removed (e.g. broken as stale by another writer); ignore.
+    }
+  }
+}
+
+/**
+ * Read the current planning round from <dataDir>/state.json. An absent file,
+ * absent field, or non-finite value all mean "round 1" (the lazy seed). This is
+ * a pure read: it never creates or mutates state.json.
+ */
+export function getRound(dataDir: string): number {
+  const statePath = path.join(dataDir, 'state.json');
+  const existing = readState(statePath);
+  if (existing && typeof existing.round === 'number' && Number.isFinite(existing.round)) {
+    return existing.round;
+  }
+  return 1;
+}
+
+/**
+ * Atomically increment the planning round in <dataDir>/state.json and return the
+ * new value. Runs under the same state.json.lock and temp-file-rename machinery
+ * as reserveTaskIds. An absent round semantically equals 1, so bumping a state
+ * file without a round field writes round: 2. Every other field (nextTaskId and
+ * any unknown keys) is preserved exactly.
+ */
+export function bumpRound(dataDir: string): number {
+  const statePath = path.join(dataDir, 'state.json');
+  const lockPath = `${statePath}.lock`;
+  const fd = acquireLock(lockPath);
+  try {
+    const existing = readState(statePath);
+    const current =
+      existing && typeof existing.round === 'number' && Number.isFinite(existing.round)
+        ? existing.round
+        : 1;
+    const next = current + 1;
+
+    writeStateAtomic(statePath, { ...(existing ?? {}), round: next });
+    return next;
   } finally {
     try {
       fs.closeSync(fd);
