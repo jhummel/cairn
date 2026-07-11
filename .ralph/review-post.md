@@ -2855,3 +2855,45 @@ None detected.
 CLEAN
 
 ---
+
+## Task #26: Field-preserving state.json I/O + round counter
+Reviewed: 2026-07-11T22:15:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] Generalize state I/O: readState reads/preserves all fields, validates nextTaskId as finite number, drops it if invalid while keeping siblings
+├── [DONE] reserveTaskIds writes `{ ...existing, nextTaskId }` instead of wholesale — clobber fix for `round` (and any other field)
+├── [DONE] Add getRound(dataDir): pure read, returns 1 when file/field absent or invalid, never writes
+├── [DONE] Add bumpRound(dataDir): atomic read→increment→write under state.json.lock (acquireLock) + temp-file-rename, absent round → writes round:2, preserves nextTaskId/other fields
+├── [DONE] Export getRound and bumpRound
+└── Tests (test/task-counter.test.ts)
+    ├── [DONE] (a) getRound on missing state.json returns 1, does not create file
+    ├── [DONE] (b) bumpRound increments and persists
+    ├── [DONE] (c) bumpRound on { nextTaskId } preserves nextTaskId
+    ├── [DONE] (d) reserveTaskIds on { nextTaskId, round } preserves round (clobber regression)
+    └── [DONE] (e) bumpRound seeds round:2 when absent (both when field absent and when file missing entirely)
+
+### Files Changed
+- src/task-counter.ts (CounterState generalized to open-ended type; readState/writeStateAtomic field-preserving; reserveTaskIds fixed; getRound/bumpRound added and exported)
+- test/task-counter.test.ts (new describe blocks for getRound/bumpRound; new clobber-regression test under reserveTaskIds)
+- src/file-lock.ts — unchanged, reused as-is (task only required reuse, not modification)
+- .ralph/state.json, .ralph/tasks.json, .ralph/planning-notes.md, .ralph/.ralph_tasks_snapshot.json — planning-round artifacts bundled into this commit (tasks #27-#30 queued), not part of task #26's code scope
+
+### Gaps
+None detected. All four implementation requirements and all five lettered test cases (a)-(e) are present and verified independently:
+- `bun test test/task-counter.test.ts` → 19 pass, 0 fail (confirmed)
+- `bun test` (full suite) → 723 pass, 0 fail (confirmed)
+- `bun run build` → compiles clean (confirmed)
+
+TDD was followed per the agent's own notes (tests written first, failed on missing `getRound` export, then implementation added).
+
+### Regression Risks
+None detected.
+- `reserveTaskIds`'s use of `typeof existing.nextTaskId === 'number'` is redundant (readState already strips invalid nextTaskId) but harmless — no behavior change from the prior guard.
+- `CounterState` widened from a closed `{ nextTaskId: number }` interface to an open-ended type; it is not exported, so no external consumers are affected. Grep confirms `task-counter` is only imported by `src/commands/init.ts`, `src/commands/task.ts`, and the test file — none reference the old interface shape directly.
+- Minor, non-blocking observation: if `round` is present but holds an invalid type (e.g. a string) in state.json, `reserveTaskIds` will preserve it verbatim via spread (only `nextTaskId` is validated/sanitized in `readState`), whereas `bumpRound` self-heals it back to a valid number on its next call. This asymmetry is outside the task's stated scope and not exercised by any current caller.
+- No exports removed, no test coverage reduced, no existing passing tests altered in a way that weakens assertions.
+
+### Verdict
+CLEAN
+

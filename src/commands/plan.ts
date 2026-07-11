@@ -4,6 +4,7 @@ import { spawnSync as nodeSpawnSync, type SpawnSyncReturns, type SpawnSyncOption
 import { Task, AgentInfo } from '../types';
 import { buildAgentArgs } from '../agent-prompt';
 import { loadPersonalInstructions } from '../personal-instructions';
+import { bumpRound } from '../task-counter';
 
 const STATUS_ICONS: Record<string, string> = {
   complete: '✓',
@@ -154,6 +155,8 @@ export function runPlan(opts: RunPlanOpts): void {
   } = opts;
 
   displayPreflight(projectName, dataDir);
+
+  bumpRound(dataDir);
 
   const dynamicContext = buildDynamicContext({ projectName, projectRoot, dataDir, agents });
 

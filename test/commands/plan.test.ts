@@ -13,6 +13,7 @@ import {
 } from '../../src/commands/plan';
 import type { AgentInfo } from '../../src/types';
 import type { SpawnSyncReturns } from 'child_process';
+import { getRound } from '../../src/task-counter';
 
 const FIXTURES_DIR = path.join(__dirname, '..', 'fixtures');
 
@@ -607,6 +608,65 @@ describe('runPlan', () => {
         spawnSyncFn: spawnFn,
       });
       expect(result).toBeUndefined();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('bumps the planning round in state.json', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    try {
+      expect(getRound(ralphDir)).toBe(1);
+      runPlan({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+      });
+      expect(getRound(ralphDir)).toBe(2);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('bumps the round even though spawnSyncFn is a stub', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      runPlan({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+      });
+      expect(calls).toHaveLength(1);
+      const statePath = path.join(ralphDir, 'state.json');
+      expect(fs.existsSync(statePath)).toBe(true);
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      expect(state.round).toBe(2);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('preserves an existing nextTaskId across the bump', () => {
+    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { spawnFn } = makeSpawnSyncSpy();
+    try {
+      fs.writeFileSync(path.join(ralphDir, 'state.json'), JSON.stringify({ nextTaskId: 42 }));
+      runPlan({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: ralphDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+      });
+      const state = JSON.parse(fs.readFileSync(path.join(ralphDir, 'state.json'), 'utf8'));
+      expect(state.nextTaskId).toBe(42);
+      expect(state.round).toBe(2);
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
