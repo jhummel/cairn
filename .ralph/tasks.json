@@ -1,30 +1,5 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "project": "ralph-cli-tool",
-  "tasks": [
-    {
-      "id": 30,
-      "priority": 5,
-      "title": "Delete legacy review-post.md and update docs",
-      "description": "Remove the legacy single-file review log and update all documentation for the per-round system.\n\n1. `git rm .ralph/review-post.md` (git history preserves it — do not archive or copy it anywhere).\n2. CLAUDE.md updates: (a) in the 'Per-project data layout' tree, add `.ralph/reviews/` ('round-<N>.md — per-planning-round post-task review logs') and update the state.json comment from '{ \"nextTaskId\": N }' to include the round field, e.g. '{ \"nextTaskId\": N, \"round\": R }'; (b) in the Agent workflow section, update the sentence about the post-task reviewer running 'with a path-scoped allowlist that excludes .ralph/tasks.json' to describe the directory-scoped rule covering .ralph/reviews/**; (c) mention that `ralph plan` bumps the round counter.\n3. README.md updates: line ~300's data-layout tree entry for state.json ('Monotonic task-ID counter — never reuses IDs') — extend for the round counter, and add the reviews/ directory to that tree.\n4. Scrub any remaining `review-post.md` references repo-wide: `grep -rn review-post . --exclude-dir=node_modules --exclude-dir=.git` must return no hits in source, tests, agents/, .claude/, or docs (checks test/commands/init.test.ts, test/commands/plan.test.ts, test/agent-prompt.test.ts among others; as of planning, those three had no references — verify nothing regressed).\n5. Run the full suite to confirm nothing referenced the deleted file.\n\nDocs-and-deletion task; no new unit tests required beyond the grep gate and the full suite.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "CLAUDE.md",
-        "README.md",
-        ".ralph/review-post.md"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        28,
-        29
-      ],
-      "model": "sonnet",
-      "completedAt": "2026-07-11T22:25:40.415Z",
-      "completedBy": "iteration-5",
-      "notes": "# Task #30: Delete legacy review-post.md and update docs\n\n## What changed\n\n1. `git rm -f .ralph/review-post.md` — deleted the legacy single-file review log (git history preserves prior content; had uncommitted local review appends from tasks #27/#28 in the working tree that were discarded, per the task's explicit \"do not archive or copy it anywhere\" instruction).\n\n2. `CLAUDE.md`:\n   - Per-project data layout tree: `state.json` comment now reads `Monotonic task-ID counter + planning round { \"nextTaskId\": N, \"round\": R } — committed to git`; added `reviews/` directory with `round-<N>.md — Per-planning-round post-task review logs`.\n   - Agent workflow section: appended a sentence noting `state.json` also tracks the planning round, that `ralph plan` bumps it on every planning run, and that the post-task reviewer writes to `.ralph/reviews/round-<N>.md` for the active round.\n   - Updated the tasks.json-protection sentence: \"path-scoped allowlist that excludes `.ralph/tasks.json`\" → \"directory-scoped allowlist covering only `.ralph/reviews/**`, which excludes `.ralph/tasks.json`\" — matches the actual `reviewFileRule` glob in `src/post-task-reviewer.ts` (task #28).\n\n3. `README.md` (Per-project data tree, ~line 293-308): extended the `state.json` comment to \"Monotonic task-ID counter + planning round — never reuses IDs (committed to git)\"; added `reviews/round-<N>.md` entry.\n\n## Verification\n\n- `grep -rn \"review-post\" . --exclude-dir=node_modules --exclude-dir=.git`: remaining hits are all in `.ralph/` task-tracking/history artifacts (`tasks.json`, `tasks.completed.json`, `.ralph_tasks_snapshot.json`, `planning-notes.md`, `.ralph_task_28/29_notes.md` — all historical record of this and prior tasks, not source/docs) plus one intentional negative-assertion in `test/post-task-reviewer.test.ts` (`expect(prompt).not.toContain(\"review-post.md\")` — asserting the string's *absence*, which is correct and expected).\n- `grep -n \"review-post\" test/commands/init.test.ts test/commands/plan.test.ts test/agent-prompt.test.ts` → no hits (confirmed clean, as expected from planning).\n- `bun test` → 730 pass, 0 fail, 1443 expect() calls. No test referenced the deleted file.\n- `bun run build` → compiles clean.\n\n## Notes for next agent\n\n- `.ralph/tasks.json`, `.ralph/tasks.completed.json`, and `.ralph/.ralph_tasks_snapshot.json` still contain historical string mentions of `review-post.md` inside old task descriptions/notes — this is expected and correct (immutable historical record of what was asked/done in past iterations), not something to scrub.\n- This was the last task in the current planning round — 0 remaining pending/in-progress tasks after this one.\n"
-    }
-  ]
+  "tasks": []
 }
