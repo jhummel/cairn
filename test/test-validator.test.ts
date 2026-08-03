@@ -319,11 +319,58 @@ describe('validateTaskTests', () => {
       expect(result.status).toBe('passed');
     });
 
-    it('runs root-relative test commands from projectRoot even when task.directory is a subdir', async () => {
-      // Regression: task `tests` entries are written relative to the project root (e.g.
-      // `bun test test/foo.test.ts`). Running them from <root>/<task.directory> made them
-      // match nothing, and the resulting failure was misclassified as a real test failure,
-      // reverting an already-complete task to in-progress.
+    it('treats directory "/" as projectRoot (not filesystem root)', async () => {
+      writeFileSync(join(tmpDir, 'root-sentinel.txt'), 'hello');
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        directory: '/',
+        tests: ['test -f root-sentinel.txt'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('passed');
+    });
+
+    it('defaults cwd to <projectRoot>/<task.directory> for a command with no path arguments', async () => {
+      // Manifest-driven commands (`npm test`, `bun run build`) carry no path argument and
+      // self-resolve by walking UP to their manifest. Running them from the task directory
+      // is strictly better than root: in a multi-service repo they find the service's own
+      // package.json; in a single-package repo the upward walk makes it identical.
+      const subDir = join(tmpDir, 'sub');
+      mkdirSync(subDir);
+      writeFileSync(join(subDir, 'submarker'), 'hello');
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        directory: 'sub',
+        tests: ['test -f submarker'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('passed');
+    });
+
+    it('keeps cwd at the task directory when the path argument resolves there', async () => {
+      const subDir = join(tmpDir, 'sub');
+      mkdirSync(subDir);
+      writeFileSync(join(subDir, 'sub-only.txt'), 'hello');
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        directory: 'sub',
+        tests: ['test -f sub-only.txt'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('passed');
+    });
+
+    it('runs from projectRoot when a path argument resolves only there', async () => {
+      // Regression: task `tests` entries are commonly written relative to the project root
+      // (e.g. `bun test test/foo.test.ts`). Running such a command from
+      // <root>/<task.directory> made it match nothing, and the resulting failure was
+      // misclassified as a real test failure, reverting an already-complete task.
       mkdirSync(join(tmpDir, 'sub'));
       writeFileSync(join(tmpDir, 'root-sentinel.txt'), 'hello');
       const task: Task = {
@@ -339,11 +386,43 @@ describe('validateTaskTests', () => {
       expect(data.tasks.find((t) => t.id === 1)!.status).toBe('complete');
     });
 
-    it('treats directory "/" as projectRoot (not filesystem root)', async () => {
+    it('resolves a slash-bearing path argument against projectRoot when the task dir lacks it', async () => {
+      mkdirSync(join(tmpDir, 'sub'));
+      mkdirSync(join(tmpDir, 'test'));
+      writeFileSync(join(tmpDir, 'test', 'config.test.ts'), '');
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        directory: 'sub',
+        tests: ['test -f test/config.test.ts'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('passed');
+    });
+
+    it('decides cwd per command, not per task, for a mixed command list', async () => {
+      // A task can legitimately mix a task-dir-relative command and a root-relative one.
+      const subDir = join(tmpDir, 'sub');
+      mkdirSync(subDir);
+      writeFileSync(join(subDir, 'sub-only.txt'), 'hello');
+      writeFileSync(join(tmpDir, 'root-only.txt'), 'hello');
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        directory: 'sub',
+        tests: ['test -f sub-only.txt', 'test -f root-only.txt'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('passed');
+    });
+
+    it('falls back to projectRoot when task.directory does not exist', async () => {
       writeFileSync(join(tmpDir, 'root-sentinel.txt'), 'hello');
       const task: Task = {
         id: 1, priority: 1, title: 'Test', status: 'complete',
-        directory: '/',
+        directory: 'no/such/dir',
         tests: ['test -f root-sentinel.txt'],
       };
       writeTasksFile(tasksFilePath, [task]);
@@ -352,19 +431,93 @@ describe('validateTaskTests', () => {
       expect(result.status).toBe('passed');
     });
 
-    it('does not resolve test commands against task.directory', async () => {
+    // --- what counts as a "path-shaped argument" ---------------------------------
+    // Each of these builds a command that succeeds ONLY from the task directory, then
+    // adds a decoy token that resolves ONLY from the project root. If the decoy were
+    // treated as path-shaped, the command would be redirected to the root and fail.
+
+    it('does not treat a flag with an embedded path as a path argument', async () => {
       const subDir = join(tmpDir, 'sub');
       mkdirSync(subDir);
-      writeFileSync(join(subDir, 'sub-only.txt'), 'hello');
+      writeFileSync(join(subDir, 'submarker'), 'hello');
+      mkdirSync(join(tmpDir, 'only-at-root'));
+      writeFileSync(join(tmpDir, 'only-at-root', 'out.js'), '');
       const task: Task = {
         id: 1, priority: 1, title: 'Test', status: 'complete',
         directory: 'sub',
-        tests: ['test -f sub-only.txt'],
+        // extra args after `sh -c <script>` become $0/$1 and are otherwise inert
+        tests: ['sh -c "test -f submarker" --outfile=only-at-root/out.js'],
       };
       writeTasksFile(tasksFilePath, [task]);
 
       const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
-      expect(result.status).toBe('failed');
+      expect(result.status).toBe('passed');
+    });
+
+    it('does not treat a scoped package name as a path argument', async () => {
+      const subDir = join(tmpDir, 'sub');
+      mkdirSync(subDir);
+      writeFileSync(join(subDir, 'submarker'), 'hello');
+      mkdirSync(join(tmpDir, '@scope'));
+      writeFileSync(join(tmpDir, '@scope', 'pkg'), '');
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        directory: 'sub',
+        tests: ['sh -c "test -f submarker" @scope/pkg'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('passed');
+    });
+
+    it('does not treat a bare extensionless word as a path argument', async () => {
+      // `test`, `build`, `run` are overwhelmingly subcommands, not files.
+      const subDir = join(tmpDir, 'sub');
+      mkdirSync(subDir);
+      writeFileSync(join(subDir, 'submarker'), 'hello');
+      writeFileSync(join(tmpDir, 'build'), '');
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        directory: 'sub',
+        tests: ['sh -c "test -f submarker" build'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('passed');
+    });
+
+    it('treats a bare filename with an extension as a path argument', async () => {
+      // Required so `bun test config.test.ts` is not missed by a slash-only rule.
+      mkdirSync(join(tmpDir, 'sub'));
+      writeFileSync(join(tmpDir, 'config.test.ts'), '');
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        directory: 'sub',
+        tests: ['test -f config.test.ts'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('passed');
+    });
+
+    it('does not treat a dotted token with a non-alphabetic extension as a path argument', async () => {
+      // Version-like tokens (`1.2.3`) are values, not files.
+      const subDir = join(tmpDir, 'sub');
+      mkdirSync(subDir);
+      writeFileSync(join(subDir, 'submarker'), 'hello');
+      writeFileSync(join(tmpDir, '1.2.3'), '');
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        directory: 'sub',
+        tests: ['sh -c "test -f submarker" 1.2.3'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('passed');
     });
   });
 

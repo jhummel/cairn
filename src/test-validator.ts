@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 import * as tasksFileModule from './tasks-file';
 import { TasksFileError, type TasksFile } from './tasks-file';
@@ -92,6 +93,105 @@ function isCantRunError(output: string, exitCode: number): boolean {
   return ZERO_TESTS_PATTERNS.some((re) => re.test(lower));
 }
 
+// ---------------------------------------------------------------------------
+// cwd resolution — private to this module.
+//
+// Test commands default to the task's own directory. Manifest-driven commands
+// (`npm test`, `bun run build`) carry no path argument and self-resolve by walking UP
+// to their manifest, so running them from <root>/<task.directory> is strictly better
+// than from the root: in a multi-service repo they find the service's own package.json;
+// in a single-package repo the upward walk makes the two identical.
+//
+// Only commands carrying an explicit PATH ARGUMENT break, and only when that path was
+// written relative to the project root. So the decision is made per COMMAND, before
+// anything runs: if a command names a path-shaped argument that does not resolve under
+// the task directory but does resolve under the project root, that one command runs
+// from the root. Deliberately NOT try-then-fall-back — re-running a failed suite from a
+// second cwd double-runs side-effecting tests and cannot tell "wrong cwd" from a real
+// failure, which is exactly the discrimination that already failed once.
+//
+// PATH-SHAPED ARGUMENT — a whitespace-separated token (surrounding quotes stripped) that:
+//   * does NOT start with '-' — excludes flags and their embedded values (`-p`,
+//     `--target=bun`, `--outfile=dist/cairn`). A flag's value is typically an OUTPUT
+//     path that need not exist yet, so its resolvability says nothing about the cwd.
+//   * does NOT start with '@' — excludes scoped package names (`@scope/pkg`).
+//   * AND either contains '/' (`test/config.test.ts`, `./run.sh`) or is a bare filename
+//     with a letter-leading extension (`config.test.ts`, `tsconfig.json`) — the latter
+//     is required so `bun test config.test.ts` is not missed by a slash-only rule.
+// Excluded by construction: bare extensionless words (`test`, `build`, `run` are
+// overwhelmingly subcommands) and dotted tokens whose extension is not letter-leading
+// (`1.2.3` is a version, not a file).
+// ---------------------------------------------------------------------------
+
+const BARE_FILENAME_RE = /^[\w.-]+\.[A-Za-z]\w*$/;
+
+function tokenizeCommand(cmd: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let started = false;
+  let quote: string | null = null;
+
+  for (const ch of cmd) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else current += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (started) {
+        tokens.push(current);
+        current = '';
+        started = false;
+      }
+      continue;
+    }
+    current += ch;
+    started = true;
+  }
+  if (started) tokens.push(current);
+  return tokens;
+}
+
+function isPathShaped(token: string): boolean {
+  if (!token || token.startsWith('-') || token.startsWith('@')) return false;
+  if (token.includes('/')) return true;
+  return BARE_FILENAME_RE.test(token);
+}
+
+// Base cwd for a task: <projectRoot>/<task.directory>, with '/' and '.' meaning the
+// root itself. A directory that does not exist would make spawn fail with ENOENT for
+// every command, so fall back to the root rather than turning a typo in tasks.json into
+// a validation error.
+function resolveTaskDir(directory: string | undefined, projectRoot: string): string {
+  const root = path.resolve(projectRoot);
+  const dir = directory?.trim();
+  if (!dir || dir === '/' || dir === '.') return root;
+
+  const resolved = path.resolve(root, dir.replace(/^\/+/, ''));
+  try {
+    if (!fs.statSync(resolved).isDirectory()) return root;
+  } catch {
+    return root;
+  }
+  return resolved;
+}
+
+function resolveCommandCwd(cmd: string, taskDir: string, projectRoot: string): string {
+  if (taskDir === projectRoot) return projectRoot;
+
+  for (const token of tokenizeCommand(cmd)) {
+    if (!isPathShaped(token)) continue;
+    if (fs.existsSync(path.resolve(taskDir, token))) continue;
+    if (fs.existsSync(path.resolve(projectRoot, token))) return projectRoot;
+  }
+  return taskDir;
+}
+
 function writeAndSnapshot(tasksFilePath: string, dataDir: string, data: TasksFile): void {
   tasksFileModule.writeTasksFile(tasksFilePath, data);
   tasksFileModule.snapshotTasksFile(tasksFilePath, dataDir);
@@ -122,13 +222,11 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
   if (!fileTask || fileTask.status !== 'complete') {
     return { status: 'skipped' };
   }
-  // Task `tests` entries are written relative to the project root, so they must run
-  // there — not from `task.directory`. Running them from the task directory made them
-  // fail spuriously, and the failure was then misclassified as a real one and reverted
-  // an already-complete task to in-progress.
-  const cwd = path.resolve(projectRoot);
+  const root = path.resolve(projectRoot);
+  const taskDir = resolveTaskDir(task.directory, root);
 
   for (const cmd of task.tests) {
+    const cwd = resolveCommandCwd(cmd, taskDir, root);
     const { exitCode, stdout, stderr } = await runCommand(cmd, cwd, timeoutMs);
     const output = `${stdout}\n${stderr}`;
 
