@@ -29,7 +29,7 @@ function gitCommit(dir: string, message: string) {
 }
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "ralph-test-"));
+  tmpDir = mkdtempSync(join(tmpdir(), "cairn-test-"));
 });
 
 afterEach(() => {
@@ -175,7 +175,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
   });
 
   test("includes personal instructions when instructions.md exists in dataDir", () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "ralph-instr-test-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "cairn-instr-test-"));
     try {
       writeFileSync(join(dataDir, "instructions.md"), "* Always use TDD");
       const prompt = buildPostTaskReviewUserPrompt({
@@ -193,7 +193,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
   });
 
   test("omits personal instructions when instructions.md is missing from dataDir", () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "ralph-noinstr-test-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "cairn-noinstr-test-"));
     try {
       const prompt = buildPostTaskReviewUserPrompt({
         task: sampleTask,
@@ -222,7 +222,7 @@ describe("spawnPostTaskReviewer", () => {
   let spawnTmpDir: string;
 
   beforeEach(() => {
-    spawnTmpDir = mkdtempSync(join(tmpdir(), "ralph-spawn-test-"));
+    spawnTmpDir = mkdtempSync(join(tmpdir(), "cairn-spawn-test-"));
     const agentDir = join(spawnTmpDir, ".claude", "agents");
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, "post-task-reviewer.md"), "You are a reviewer.");

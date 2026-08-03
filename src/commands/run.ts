@@ -358,7 +358,10 @@ const PATH_ADDITIONS = [
 // Cleanup covers BOTH prefixes — a legacy-named leftover is just as stale.
 const TEMP_FILE_SUFFIXES = ['complete', 'prev_notes', 'completed_ids'];
 
-/** `.cairn_task_<id>_notes.md` or `.ralph_task_<id>_notes.md`, nothing else. */
+/**
+ * `.cairn_task_<id>_notes.md` or `.ralph_task_<id>_notes.md`, nothing else.
+ * remove once all projects migrated — the alternation collapses to BRAND only.
+ */
 const NOTES_TEMPFILE_RE = new RegExp(
   `^(?:${[BRAND.tempPrefix, LEGACY.tempPrefix].map(escapeRegExp).join('|')})task_\\d+_notes\\.md$`
 );
@@ -403,6 +406,8 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   // 5. Start narration server if enabled
   let narrationPid: number | null = null;
   const narrationEnabled = config.narration.enabled;
+  // TODO(#48): still the literal legacy socket path — BRAND.socket is not wired
+  // up yet. Not a compatibility fallback; tracked separately from the rename.
   const narrationSocketPath = '/tmp/ralph-tts.sock';
 
   if (narrationEnabled) {
@@ -433,6 +438,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     for (let iteration = 1; iteration <= maxIterations; iteration++) {
       // a. Check for the completion flag. Both prefixes count: an agent running
       // an older prompt may still have written .ralph_complete.
+      // remove once all projects migrated — allTempFilePaths -> tempFilePath.
       if (allTempFilePaths(dataDir, 'complete').some((p) => deps.existsSync(p))) {
         deps.log('Completion flag found. All tasks complete!');
         completedByFlag = true;
@@ -703,6 +709,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     // Sweep per-task notes tempfiles (e.g. .ralph_task_42_notes.md) from dataDir.
     // Matches both prefixes: the prompt still hands agents the legacy name, and
     // an agent writing the current-brand one must not leave scratch behind.
+    // remove once all projects migrated — see NOTES_TEMPFILE_RE.
     try {
       const entries = deps.readdirSync(dataDir);
       for (const name of entries) {

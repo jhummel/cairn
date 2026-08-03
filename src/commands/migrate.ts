@@ -15,6 +15,9 @@ import {
 /**
  * Convert a single project from the legacy `.ralph/` layout to `.cairn/`.
  *
+ * remove once all projects migrated — this whole command exists only for the
+ * compatibility window; when nothing is left on `.ralph/` it has no work to do.
+ *
  * Scope is deliberately narrow: the current working directory only. There is no
  * scanning, no walking upward, and no commit — every rename is staged and left
  * for the user to review. Running it twice is a no-op.

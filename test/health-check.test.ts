@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { runHealthCheck } from '../src/health-check';
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `ralph-hc-test-${Math.random().toString(36).slice(2)}`);
+  const dir = join(tmpdir(), `cairn-hc-test-${Math.random().toString(36).slice(2)}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }

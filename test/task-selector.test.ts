@@ -21,7 +21,7 @@ describe('loadCompletedIds', () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'ralph-test-'));
+    dir = mkdtempSync(join(tmpdir(), 'cairn-test-'));
   });
 
   afterEach(() => {

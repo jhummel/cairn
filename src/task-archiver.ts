@@ -63,6 +63,7 @@ export async function archiveCompletedTasks(opts: {
   // Append completed IDs to .cairn_completed_ids (JSON array). The read side
   // falls back to the legacy .ralph_ name so pre-existing IDs migrate forward
   // into the new file instead of being silently dropped.
+  // remove once all projects migrated — existingIdsFile collapses into idsFile.
   const idsFile = tempFilePath(dataDir, 'completed_ids');
   const existingIdsFile = findTempFilePath(dataDir, 'completed_ids');
   const existingIds = new Set<number>();
@@ -84,6 +85,7 @@ export async function archiveCompletedTasks(opts: {
   // Save last completed task's notes to .cairn_prev_notes. Any legacy-named
   // copy is dropped first — otherwise a stale .ralph_prev_notes would keep
   // answering the dual-read after the notes were cleared.
+  // remove once all projects migrated — the stale-copy sweep goes with it.
   const prevNotesFile = tempFilePath(dataDir, 'prev_notes');
   for (const stale of allTempFilePaths(dataDir, 'prev_notes')) {
     if (stale !== prevNotesFile && existsSync(stale)) unlinkSync(stale);

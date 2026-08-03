@@ -212,6 +212,7 @@ if __name__ == "__main__":
     parser.add_argument("--voice", default=os.environ.get("CAIRN_NARRATION_VOICE", DEFAULT_VOICE))
     parser.add_argument(
         "--socket",
+        # remove once all projects migrated — drop the RALPH_NARRATE_SOCKET leg.
         default=os.environ.get("CAIRN_NARRATE_SOCKET") or os.environ.get("RALPH_NARRATE_SOCKET", DEFAULT_SOCKET),
     )
     args = parser.parse_args()
@@ -224,6 +225,8 @@ if __name__ == "__main__":
     # CAIRN_ANTHROPIC_API_KEY -> legacy RALPH_ANTHROPIC_API_KEY -> plain ANTHROPIC_API_KEY.
     # The main loop blanks ANTHROPIC_API_KEY before spawning `claude` to force Max-plan
     # usage, so these prefixed names are what let this server still reach a real key.
+    # remove once all projects migrated — drop the RALPH_ leg and its warning;
+    # mirrors resolveAnthropicApiKeyChain() in src/config.ts.
     api_key = os.environ.get("CAIRN_ANTHROPIC_API_KEY")
     if not api_key:
         api_key = os.environ.get("RALPH_ANTHROPIC_API_KEY")

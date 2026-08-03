@@ -128,6 +128,14 @@ The rename from Ralph to Cairn is being rolled out gradually across every projec
 - **Both binaries are installed.** `./install.sh` symlinks `~/.local/bin/cairn` and `~/.local/bin/ralph` to the same compiled binary. The `ralph` symlink is a long-lived compatibility commitment, not a deprecation stub — other projects have `ralph task ...` frozen into their installed `.claude/agents/*.md` files, and they break the moment `ralph` stops resolving. Do not add a deprecation warning that fires on every `ralph` invocation.
 - **The `ralph` symlink stays until every project is migrated.** There is no scheduled removal date; it comes out only once nothing on the machine still depends on the old name.
 
+### The removal marker
+
+Every intentional legacy fallback in shipped source carries the exact comment string **`remove once all projects migrated`** (in the comment syntax of its language). `grep -rn "remove once all projects migrated" src/ lib/ install.sh` is the complete work list for the eventual removal round — start from `LEGACY` in `src/brand.ts` and follow the markers out.
+
+`test/legacy-markers.test.ts` enforces this: any line in `src/**/*.ts`, `lib/*.py`, `agents/*.md`, `commands/*.md`, or `install.sh` that mentions the old name must have the marker within 20 lines above or 3 below. Add a legacy fallback without the marker and the suite fails. The marker must sit on a single line — a comment wrapped mid-phrase will not match.
+
+The one exemption is the narration socket/pid paths (`/tmp/ralph-tts.sock`, `/tmp/ralph-tts.pid`). They are *not* compatibility fallbacks — they are plain un-migrated literals that never got the dual-name treatment, tracked by task #48, and marked `TODO(#48)` instead. Note that `writeNarrationHooks` already emits `/tmp/cairn-tts.sock` while `run.ts` still starts the server on `/tmp/ralph-tts.sock`, so generated hooks and the running server currently disagree — that mismatch is #48's to resolve.
+
 ## Pin/unpin procedure for self-modifying rounds
 
 Cairn's own health check (`ralph.json`/`cairn.json`'s `healthCheck` field) is `bun build --target=bun src/index.ts --outfile ...`, and it runs before *every* iteration of `cairn run`. That is a problem specifically when a planning round's own task list is renaming this tool: the loop is executing changes to the same binary it uses to build and check itself, mid-round, with no atomicity between "task N edits `src/`" and "the next iteration's health check builds `src/`".

@@ -8,7 +8,7 @@ import { isValidConfig } from '../src/types';
 import type { CairnConfig } from '../src/types';
 
 function makeTempDir(): string {
-  const dir = path.join(os.tmpdir(), `ralph-config-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = path.join(os.tmpdir(), `cairn-config-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -497,7 +497,7 @@ describe('loadConfig review.postTask', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = path.join(os.tmpdir(), `ralph-config-posttask-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tmpDir = path.join(os.tmpdir(), `cairn-config-posttask-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     fs.mkdirSync(tmpDir, { recursive: true });
   });
 

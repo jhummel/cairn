@@ -10,9 +10,9 @@ import {
 } from '../../src/commands/summarize';
 import type { SpawnFn } from '../../src/commands/summarize';
 
-function makeTempDir(withRalphDir = false, withAgentFile = false): string {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-  if (withRalphDir) {
+function makeTempDir(withCairnDir = false, withAgentFile = false): string {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+  if (withCairnDir) {
     fs.mkdirSync(path.join(tmpDir, '.ralph'));
   }
   if (withAgentFile) {
@@ -76,9 +76,9 @@ describe('buildUserPrompt', () => {
   });
 
   it('includes completed tasks reference when file exists', () => {
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
-    const completedPath = path.join(ralphDir, 'tasks.completed.json');
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
+    const completedPath = path.join(cairnDir, 'tasks.completed.json');
     fs.writeFileSync(completedPath, '{}');
 
     const prompt = buildUserPrompt({
@@ -159,7 +159,7 @@ describe('buildUserPrompt', () => {
   });
 
   it('includes PERSONAL INSTRUCTIONS when instructions.md exists in dataDir', () => {
-    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-data-'));
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-data-'));
     try {
       fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD');
       const prompt = buildUserPrompt({
@@ -178,7 +178,7 @@ describe('buildUserPrompt', () => {
   });
 
   it('omits PERSONAL INSTRUCTIONS when instructions.md is missing from dataDir', () => {
-    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-data-'));
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-data-'));
     try {
       const prompt = buildUserPrompt({
         projectRoot: tmpDir,

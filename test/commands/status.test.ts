@@ -22,12 +22,12 @@ describe('runStatus', () => {
   });
 
   test('prints project name and root path', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
 
     try {
-      runStatus(tmpDir, ralphDir);
+      runStatus(tmpDir, cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain(`Project: ${path.basename(tmpDir)}`);
       expect(output).toContain(`Root:    ${tmpDir}`);
@@ -37,7 +37,7 @@ describe('runStatus', () => {
   });
 
   test('prints Not initialized when .ralph does not exist', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
 
     try {
       runStatus(tmpDir, path.join(tmpDir, '.ralph'));
@@ -51,7 +51,7 @@ describe('runStatus', () => {
   });
 
   test('does not print task list when .ralph does not exist', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
 
     try {
       runStatus(tmpDir, path.join(tmpDir, '.ralph'));
@@ -64,12 +64,12 @@ describe('runStatus', () => {
   });
 
   test('prints No tasks.json found when tasks.json is missing', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
 
     try {
-      runStatus(tmpDir, ralphDir);
+      runStatus(tmpDir, cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('No tasks.json found');
       expect(output).toContain("Run 'cairn plan' to create one.");
@@ -80,13 +80,13 @@ describe('runStatus', () => {
   });
 
   test('prints No pending tasks when tasks.json is empty', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
-    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-empty.json'), path.join(ralphDir, 'tasks.json'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
+    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-empty.json'), path.join(cairnDir, 'tasks.json'));
 
     try {
-      runStatus(tmpDir, ralphDir);
+      runStatus(tmpDir, cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('No pending tasks.');
     } finally {
@@ -95,13 +95,13 @@ describe('runStatus', () => {
   });
 
   test('prints status counts for mixed tasks', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
-    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-mixed.json'), path.join(ralphDir, 'tasks.json'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
+    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-mixed.json'), path.join(cairnDir, 'tasks.json'));
 
     try {
-      runStatus(tmpDir, ralphDir);
+      runStatus(tmpDir, cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('Status:');
       expect(output).toContain('1 blocked');
@@ -115,13 +115,13 @@ describe('runStatus', () => {
   });
 
   test('prints task rows with correct icons', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
-    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-mixed.json'), path.join(ralphDir, 'tasks.json'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
+    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-mixed.json'), path.join(cairnDir, 'tasks.json'));
 
     try {
-      runStatus(tmpDir, ralphDir);
+      runStatus(tmpDir, cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('✓ #1');
       expect(output).toContain('▶ #2');
@@ -133,13 +133,13 @@ describe('runStatus', () => {
   });
 
   test('prints task with priority, title', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
-    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-mixed.json'), path.join(ralphDir, 'tasks.json'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
+    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-mixed.json'), path.join(cairnDir, 'tasks.json'));
 
     try {
-      runStatus(tmpDir, ralphDir);
+      runStatus(tmpDir, cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('[P9]');
       expect(output).toContain('Setup project');
@@ -151,13 +151,13 @@ describe('runStatus', () => {
   });
 
   test('prints task directory when present', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
-    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-mixed.json'), path.join(ralphDir, 'tasks.json'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
+    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-mixed.json'), path.join(cairnDir, 'tasks.json'));
 
     try {
-      runStatus(tmpDir, ralphDir);
+      runStatus(tmpDir, cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('[src/feature]');
     } finally {
@@ -166,13 +166,13 @@ describe('runStatus', () => {
   });
 
   test('prints task dependencies when present', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
-    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-mixed.json'), path.join(ralphDir, 'tasks.json'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
+    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-mixed.json'), path.join(cairnDir, 'tasks.json'));
 
     try {
-      runStatus(tmpDir, ralphDir);
+      runStatus(tmpDir, cairnDir);
       const output = stdoutLines.join('\n');
       // Task 2 depends on [1], task 4 depends on [2, 3]
       expect(output).toContain('(depends on: 1)');
@@ -183,13 +183,13 @@ describe('runStatus', () => {
   });
 
   test('prints previously completed count when tasks.completed.json exists', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
-    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-completed.json'), path.join(ralphDir, 'tasks.completed.json'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
+    fs.copyFileSync(path.join(FIXTURES_DIR, 'tasks-completed.json'), path.join(cairnDir, 'tasks.completed.json'));
 
     try {
-      runStatus(tmpDir, ralphDir);
+      runStatus(tmpDir, cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('Previously completed: 2 task(s)');
     } finally {
@@ -198,12 +198,12 @@ describe('runStatus', () => {
   });
 
   test('does not print completed count when tasks.completed.json is missing', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
 
     try {
-      runStatus(tmpDir, ralphDir);
+      runStatus(tmpDir, cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).not.toContain('Previously completed');
     } finally {
@@ -212,13 +212,13 @@ describe('runStatus', () => {
   });
 
   test('does not print completed count when tasks.completed.json has no tasks', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
-    const ralphDir = path.join(tmpDir, '.ralph');
-    fs.mkdirSync(ralphDir);
-    fs.writeFileSync(path.join(ralphDir, 'tasks.completed.json'), JSON.stringify({ tasks: [] }));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
+    const cairnDir = path.join(tmpDir, '.ralph');
+    fs.mkdirSync(cairnDir);
+    fs.writeFileSync(path.join(cairnDir, 'tasks.completed.json'), JSON.stringify({ tasks: [] }));
 
     try {
-      runStatus(tmpDir, ralphDir);
+      runStatus(tmpDir, cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).not.toContain('Previously completed');
     } finally {

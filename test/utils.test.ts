@@ -7,7 +7,7 @@ import { tmpdir } from 'os';
 
 // Helper to create unique temp directories
 function makeTempDir(prefix: string): string {
-  const dir = join(tmpdir(), `ralph-test-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(tmpdir(), `cairn-test-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -108,7 +108,7 @@ describe('findProjectRoot', () => {
   });
 
   it('falls back to git root when no .ralph/ found', () => {
-    // We're running inside the ralph repo, so git root should work
+    // We're running inside the cairn repo, so git root should work
     // Use a directory inside our actual repo
     const result = findProjectRoot(join(process.cwd(), 'src'));
     // Should find the git root (our repo root)

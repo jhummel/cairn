@@ -48,7 +48,7 @@ function defaultTasks(): TasksFile {
 }
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-task-test-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-task-test-'));
   tasksPath = path.join(tmpDir, 'tasks.json');
   writeTasks(defaultTasks());
 });

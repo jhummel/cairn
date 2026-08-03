@@ -15,7 +15,7 @@ describe('runEdit', () => {
   let consoleErrorSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-edit-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-edit-test-'));
     dataDir = path.join(tmpDir, '.ralph');
     fs.mkdirSync(dataDir);
 

@@ -6,7 +6,7 @@
 .cairn_completed_ids
 .cairn_tasks_snapshot.json
 .cairn_task_*_notes.md
-# Legacy names — still written by older runs and read as a fallback
+# Legacy names — still written by older runs and read as a fallback (remove once all projects migrated)
 .ralph_complete
 .ralph_iterations.log
 .ralph_prev_notes

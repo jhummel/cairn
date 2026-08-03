@@ -176,8 +176,8 @@ You are a database expert. Focus on migrations and schema design.`);
   // --- COMMIT PREFIX ---
 
   test('uses provided commitPrefix in git commit format', () => {
-    const prompt = buildSystemPrompt(makeInput({ commitPrefix: 'ralph' }));
-    expect(prompt).toContain('[ralph] Task #<id>: <title>');
+    const prompt = buildSystemPrompt(makeInput({ commitPrefix: 'cairn' }));
+    expect(prompt).toContain('[cairn] Task #<id>: <title>');
   });
 
   test('derives commitPrefix from taskDir basename when not provided', () => {

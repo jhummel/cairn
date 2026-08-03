@@ -9,7 +9,7 @@ import type { AgentInfo, CairnConfig } from "../src/types";
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "ralph-agent-prompt-test-"));
+  tmpDir = mkdtempSync(join(tmpdir(), "cairn-agent-prompt-test-"));
 });
 
 afterEach(() => {

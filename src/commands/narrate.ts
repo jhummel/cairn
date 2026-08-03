@@ -8,6 +8,9 @@ import {
 } from '../narration';
 import { resolveAnthropicApiKeyChain, warnIfLegacyApiKey } from '../config';
 
+// TODO(#48): still the literal legacy /tmp paths — BRAND.socket is not wired up
+// yet, and the pid file must move with it. Not compatibility fallbacks; tracked
+// separately from the rename.
 const DEFAULT_PID_FILE = '/tmp/ralph-tts.pid';
 const DEFAULT_SOCKET_PATH = '/tmp/ralph-tts.sock';
 const DEFAULT_VOICE = 'bf_emma';

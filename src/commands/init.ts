@@ -24,8 +24,10 @@ export const TEMP_IGNORE_SUFFIXES = [
 
 export const GITIGNORE_CURRENT_HEADER =
   '# Runtime temp files (tasks.json and planning-notes.md are tracked)';
+/** remove once all projects migrated — header and its ignoreBlock both go. */
 export const GITIGNORE_LEGACY_HEADER =
-  '# Legacy names — still written by older runs and read as a fallback';
+  '# Legacy names — still written by older runs and read as a fallback' +
+  ' (remove once all projects migrated)';
 
 /** `prefix` + each suffix, one per line, newline-terminated. */
 export function ignoreBlock(prefix: string): string {
@@ -115,8 +117,8 @@ export function parseBooleanInput(input: string, defaultValue: boolean): boolean
 
 /**
  * Get default config values for prompts. Loads from an existing cairn.json (or
- * legacy ralph.json) if present, otherwise uses sensible defaults. Auto-detects
- * health check if not set.
+ * legacy ralph.json — remove once all projects migrated) if present, otherwise
+ * uses sensible defaults. Auto-detects health check if not set.
  */
 export function getConfigDefaults(projectRoot: string): ConfigDefaults {
   const config = loadConfig(projectRoot);

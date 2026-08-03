@@ -6,7 +6,7 @@ import { reserveTaskIds, seedNextId, getRound, bumpRound } from '../src/task-cou
 let dataDir: string;
 
 beforeEach(() => {
-  dataDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'ralph-counter-test-'));
+  dataDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cairn-counter-test-'));
 });
 
 afterEach(() => {

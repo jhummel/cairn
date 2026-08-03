@@ -2,6 +2,8 @@ import { spawn } from 'child_process';
 import { existsSync, unlinkSync } from 'fs';
 import net from 'net';
 
+// TODO(#48): still the literal legacy socket path — BRAND.socket is not wired
+// up yet. Not a compatibility fallback; tracked separately from the rename.
 const DEFAULT_SOCKET_PATH = '/tmp/ralph-tts.sock';
 
 export interface StartNarrationDeps {

@@ -533,3 +533,70 @@ None detected. Independently verified in this review session (not just trusting 
 
 ### Verdict
 CLEAN
+
+---
+
+## Task #44: cairn migrate - .claude refresh and git staging
+Reviewed: 2026-08-03T02:30:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] Reuse `installAgents()`/`installSlashCommands()` from `init.ts`, installing the full current set even where `.claude/` never existed — `installMdDir()` now shared by both, `refreshClaudeArtifacts()` calls both unconditionally with `cairnRoot` defaulted; verified by test `installs the full agent and command set into a project that has none` (content diffed live against the repo's `agents/`/`commands/` dirs, not a hardcoded list)
+├── [DONE] Non-destructive, overwrite-by-filename only — `installMdDir()` only ever `copyFileSync`s files named in the source dir, never lists or deletes destination-only files; verified by `overwrites a stale cairn-owned agent but leaves a custom one untouched` (custom `frontend-code-analyzer.md` and `commands/deploy.md` survive byte-identical and stay out of the staged set)
+├── [DONE] Regenerate the three hooks only if hooks already exist; never create where there were none — `refreshClaudeArtifacts()` gates `writeNarrationHooks()` behind `NARRATION_HOOKS.some(h => isFile(...))`; verified by both `regenerates all three hooks... when hooks already exist` (one pre-existing hook triggers all three, matching the "hooks are already opted into" reading of the task) and `creates no hooks in a project that never had them`
+├── [DONE] Rewrite the data-dir `.gitignore` with both prefixes, preserving custom lines — already implemented by task #49's `refreshDataDirGitignore()`; task #44 didn't need to re-touch this, it's exercised end-to-end through the same `runMigrate()` call path exercised by the new tests (e.g. `modified:\s+\.cairn\/\.gitignore` in the summary test)
+├── [DONE] Explicitly `git add` every non-`git mv` output (gitignore, hooks, installed agents/commands) — the new loop over `refreshClaudeArtifacts()`'s return value calls `git add -- <rel>` per file and warns (without aborting) on failure; verified by `stages every newly installed agent and command file`, asserted against the git index via `git show :.claude/agents/planner.md`, not just the worktree
+└── [DONE] Finish with a git-status-style summary of exactly what was staged — new `record()`/`stagedLines` accumulator, labelled via `git diff --cached --name-status -M` per path rather than guessed; verified by `prints a git-status style summary of what it staged`
+
+### Files Changed
+- src/commands/migrate.ts (new `refreshClaudeArtifacts()`, `STATUS_LABELS`, `record()`/`stagedLines` summary, `git add` loop over installed artifacts, updated "nothing to do" gate)
+- src/commands/init.ts (`installSlashCommands`/`installAgents` refactored onto shared `installMdDir()`, now return `string[]` and accept `InstallOptions{skipUnchanged, log}`; new exported `NARRATION_HOOKS` + `writeNarrationHooks()`)
+- src/index.ts (migrate's `--help` description text updated to mention the artifact refresh)
+- test/commands/migrate.test.ts (+8 tests, new `migrate .claude refresh` describe block; fixture gained a `claude?` option)
+
+### Gaps
+None detected against the six numbered requirements in the task description — each maps to a [DONE] item above with an independent test assertion, verified by re-running the suite rather than trusting the task notes' reported counts (`bun test test/commands/migrate.test.ts` → 27/27; `bun test` → 841/841, matching the notes exactly).
+
+### Regression Risks
+None detected requiring action. Independently re-verified in this review session:
+- `installSlashCommands`/`installAgents` signature changed from `void` to `string[]`, but no caller in the codebase assigns or awaits their return value (`grep`'d for `= install(Agents|SlashCommands)` — zero hits), so the change is additive in practice despite touching an exported signature.
+- No exports were removed; `installMdDir` is a new private helper, `NARRATION_HOOKS`/`writeNarrationHooks`/`InstallOptions`/`refreshClaudeArtifacts` are additive exports.
+- No deleted or weakened tests — new describe block is purely additive.
+- Low-severity, non-blocking wording nit: when `moved === 0` but only the gitignore was refreshed (no `.claude` artifact changes — e.g. an already-migrated project whose artifacts are current but whose gitignore is stale), `runMigrate` now prints `Refreshed Cairn artifacts in <cwd>.` even though nothing under `.claude/` changed. The prior, more precise `.gitignore`-specific message from task #49 was replaced by this generic one. No test asserts the exact string either before or after, so nothing broke, but the message can now overstate what happened in that one narrow path.
+- Low-severity, unconfirmed: `git diff --cached --name-status -M -- <rel>` uses rename detection (`-M`) scoped to a single-file pathspec purely to label install output as new/modified; in the extremely unlikely case a newly-added file is >50%-similar to some unrelated deleted path elsewhere in the repo, git could attribute it as a rename and it would print `renamed:` instead of `new file:`. Purely cosmetic (only affects the closing summary text, not what's staged), not covered by a test, and not a realistic scenario for `.md`/`.sh` installs in practice.
+
+### Verdict
+HAS_RISKS
+
+---
+
+## Task #45: Docs: README, CLAUDE.md, RFC
+Reviewed: 2026-08-03T02:45:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] README.md rename sweep (72 refs) — title, prerequisites, API key section, install/quick-start, commands table (+ new `cairn migrate` row, `ralph` symlink note), workflow steps 1-4, push notifications, personal instructions, configuration, project-root detection, both file-structure trees, tips; verified by grepping the file post-change — every remaining `ralph` hit is a categorized compatibility/legacy mention, not a stale reference
+├── [DONE] CLAUDE.md rename sweep (21 refs) — "What is Cairn" intro, Development section (`dist/cairn`, `cairn --version`, dual-symlink install note), per-project data layout tree (`.cairn/` with `.ralph/` fallback noted, `reviews/` dir present, `state.json`'s round field called out), Agent workflow section's `cairn task` subcommands (with `ralph task` compat note), and the direct-Edit/Write-forbidden paragraph — all present and updated
+├── [DONE] docs/parallel-execution-rfc.md rename sweep (9 refs) — 7/9 renamed (byline, prose, both `ralph task`/`ralph run --parallel N` command citations, the proposed `.ralph/logs/` path); the 2 unchanged hits (`/tmp/ralph-tts.sock` at lines 52 and 213) are literal citations of the actual current socket constant — independently confirmed via grep that `src/narration.ts`, `src/commands/narrate.ts`, `src/commands/run.ts:406`, and all three `.claude/hooks/*.sh` scripts still hardcode `/tmp/ralph-tts.sock` today, so leaving these two as-is is correct, not a miss
+├── [DONE] New mechanics: `cairn migrate` command documented in both CLAUDE.md (new section: cwd-only scope, stage-not-commit, refusal conditions, `.claude/` refresh, idempotency) and README.md (new "Migrating from Ralph" section, user-facing walkthrough)
+├── [DONE] New mechanics: compatibility window (dual data layout, dual config file, dual binary, no scheduled `ralph` symlink removal) documented in both CLAUDE.md and README.md
+├── [DONE] New mechanics: pin/unpin procedure for self-modifying rounds documented in CLAUDE.md as a standalone 4-step section, matching the institutional knowledge referenced in task #34 and this same review file's round-4 history
+└── [PARTIAL] RALPH_NARRATE_SOCKET export instructions "so the new name and new socket path must both appear" — the new *name* (`CAIRN_NARRATE_SOCKET`) appears in both README locations, but the new *socket path* (`/tmp/cairn-tts.sock`) does not, because it genuinely isn't live yet: verified via grep that `BRAND.socket` in `src/brand.ts` is unused by any of the four hardcoded-path sites, and none of `cairn run`/`cairn narrate on` read the env var at all (they always pass `--socket` explicitly). Documenting the new path as directed would describe behavior that doesn't exist and silently no-ops if copy-pasted. The agent instead documented current (non-working) reality and pointed at pre-existing task #48, which owns the actual wiring. Judgment call is sound, but it is a literal deviation from the task's explicit instruction, not full compliance
+
+### Files Changed
+- README.md
+- CLAUDE.md
+- docs/parallel-execution-rfc.md
+
+### Gaps
+One partial item: the socket-path deviation above. Not a functional gap — the alternative (documenting a non-functional env var as if it worked) would be worse — but the task description's literal instruction ("the new socket path must both appear") was not followed. Flagging for visibility; no action needed unless task #48 lands and this README note isn't revisited (already called out in the task's own notes as follow-up work).
+
+### Regression Risks
+None detected. This is a docs-only change:
+- `bun test` → 841 pass, 0 fail per task notes — no source files touched, so no test surface was at risk.
+- `bun build --target=bun src/index.ts --outfile ...` reported clean per task notes.
+- No exports, tests, or contracts touched. `.ralph/tasks.json` / `.ralph/tasks.completed.json` changes are the standard tool-managed archival (via `cairn task complete`), not direct edits.
+- The two RFC lines left as `/tmp/ralph-tts.sock` are accurate to current code, not a doc/code drift regression.
+
+### Verdict
+HAS_GAPS

@@ -6,10 +6,15 @@ import { BRAND, LEGACY, warnLegacyOnce } from './brand';
 /**
  * Resolve the config file path for a project root.
  *
+ * remove once all projects migrated — see the note below.
+ *
  * Prefers an existing cairn.json, falls back to an existing legacy ralph.json,
  * and defaults to cairn.json when neither exists so that new config is written
  * under the current brand. Always use this (never BRAND.configFile) when
  * reading or editing config that is expected to already exist.
+ *
+ * remove once all projects migrated — the ralph.json leg goes away; the helper
+ * itself stays, since callers still need a resolved config path.
  */
 export function findConfigFile(projectRoot: string): string {
   const current = path.join(projectRoot, BRAND.configFile);
@@ -30,6 +35,8 @@ export function findConfigFile(projectRoot: string): string {
 }
 
 /**
+ * remove once all projects migrated — the legacy ralph.json leg below.
+ *
  * Load and parse cairn.json (or a legacy ralph.json) from projectRoot,
  * applying defaults for missing fields.
  * Returns all defaults if no config file exists.
@@ -178,6 +185,9 @@ export interface AnthropicApiKeyResolution {
  * Resolve the Anthropic API key the narration server should use.
  *
  * CAIRN_ANTHROPIC_API_KEY -> legacy RALPH_ANTHROPIC_API_KEY -> plain ANTHROPIC_API_KEY.
+ * remove once all projects migrated — drop the middle leg (and the 'legacy'
+ * source, `warnIfLegacyApiKey`, and its call sites) once no shell profile on the
+ * machine still exports the RALPH_ name.
  * The main loop blanks ANTHROPIC_API_KEY before spawning `claude` (run.ts, plan.ts,
  * summarize.ts, post-task-reviewer.ts) to force Max-plan usage, so the prefixed names
  * are what still let the narration server reach a real key. Never normalize the
@@ -201,6 +211,8 @@ export function resolveAnthropicApiKeyChain(
 /**
  * Warn once when an Anthropic API key resolution fell back to the legacy
  * RALPH_ANTHROPIC_API_KEY name.
+ *
+ * remove once all projects migrated — whole function goes with the legacy leg.
  */
 export function warnIfLegacyApiKey(resolution: AnthropicApiKeyResolution): void {
   if (resolution.source !== 'legacy') return;

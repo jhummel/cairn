@@ -130,6 +130,7 @@ export function readTasksFile(
       if (dataDir) {
         // Dual-read: an existing .cairn_ snapshot wins, but a project that has
         // only ever written .ralph_ must still be recoverable.
+        // remove once all projects migrated — findTempFilePath -> tempFilePath.
         const snapshotPath = findTempFilePath(dataDir, 'tasks_snapshot.json');
         if (fs.existsSync(snapshotPath)) {
           let snapBytes: Buffer;

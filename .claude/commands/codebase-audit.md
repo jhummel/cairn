@@ -39,7 +39,7 @@ Do NOT rush to write planning notes. Stay in discussion mode until the user sign
 
 ### 3. Write planning-notes.md
 
-When the conversation feels complete — the user has triaged the findings and given direction — write `.ralph/planning-notes.md` incorporating the audit findings into the standard planning notes format:
+When the conversation feels complete — the user has triaged the findings and given direction — write `.cairn/planning-notes.md` incorporating the audit findings into the standard planning notes format:
 
 ```markdown
 ## Context

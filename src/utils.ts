@@ -5,7 +5,7 @@ import { BRAND, LEGACY, warnLegacyOnce } from './brand';
 
 /**
  * Resolve symlinks to find the real path of a file or directory.
- * Port of resolve_path() from bin/ralph lines 7-16.
+ * Port of resolve_path() from the original shell implementation.
  */
 export function resolvePath(target: string): string {
   let current = resolve(target);
@@ -30,6 +30,9 @@ export function resolvePath(target: string): string {
 /**
  * Name of the data directory present in `dir`, preferring the current brand
  * over the legacy one. Returns null when neither exists.
+ *
+ * remove once all projects migrated — the LEGACY.dataDir candidate collapses to
+ * a plain `statSync(join(dir, BRAND.dataDir))` check.
  */
 function dataDirNameAt(dir: string): string | null {
   for (const name of [BRAND.dataDir, LEGACY.dataDir]) {
@@ -43,6 +46,7 @@ function dataDirNameAt(dir: string): string | null {
   return null;
 }
 
+/** remove once all projects migrated — whole function goes with LEGACY.dataDir. */
 function warnIfLegacyDataDir(name: string, dir: string): void {
   if (name !== LEGACY.dataDir) return;
   warnLegacyOnce(
@@ -60,6 +64,9 @@ function warnIfLegacyDataDir(name: string, dir: string): void {
  * defaults to .cairn/ when neither exists so that new data is created under the
  * current brand. Always use this (never BRAND.dataDir) when building a path to
  * data that is expected to already exist.
+ *
+ * remove once all projects migrated — the .ralph/ leg of the fallback goes away;
+ * the helper itself stays, since callers still need a resolved data dir.
  */
 export function findDataDir(projectRoot: string): string {
   const name = dataDirNameAt(projectRoot);
@@ -82,6 +89,9 @@ export function findDataDir(projectRoot: string): string {
 // the data dir itself: build WRITE paths with `tempFilePath`, resolve READ
 // paths with `findTempFilePath`. Writing `.cairn_` without a read fallback
 // would silently discard whatever the legacy file was holding.
+//
+// remove once all projects migrated — the whole read-fallback tier collapses:
+// `findTempFilePath`/`allTempFilePaths` become `tempFilePath`.
 
 /**
  * Path for CREATING a runtime temp file — always the current brand's prefix.
@@ -95,6 +105,9 @@ export function tempFilePath(dataDir: string, suffix: string): string {
  * Every path a given temp file could live at, current brand first. Use when a
  * caller needs to test or remove all candidates (existence checks behind an
  * injected `existsSync`, cleanup sweeps) rather than resolve a single path.
+ *
+ * remove once all projects migrated — returns a single-element list today, so
+ * every caller collapses to `tempFilePath`.
  */
 export function allTempFilePaths(dataDir: string, suffix: string): string[] {
   return [
@@ -107,6 +120,8 @@ export function allTempFilePaths(dataDir: string, suffix: string): string[] {
  * Path for READING a runtime temp file: an existing `.cairn_`-prefixed file,
  * else an existing legacy `.ralph_`-prefixed one, else the current-brand path
  * (so a missing-file caller reports the name it would create).
+ *
+ * remove once all projects migrated — collapses to `tempFilePath`.
  */
 export function findTempFilePath(dataDir: string, suffix: string): string {
   const [current, legacy] = allTempFilePaths(dataDir, suffix);
@@ -127,10 +142,12 @@ export function findTempFilePath(dataDir: string, suffix: string): string {
  * Find the project root directory. Detection order:
  * 1. CAIRN_PROJECT_ROOT env var
  * 2. Walk upward from cwd looking for a .cairn/ (or legacy .ralph/) directory
+ *    — remove once all projects migrated: the legacy leg lives in
+ *    `dataDirNameAt`, so nothing in this function changes.
  * 3. Git root via `git rev-parse --show-toplevel`
  * 4. Fall back to cwd
  *
- * Port of find_project_root() from bin/ralph lines 26-52.
+ * Port of find_project_root() from the original shell implementation.
  */
 export function findProjectRoot(cwd?: string): string {
   const startDir = cwd ?? process.cwd();
@@ -189,7 +206,7 @@ export function resolveCairnRoot(): string {
   const binPath = process.argv[0];
   if (binPath) {
     const resolvedBin = resolvePath(binPath);
-    // Binary could be at dist/ralph or bin/ralph, so check parent
+    // Binary could be at dist/cairn or bin/cairn, so check parent
     let dir = dirname(resolvedBin);
     for (let i = 0; i < 3; i++) {
       if (existsSync(join(dir, 'package.json'))) {

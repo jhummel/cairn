@@ -24,8 +24,8 @@ async function importRunNarrate() {
   return mod.runNarrate;
 }
 
-const TEST_PID_FILE = path.join(os.tmpdir(), `ralph-narr-test-${Math.random().toString(36).slice(2)}.pid`);
-const TEST_SOCK_PATH = path.join(os.tmpdir(), `ralph-narr-test-${Math.random().toString(36).slice(2)}.sock`);
+const TEST_PID_FILE = path.join(os.tmpdir(), `cairn-narr-test-${Math.random().toString(36).slice(2)}.pid`);
+const TEST_SOCK_PATH = path.join(os.tmpdir(), `cairn-narr-test-${Math.random().toString(36).slice(2)}.sock`);
 
 describe('runNarrate', () => {
   let origEnv: NodeJS.ProcessEnv;
@@ -221,7 +221,7 @@ describe('runNarrate', () => {
 
   it('unknown action: spawns cairn_narrate.py with spawnSync', async () => {
     process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
-    process.env.CAIRN_LIB_DIR = '/usr/lib/ralph';
+    process.env.CAIRN_LIB_DIR = '/usr/lib/cairn';
 
     let capturedCmd = '';
     let capturedArgs: string[] = [];

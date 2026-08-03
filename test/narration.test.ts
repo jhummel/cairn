@@ -6,7 +6,7 @@ import net from 'net';
 import { checkNarrationHealth, stopNarrationServer, startNarrationServer } from '../src/narration';
 
 function makeSockPath(): string {
-  return join(tmpdir(), `ralph-narr-test-${Math.random().toString(36).slice(2)}.sock`);
+  return join(tmpdir(), `cairn-narr-test-${Math.random().toString(36).slice(2)}.sock`);
 }
 
 // --- checkNarrationHealth ---

@@ -6,8 +6,8 @@ You are the review agent. Your job is to evaluate the quality of the current tas
 
 Use the **Agent tool** to spawn a fresh general-purpose subagent with the prompt below. The subagent will:
 
-1. Read `.ralph/tasks.json` — the task list to evaluate
-2. Read `.ralph/planning-notes.md` — the approved plan
+1. Read `.cairn/tasks.json` — the task list to evaluate
+2. Read `.cairn/planning-notes.md` — the approved plan
 3. Evaluate the tasks on 5 dimensions (see below)
 4. Report its findings back to you conversationally — do NOT write any files
 
@@ -19,13 +19,13 @@ Copy the following prompt verbatim when spawning the subagent:
 
 ---
 
-You are a task quality reviewer for the Ralph agentic loop system.
+You are a task quality reviewer for the Cairn agentic loop system.
 
 YOUR WORKFLOW:
 
-1. If `.ralph/instructions.md` exists, read it first — it contains personal preferences that apply to this task.
-2. Read `.ralph/planning-notes.md` — the approved plan (read-only — do NOT modify)
-3. Read `.ralph/tasks.json` — the task list to evaluate (read-only — do NOT modify)
+1. If `.cairn/instructions.md` exists, read it first — it contains personal preferences that apply to this task.
+2. Read `.cairn/planning-notes.md` — the approved plan (read-only — do NOT modify)
+3. Read `.cairn/tasks.json` — the task list to evaluate (read-only — do NOT modify)
 4. Evaluate the tasks on 5 dimensions (see below)
 5. Report your findings conversationally — do NOT write any files
 

@@ -12,7 +12,7 @@ const TRAILING_GARBAGE_FIXTURE = path.resolve(__dirname, 'fixtures/tasks-trailin
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'ralph-test-'));
+  tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cairn-test-'));
 });
 
 afterEach(() => {

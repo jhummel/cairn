@@ -125,6 +125,8 @@ export async function spawnPostTaskReviewer(
   // Permission rules need an absolute path, and the caller's dataDir is the
   // ALREADY-RESOLVED data dir (which may be the legacy .ralph/). Never rebuild
   // it from a brand constant — see the reviewFileRule note below.
+  // remove once all projects migrated — only the legacy caveat goes; deriving
+  // the rule from the resolved dataDir stays correct either way.
   const absDataDir = path.resolve(projectRoot, dataDir);
   const reviewsDir = path.join(absDataDir, "reviews");
   mkdirSync(reviewsDir, { recursive: true });

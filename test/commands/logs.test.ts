@@ -12,7 +12,7 @@ describe('runLogs', () => {
   let consoleSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-logs-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-logs-test-'));
     dataDir = tmpDir;
 
     stdoutLines = [];

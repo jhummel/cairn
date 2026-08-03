@@ -23,6 +23,10 @@ export const BRAND = Object.freeze({
  * The pre-rename identity. Still read (never written) so that projects which
  * have not migrated keep working. Other projects on this machine still use the
  * legacy layout, so these fallbacks are load-bearing.
+ *
+ * remove once all projects migrated — deleting this object is the entry point
+ * for the removal round; every compatibility fallback in the codebase either
+ * reads from it or carries the same marker.
  */
 export const LEGACY = Object.freeze({
   name: 'ralph',

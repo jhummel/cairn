@@ -12,7 +12,7 @@ function expectEmptyResult(result: { archivedCount: number; prevNotes: string | 
 }
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `ralph-ta-test-${Math.random().toString(36).slice(2)}`);
+  const dir = join(tmpdir(), `cairn-ta-test-${Math.random().toString(36).slice(2)}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }

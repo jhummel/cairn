@@ -7,7 +7,7 @@ import * as tasksFileModule from '../src/tasks-file';
 import type { Task } from '../src/types';
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `ralph-tv-test-${Math.random().toString(36).slice(2)}`);
+  const dir = join(tmpdir(), `cairn-tv-test-${Math.random().toString(36).slice(2)}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }

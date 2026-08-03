@@ -31,7 +31,7 @@ describe('initCoreFiles', () => {
     consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
       stdoutLines.push(args.join(' '));
     });
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-init-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-init-test-'));
   });
 
   afterEach(() => {
@@ -308,7 +308,7 @@ describe('getConfigDefaults', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-defaults-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-defaults-test-'));
   });
 
   afterEach(() => {
@@ -690,7 +690,7 @@ describe('writeCairnJson', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-write-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-write-test-'));
   });
 
   afterEach(() => {
@@ -801,7 +801,7 @@ describe('createInstructionsFile', () => {
   let consoleSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-instructions-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-instructions-test-'));
     fs.mkdirSync(path.join(tmpDir, '.ralph'));
     stdoutLines = [];
     consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
@@ -940,7 +940,7 @@ describe('installNarrationHooks', () => {
   let consoleSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-hooks-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-hooks-test-'));
     stdoutLines = [];
     consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
       stdoutLines.push(args.join(' '));
@@ -1046,7 +1046,7 @@ describe('installSlashCommands', () => {
   let consoleSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-slash-cmds-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-slash-cmds-test-'));
     stdoutLines = [];
     consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
       stdoutLines.push(args.join(' '));
@@ -1063,7 +1063,7 @@ describe('installSlashCommands', () => {
     expect(fs.existsSync(path.join(tmpDir, '.claude', 'commands'))).toBe(true);
   });
 
-  test('copies .md files from ralph commands/ to target .claude/commands/', () => {
+  test('copies .md files from cairn commands/ to target .claude/commands/', () => {
     installSlashCommands(tmpDir);
     const destDir = path.join(tmpDir, '.claude', 'commands');
     expect(fs.existsSync(path.join(destDir, 'generate-tasks.md'))).toBe(true);
@@ -1107,42 +1107,42 @@ describe('installSlashCommands', () => {
   test('handles missing commands/ dir gracefully', () => {
     // We can't easily remove the real commands/ dir, so we test by passing
     // a custom cairnRoot that doesn't have a commands/ directory
-    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-no-cmds-'));
+    const fakeCairnRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-no-cmds-'));
     try {
-      installSlashCommands(tmpDir, fakeRalphRoot);
+      installSlashCommands(tmpDir, fakeCairnRoot);
       // Should not throw, just log a warning or do nothing
       expect(fs.existsSync(path.join(tmpDir, '.claude', 'commands'))).toBe(false);
     } finally {
-      fs.rmSync(fakeRalphRoot, { recursive: true });
+      fs.rmSync(fakeCairnRoot, { recursive: true });
     }
   });
 
   test('handles commands/ dir with no .md files gracefully', () => {
-    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-empty-cmds-'));
-    fs.mkdirSync(path.join(fakeRalphRoot, 'commands'));
-    fs.writeFileSync(path.join(fakeRalphRoot, 'commands', 'not-markdown.txt'), 'hi');
+    const fakeCairnRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-empty-cmds-'));
+    fs.mkdirSync(path.join(fakeCairnRoot, 'commands'));
+    fs.writeFileSync(path.join(fakeCairnRoot, 'commands', 'not-markdown.txt'), 'hi');
     try {
-      installSlashCommands(tmpDir, fakeRalphRoot);
+      installSlashCommands(tmpDir, fakeCairnRoot);
       // Directory might be created but no .md files copied
       const output = stdoutLines.join('\n');
       expect(output).not.toContain('.md');
     } finally {
-      fs.rmSync(fakeRalphRoot, { recursive: true });
+      fs.rmSync(fakeCairnRoot, { recursive: true });
     }
   });
 
   test('copies codebase-audit.md from mock cairnRoot to .claude/commands/ with correct content', () => {
-    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-audit-cmds-'));
-    fs.mkdirSync(path.join(fakeRalphRoot, 'commands'));
+    const fakeCairnRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-audit-cmds-'));
+    fs.mkdirSync(path.join(fakeCairnRoot, 'commands'));
     const auditContent = '# codebase-audit\nThis is the audit slash command.';
-    fs.writeFileSync(path.join(fakeRalphRoot, 'commands', 'codebase-audit.md'), auditContent);
+    fs.writeFileSync(path.join(fakeCairnRoot, 'commands', 'codebase-audit.md'), auditContent);
     try {
-      installSlashCommands(tmpDir, fakeRalphRoot);
+      installSlashCommands(tmpDir, fakeCairnRoot);
       const destPath = path.join(tmpDir, '.claude', 'commands', 'codebase-audit.md');
       expect(fs.existsSync(destPath)).toBe(true);
       expect(fs.readFileSync(destPath, 'utf8')).toBe(auditContent);
     } finally {
-      fs.rmSync(fakeRalphRoot, { recursive: true });
+      fs.rmSync(fakeCairnRoot, { recursive: true });
     }
   });
 });
@@ -1155,7 +1155,7 @@ describe('installAgents', () => {
   let consoleSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-agents-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-agents-test-'));
     stdoutLines = [];
     consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
       stdoutLines.push(args.join(' '));
@@ -1168,84 +1168,84 @@ describe('installAgents', () => {
   });
 
   test('creates .claude/agents/ directory if it does not exist', () => {
-    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-agents-src-'));
-    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
-    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'test-agent.md'), '# test agent');
+    const fakeCairnRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-agents-src-'));
+    fs.mkdirSync(path.join(fakeCairnRoot, 'agents'));
+    fs.writeFileSync(path.join(fakeCairnRoot, 'agents', 'test-agent.md'), '# test agent');
     try {
-      installAgents(tmpDir, fakeRalphRoot);
+      installAgents(tmpDir, fakeCairnRoot);
       expect(fs.existsSync(path.join(tmpDir, '.claude', 'agents'))).toBe(true);
       expect(fs.statSync(path.join(tmpDir, '.claude', 'agents')).isDirectory()).toBe(true);
     } finally {
-      fs.rmSync(fakeRalphRoot, { recursive: true });
+      fs.rmSync(fakeCairnRoot, { recursive: true });
     }
   });
 
-  test('copies .md files from ralph agents/ to target .claude/agents/', () => {
-    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-agents-src-'));
-    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
-    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'planner.md'), '# planner');
-    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'summarizer.md'), '# summarizer');
+  test('copies .md files from cairn agents/ to target .claude/agents/', () => {
+    const fakeCairnRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-agents-src-'));
+    fs.mkdirSync(path.join(fakeCairnRoot, 'agents'));
+    fs.writeFileSync(path.join(fakeCairnRoot, 'agents', 'planner.md'), '# planner');
+    fs.writeFileSync(path.join(fakeCairnRoot, 'agents', 'summarizer.md'), '# summarizer');
     try {
-      installAgents(tmpDir, fakeRalphRoot);
+      installAgents(tmpDir, fakeCairnRoot);
       const destDir = path.join(tmpDir, '.claude', 'agents');
       expect(fs.existsSync(path.join(destDir, 'planner.md'))).toBe(true);
       expect(fs.existsSync(path.join(destDir, 'summarizer.md'))).toBe(true);
     } finally {
-      fs.rmSync(fakeRalphRoot, { recursive: true });
+      fs.rmSync(fakeCairnRoot, { recursive: true });
     }
   });
 
   test('copied files have the same content as source', () => {
-    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-agents-src-'));
-    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
+    const fakeCairnRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-agents-src-'));
+    fs.mkdirSync(path.join(fakeCairnRoot, 'agents'));
     const content = '# agent content\nsome details here';
-    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'my-agent.md'), content);
+    fs.writeFileSync(path.join(fakeCairnRoot, 'agents', 'my-agent.md'), content);
     try {
-      installAgents(tmpDir, fakeRalphRoot);
+      installAgents(tmpDir, fakeCairnRoot);
       const destContent = fs.readFileSync(path.join(tmpDir, '.claude', 'agents', 'my-agent.md'), 'utf8');
       expect(destContent).toBe(content);
     } finally {
-      fs.rmSync(fakeRalphRoot, { recursive: true });
+      fs.rmSync(fakeCairnRoot, { recursive: true });
     }
   });
 
   test('logs installed message for each copied file', () => {
-    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-agents-src-'));
-    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
-    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'planner.md'), '# planner');
+    const fakeCairnRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-agents-src-'));
+    fs.mkdirSync(path.join(fakeCairnRoot, 'agents'));
+    fs.writeFileSync(path.join(fakeCairnRoot, 'agents', 'planner.md'), '# planner');
     try {
-      installAgents(tmpDir, fakeRalphRoot);
+      installAgents(tmpDir, fakeCairnRoot);
       const output = stdoutLines.join('\n');
       expect(output).toContain('planner.md');
     } finally {
-      fs.rmSync(fakeRalphRoot, { recursive: true });
+      fs.rmSync(fakeCairnRoot, { recursive: true });
     }
   });
 
   test('handles missing agents/ dir gracefully — no error, no files created', () => {
-    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-no-agents-'));
+    const fakeCairnRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-no-agents-'));
     try {
-      expect(() => installAgents(tmpDir, fakeRalphRoot)).not.toThrow();
+      expect(() => installAgents(tmpDir, fakeCairnRoot)).not.toThrow();
       expect(fs.existsSync(path.join(tmpDir, '.claude', 'agents'))).toBe(false);
     } finally {
-      fs.rmSync(fakeRalphRoot, { recursive: true });
+      fs.rmSync(fakeCairnRoot, { recursive: true });
     }
   });
 
   test('handles agents/ dir with no .md files gracefully', () => {
-    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-empty-agents-'));
-    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
-    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'not-markdown.txt'), 'hi');
+    const fakeCairnRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-empty-agents-'));
+    fs.mkdirSync(path.join(fakeCairnRoot, 'agents'));
+    fs.writeFileSync(path.join(fakeCairnRoot, 'agents', 'not-markdown.txt'), 'hi');
     try {
-      expect(() => installAgents(tmpDir, fakeRalphRoot)).not.toThrow();
+      expect(() => installAgents(tmpDir, fakeCairnRoot)).not.toThrow();
       const output = stdoutLines.join('\n');
       expect(output).not.toContain('.md');
     } finally {
-      fs.rmSync(fakeRalphRoot, { recursive: true });
+      fs.rmSync(fakeCairnRoot, { recursive: true });
     }
   });
 
-  test('copies actual ralph agents to .claude/agents/', () => {
+  test('copies actual cairn agents to .claude/agents/', () => {
     installAgents(tmpDir);
     const destDir = path.join(tmpDir, '.claude', 'agents');
     expect(fs.existsSync(path.join(destDir, 'planner.md'))).toBe(true);
@@ -1255,17 +1255,17 @@ describe('installAgents', () => {
   });
 
   test('copies audit-planner.md from mock cairnRoot to .claude/agents/ with correct content', () => {
-    const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-audit-agents-'));
-    fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
+    const fakeCairnRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-audit-agents-'));
+    fs.mkdirSync(path.join(fakeCairnRoot, 'agents'));
     const agentContent = '# audit-planner\nThis is the audit planner agent.';
-    fs.writeFileSync(path.join(fakeRalphRoot, 'agents', 'audit-planner.md'), agentContent);
+    fs.writeFileSync(path.join(fakeCairnRoot, 'agents', 'audit-planner.md'), agentContent);
     try {
-      installAgents(tmpDir, fakeRalphRoot);
+      installAgents(tmpDir, fakeCairnRoot);
       const destPath = path.join(tmpDir, '.claude', 'agents', 'audit-planner.md');
       expect(fs.existsSync(destPath)).toBe(true);
       expect(fs.readFileSync(destPath, 'utf8')).toBe(agentContent);
     } finally {
-      fs.rmSync(fakeRalphRoot, { recursive: true });
+      fs.rmSync(fakeCairnRoot, { recursive: true });
     }
   });
 });
@@ -1293,7 +1293,7 @@ describe('runInit', () => {
   let consoleSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-run-init-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-run-init-test-'));
     stdoutLines = [];
     consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
       stdoutLines.push(args.join(' '));

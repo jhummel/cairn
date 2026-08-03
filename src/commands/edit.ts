@@ -18,6 +18,7 @@ export function runEdit(target: string, projectRoot: string, dataDir: string): v
     case 'config':
       // Resolve, never reconstruct: a project still on ralph.json must open
       // that file rather than a cairn.json that does not exist.
+      // remove once all projects migrated — the call stays, the caveat goes.
       filePath = findConfigFile(projectRoot);
       break;
     default:

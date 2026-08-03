@@ -147,7 +147,7 @@ describe('setupProjectContext', () => {
   });
 
   test('respects --project-root override', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
     try {
       const result = setupProjectContext(tmpDir);
       expect(result.projectRoot).toBe(tmpDir);
@@ -158,7 +158,7 @@ describe('setupProjectContext', () => {
   });
 
   test('auto-detects health check when not configured', () => {
-    // Since we're running in the ralph project root which has package.json,
+    // Since we're running in the cairn project root which has package.json,
     // the health check may or may not be auto-detected. Just verify it's set.
     setupProjectContext();
     expect(process.env.CAIRN_HEALTH_CHECK).toBeDefined();
@@ -168,7 +168,7 @@ describe('setupProjectContext', () => {
     let tmpDir: string;
 
     beforeEach(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
     });
 
     afterEach(() => {
@@ -220,7 +220,7 @@ describe('summarize action', () => {
       savedEnv[key] = process.env[key];
       delete process.env[key];
     }
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
   });
 
   afterEach(() => {
@@ -237,7 +237,7 @@ describe('summarize action', () => {
   async function capturedSummarizeOpts(): Promise<any> {
     const spy = spyOn(summarizeModule, 'runSummarize').mockImplementation(async () => {});
     try {
-      await main(['node', 'ralph', '--project-root', tmpDir, 'summarize']);
+      await main(['node', 'cairn', '--project-root', tmpDir, 'summarize']);
       return spy.mock.calls[0]?.[0];
     } finally {
       spy.mockRestore();
@@ -287,7 +287,7 @@ describe('main', () => {
     const logSpy = spyOn(process.stdout, 'write');
 
     try {
-      await main(['node', 'ralph', '--version']);
+      await main(['node', 'cairn', '--version']);
     } catch {
       // Commander calls process.exit(0) after --version
     }
@@ -302,7 +302,7 @@ describe('main', () => {
   test('status command outputs project info', async () => {
     const logSpy = spyOn(console, 'log').mockImplementation(() => {});
 
-    await main(['node', 'ralph', 'status']);
+    await main(['node', 'cairn', 'status']);
 
     const output = logSpy.mock.calls.map((c) => String(c[0])).join(' ');
     expect(output).toContain('Project:');
@@ -315,9 +315,9 @@ describe('main', () => {
       status: 0, signal: null, pid: 1, output: [], stdout: Buffer.alloc(0), stderr: Buffer.alloc(0),
     } as any);
 
-    await main(['node', 'ralph', 'edit']);
+    await main(['node', 'cairn', 'edit']);
 
-    // Should have tried to open the ralph project's tasks.json in an editor
+    // Should have tried to open the cairn project's tasks.json in an editor
     expect(spawnSpy).toHaveBeenCalledTimes(1);
     const [, args] = spawnSpy.mock.calls[0];
     expect(args[0]).toContain('tasks.json');
@@ -328,7 +328,7 @@ describe('main', () => {
   test('logs command prints log or "No iteration log found."', async () => {
     const logSpy = spyOn(console, 'log').mockImplementation(() => {});
 
-    await main(['node', 'ralph', 'logs']);
+    await main(['node', 'cairn', 'logs']);
 
     const output = logSpy.mock.calls.map((c) => String(c[0])).join(' ');
     // Either the log file exists and has content, or it doesn't exist

@@ -18,16 +18,16 @@ import { getRound } from '../../src/task-counter';
 const FIXTURES_DIR = path.join(__dirname, '..', 'fixtures');
 
 // Helper to create a temp dir with optional .ralph subdir
-function makeTempDir(withRalphDir = false, withAgentFile = false): { tmpDir: string; ralphDir: string } {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-plan-test-'));
-  const ralphDir = path.join(tmpDir, '.ralph');
-  if (withRalphDir) fs.mkdirSync(ralphDir);
+function makeTempDir(withCairnDir = false, withAgentFile = false): { tmpDir: string; cairnDir: string } {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-plan-test-'));
+  const cairnDir = path.join(tmpDir, '.ralph');
+  if (withCairnDir) fs.mkdirSync(cairnDir);
   if (withAgentFile) {
     const agentsDir = path.join(tmpDir, '.claude', 'agents');
     fs.mkdirSync(agentsDir, { recursive: true });
     fs.writeFileSync(path.join(agentsDir, 'planner.md'), 'You are a planning assistant.');
   }
-  return { tmpDir, ralphDir };
+  return { tmpDir, cairnDir };
 }
 
 describe('formatBanner', () => {
@@ -49,86 +49,86 @@ describe('formatBanner', () => {
 
 describe('formatPlanningNotesStatus', () => {
   test('reports not found when file missing', () => {
-    const { ralphDir } = makeTempDir(true);
+    const { cairnDir } = makeTempDir(true);
     try {
-      const result = formatPlanningNotesStatus(ralphDir);
+      const result = formatPlanningNotesStatus(cairnDir);
       expect(result).toContain('not found');
       expect(result).toContain('planning-notes.md');
     } finally {
-      fs.rmSync(path.dirname(ralphDir), { recursive: true });
+      fs.rmSync(path.dirname(cairnDir), { recursive: true });
     }
   });
 
   test('reports found when file exists', () => {
-    const { ralphDir } = makeTempDir(true);
+    const { cairnDir } = makeTempDir(true);
     try {
-      fs.writeFileSync(path.join(ralphDir, 'planning-notes.md'), '# Notes');
-      const result = formatPlanningNotesStatus(ralphDir);
+      fs.writeFileSync(path.join(cairnDir, 'planning-notes.md'), '# Notes');
+      const result = formatPlanningNotesStatus(cairnDir);
       expect(result).toContain('found');
-      expect(result).toContain(ralphDir);
+      expect(result).toContain(cairnDir);
     } finally {
-      fs.rmSync(path.dirname(ralphDir), { recursive: true });
+      fs.rmSync(path.dirname(cairnDir), { recursive: true });
     }
   });
 
   test('includes full path to planning notes', () => {
-    const { ralphDir } = makeTempDir(true);
+    const { cairnDir } = makeTempDir(true);
     try {
-      const notesPath = path.join(ralphDir, 'planning-notes.md');
-      const result = formatPlanningNotesStatus(ralphDir);
+      const notesPath = path.join(cairnDir, 'planning-notes.md');
+      const result = formatPlanningNotesStatus(cairnDir);
       expect(result).toContain(notesPath);
     } finally {
-      fs.rmSync(path.dirname(ralphDir), { recursive: true });
+      fs.rmSync(path.dirname(cairnDir), { recursive: true });
     }
   });
 });
 
 describe('formatCompletedCount', () => {
   test('returns null when file missing', () => {
-    const { ralphDir } = makeTempDir(true);
+    const { cairnDir } = makeTempDir(true);
     try {
-      expect(formatCompletedCount(ralphDir)).toBeNull();
+      expect(formatCompletedCount(cairnDir)).toBeNull();
     } finally {
-      fs.rmSync(path.dirname(ralphDir), { recursive: true });
+      fs.rmSync(path.dirname(cairnDir), { recursive: true });
     }
   });
 
   test('returns null when tasks array is empty', () => {
-    const { ralphDir } = makeTempDir(true);
+    const { cairnDir } = makeTempDir(true);
     try {
       fs.writeFileSync(
-        path.join(ralphDir, 'tasks.completed.json'),
+        path.join(cairnDir, 'tasks.completed.json'),
         JSON.stringify({ tasks: [] })
       );
-      expect(formatCompletedCount(ralphDir)).toBeNull();
+      expect(formatCompletedCount(cairnDir)).toBeNull();
     } finally {
-      fs.rmSync(path.dirname(ralphDir), { recursive: true });
+      fs.rmSync(path.dirname(cairnDir), { recursive: true });
     }
   });
 
   test('returns count string when tasks exist', () => {
-    const { ralphDir } = makeTempDir(true);
+    const { cairnDir } = makeTempDir(true);
     try {
       fs.copyFileSync(
         path.join(FIXTURES_DIR, 'tasks-completed.json'),
-        path.join(ralphDir, 'tasks.completed.json')
+        path.join(cairnDir, 'tasks.completed.json')
       );
-      const result = formatCompletedCount(ralphDir);
+      const result = formatCompletedCount(cairnDir);
       expect(result).not.toBeNull();
       expect(result).toContain('Previously completed:');
       expect(result).toContain('task(s)');
     } finally {
-      fs.rmSync(path.dirname(ralphDir), { recursive: true });
+      fs.rmSync(path.dirname(cairnDir), { recursive: true });
     }
   });
 
   test('returns null on malformed JSON', () => {
-    const { ralphDir } = makeTempDir(true);
+    const { cairnDir } = makeTempDir(true);
     try {
-      fs.writeFileSync(path.join(ralphDir, 'tasks.completed.json'), 'not json');
-      expect(formatCompletedCount(ralphDir)).toBeNull();
+      fs.writeFileSync(path.join(cairnDir, 'tasks.completed.json'), 'not json');
+      expect(formatCompletedCount(cairnDir)).toBeNull();
     } finally {
-      fs.rmSync(path.dirname(ralphDir), { recursive: true });
+      fs.rmSync(path.dirname(cairnDir), { recursive: true });
     }
   });
 });
@@ -211,9 +211,9 @@ describe('displayPreflight', () => {
   });
 
   test('prints project name banner', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, cairnDir } = makeTempDir(true);
     try {
-      displayPreflight('my-project', ralphDir);
+      displayPreflight('my-project', cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('Project: my-project');
     } finally {
@@ -222,9 +222,9 @@ describe('displayPreflight', () => {
   });
 
   test('prints planning notes status', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, cairnDir } = makeTempDir(true);
     try {
-      displayPreflight('proj', ralphDir);
+      displayPreflight('proj', cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('planning-notes.md');
     } finally {
@@ -233,13 +233,13 @@ describe('displayPreflight', () => {
   });
 
   test('prints previously completed count when file has tasks', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, cairnDir } = makeTempDir(true);
     try {
       fs.copyFileSync(
         path.join(FIXTURES_DIR, 'tasks-completed.json'),
-        path.join(ralphDir, 'tasks.completed.json')
+        path.join(cairnDir, 'tasks.completed.json')
       );
-      displayPreflight('proj', ralphDir);
+      displayPreflight('proj', cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('Previously completed:');
     } finally {
@@ -248,9 +248,9 @@ describe('displayPreflight', () => {
   });
 
   test('does not print completed count when file is missing', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, cairnDir } = makeTempDir(true);
     try {
-      displayPreflight('proj', ralphDir);
+      displayPreflight('proj', cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).not.toContain('Previously completed');
     } finally {
@@ -259,9 +259,9 @@ describe('displayPreflight', () => {
   });
 
   test('prints starting fresh message when tasks.json missing', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, cairnDir } = makeTempDir(true);
     try {
-      displayPreflight('proj', ralphDir);
+      displayPreflight('proj', cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('starting fresh');
     } finally {
@@ -270,13 +270,13 @@ describe('displayPreflight', () => {
   });
 
   test('prints tasks summary when tasks.json exists', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true);
+    const { tmpDir, cairnDir } = makeTempDir(true);
     try {
       fs.copyFileSync(
         path.join(FIXTURES_DIR, 'tasks-mixed.json'),
-        path.join(ralphDir, 'tasks.json')
+        path.join(cairnDir, 'tasks.json')
       );
-      displayPreflight('proj', ralphDir);
+      displayPreflight('proj', cairnDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('Existing tasks.json');
       expect(output).toContain('Status:');
@@ -353,7 +353,7 @@ describe('buildDynamicContext', () => {
   });
 
   test('includes PERSONAL INSTRUCTIONS block when instructions.md exists in dataDir', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-plan-test-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-plan-test-'));
     try {
       fs.writeFileSync(path.join(tmpDir, 'instructions.md'), '* Always use TDD');
       const result = buildDynamicContext({
@@ -370,7 +370,7 @@ describe('buildDynamicContext', () => {
   });
 
   test('omits PERSONAL INSTRUCTIONS block when instructions.md does not exist', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-plan-test-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-plan-test-'));
     try {
       const result = buildDynamicContext({
         projectName: 'proj',
@@ -438,7 +438,7 @@ describe('runPlan', () => {
   });
 
   test('calls displayPreflight before spawning claude', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn } = makeSpawnSyncSpy();
     const lines: string[] = [];
     consoleSpy.mockImplementation((...args: any[]) => { lines.push(args.join(' ')); });
@@ -446,7 +446,7 @@ describe('runPlan', () => {
       runPlan({
         projectName: 'my-proj',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents: [],
         spawnSyncFn: spawnFn,
       });
@@ -458,13 +458,13 @@ describe('runPlan', () => {
   });
 
   test('spawns claude with --agents and --agent args', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents: [],
         spawnSyncFn: spawnFn,
       });
@@ -479,13 +479,13 @@ describe('runPlan', () => {
   });
 
   test('spawns claude with --allowedTools including Agent for slash command support', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents: [],
         spawnSyncFn: spawnFn,
       });
@@ -499,13 +499,13 @@ describe('runPlan', () => {
   });
 
   test('append-system-prompt contains dynamic context', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
         projectName: 'my-app',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents: [],
         spawnSyncFn: spawnFn,
       });
@@ -515,20 +515,20 @@ describe('runPlan', () => {
       const prompt = args[promptIdx + 1];
       expect(prompt).toContain('PROJECT: my-app');
       expect(prompt).toContain(`PROJECT ROOT: ${tmpDir}`);
-      expect(prompt).toContain(`DATA DIR: ${ralphDir}`);
+      expect(prompt).toContain(`DATA DIR: ${cairnDir}`);
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
   });
 
   test('sets cwd to projectRoot', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents: [],
         spawnSyncFn: spawnFn,
       });
@@ -539,13 +539,13 @@ describe('runPlan', () => {
   });
 
   test('clears ANTHROPIC_API_KEY in spawned env', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents: [],
         spawnSyncFn: spawnFn,
       });
@@ -556,13 +556,13 @@ describe('runPlan', () => {
   });
 
   test('uses stdio inherit for interactive session', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents: [],
         spawnSyncFn: spawnFn,
       });
@@ -573,7 +573,7 @@ describe('runPlan', () => {
   });
 
   test('includes agents in dynamic context when provided', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     const agents: AgentInfo[] = [
       { name: 'reviewer', description: 'Code review', model: 'opus', file: 'reviewer.md' },
@@ -582,7 +582,7 @@ describe('runPlan', () => {
       runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents,
         spawnSyncFn: spawnFn,
       });
@@ -597,13 +597,13 @@ describe('runPlan', () => {
   });
 
   test('returns void (synchronous, no menu loops)', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn } = makeSpawnSyncSpy();
     try {
       const result = runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents: [],
         spawnSyncFn: spawnFn,
       });
@@ -614,36 +614,36 @@ describe('runPlan', () => {
   });
 
   test('bumps the planning round in state.json', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn } = makeSpawnSyncSpy();
     try {
-      expect(getRound(ralphDir)).toBe(1);
+      expect(getRound(cairnDir)).toBe(1);
       runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents: [],
         spawnSyncFn: spawnFn,
       });
-      expect(getRound(ralphDir)).toBe(2);
+      expect(getRound(cairnDir)).toBe(2);
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
   });
 
   test('bumps the round even though spawnSyncFn is a stub', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
       runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents: [],
         spawnSyncFn: spawnFn,
       });
       expect(calls).toHaveLength(1);
-      const statePath = path.join(ralphDir, 'state.json');
+      const statePath = path.join(cairnDir, 'state.json');
       expect(fs.existsSync(statePath)).toBe(true);
       const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
       expect(state.round).toBe(2);
@@ -653,18 +653,18 @@ describe('runPlan', () => {
   });
 
   test('preserves an existing nextTaskId across the bump', () => {
-    const { tmpDir, ralphDir } = makeTempDir(true, true);
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn } = makeSpawnSyncSpy();
     try {
-      fs.writeFileSync(path.join(ralphDir, 'state.json'), JSON.stringify({ nextTaskId: 42 }));
+      fs.writeFileSync(path.join(cairnDir, 'state.json'), JSON.stringify({ nextTaskId: 42 }));
       runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
-        dataDir: ralphDir,
+        dataDir: cairnDir,
         agents: [],
         spawnSyncFn: spawnFn,
       });
-      const state = JSON.parse(fs.readFileSync(path.join(ralphDir, 'state.json'), 'utf8'));
+      const state = JSON.parse(fs.readFileSync(path.join(cairnDir, 'state.json'), 'utf8'));
       expect(state.nextTaskId).toBe(42);
       expect(state.round).toBe(2);
     } finally {

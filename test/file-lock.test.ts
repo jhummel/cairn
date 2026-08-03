@@ -6,7 +6,7 @@ import { acquireLock, sleepSync, FileLockError } from '../src/file-lock';
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'ralph-lock-test-'));
+  tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cairn-lock-test-'));
 });
 
 afterEach(() => {
