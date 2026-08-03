@@ -217,6 +217,32 @@ describe('initCoreFiles', () => {
     expect(stdoutLines.join('\n')).toContain('state.json already exists.');
     expect(stdoutLines.join('\n')).not.toContain('Created: .ralph/state.json');
   });
+
+  // --- .cairn/ layout (current brand) ---
+
+  test('creates .cairn/ directory and prints Created: .cairn/', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    initCoreFiles(tmpDir, dataDir);
+    expect(fs.existsSync(dataDir)).toBe(true);
+    expect(stdoutLines.join('\n')).toContain('Created: .cairn/');
+    expect(stdoutLines.join('\n')).not.toContain('Created: .ralph/');
+  });
+
+  test('prints .cairn/ directory already exists when it exists', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    initCoreFiles(tmpDir, dataDir);
+    expect(stdoutLines.join('\n')).toContain('.cairn/ directory already exists.');
+  });
+
+  test('prints Created: .cairn/.gitignore and .cairn/tasks.json and .cairn/state.json', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    initCoreFiles(tmpDir, dataDir);
+    const output = stdoutLines.join('\n');
+    expect(output).toContain('Created: .cairn/.gitignore');
+    expect(output).toContain('Created: .cairn/tasks.json');
+    expect(output).toContain('Created: .cairn/state.json');
+  });
 });
 
 // --- parseBooleanInput tests ---
@@ -310,6 +336,23 @@ describe('getConfigDefaults', () => {
     );
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.healthCheck).toBe('npm run type-check');
+  });
+
+  test('loads existing cairn.json values as defaults', () => {
+    const existing = {
+      projectName: 'my-cairn-app',
+      projectDescription: 'A cairn app',
+      healthCheck: 'make check',
+      defaultTestCommand: 'bun test',
+      implementationFile: 'DOCS.md',
+      truncateText: false,
+      summarize: { claudeMdPattern: '**/CLAUDE.md' },
+      narration: { enabled: true, voice: 'af_sky', ntfyTopic: 'my-topic' },
+    };
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(existing, null, 2));
+    const defaults = getConfigDefaults(tmpDir);
+    expect(defaults.projectName).toBe('my-cairn-app');
+    expect(defaults.narrationVoice).toBe('af_sky');
   });
 
   test('loads existing ralph.json values as defaults', () => {
@@ -654,7 +697,7 @@ describe('writeCairnJson', () => {
     fs.rmSync(tmpDir, { recursive: true });
   });
 
-  test('writes ralph.json with correct structure', () => {
+  test('writes cairn.json with correct structure', () => {
     const config = {
       projectName: 'my-app',
       projectDescription: 'A test app',
@@ -666,7 +709,8 @@ describe('writeCairnJson', () => {
       narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
     writeCairnJson(tmpDir, config);
-    const written = JSON.parse(fs.readFileSync(path.join(tmpDir, 'ralph.json'), 'utf8'));
+    expect(fs.existsSync(path.join(tmpDir, 'cairn.json'))).toBe(true);
+    const written = JSON.parse(fs.readFileSync(path.join(tmpDir, 'cairn.json'), 'utf8'));
     expect(written.projectName).toBe('my-app');
     expect(written.projectDescription).toBe('A test app');
     expect(written.healthCheck).toBe('make check');
@@ -691,12 +735,12 @@ describe('writeCairnJson', () => {
       narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
     writeCairnJson(tmpDir, config);
-    const raw = fs.readFileSync(path.join(tmpDir, 'ralph.json'), 'utf8');
+    const raw = fs.readFileSync(path.join(tmpDir, 'cairn.json'), 'utf8');
     expect(raw.endsWith('\n')).toBe(true);
   });
 
-  test('overwrites existing ralph.json', () => {
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), '{"old": true}');
+  test('overwrites existing cairn.json', () => {
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), '{"old": true}');
     const config = {
       projectName: 'new-app',
       projectDescription: '',
@@ -708,9 +752,27 @@ describe('writeCairnJson', () => {
       narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
     writeCairnJson(tmpDir, config);
-    const written = JSON.parse(fs.readFileSync(path.join(tmpDir, 'ralph.json'), 'utf8'));
+    const written = JSON.parse(fs.readFileSync(path.join(tmpDir, 'cairn.json'), 'utf8'));
     expect(written.projectName).toBe('new-app');
     expect(written.old).toBeUndefined();
+  });
+
+  test('does not touch an existing legacy ralph.json', () => {
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), '{"legacy": true}');
+    const config = {
+      projectName: 'new-app',
+      projectDescription: '',
+      healthCheck: '',
+      defaultTestCommand: '',
+      implementationFile: 'IMPLEMENTATION.md',
+      truncateText: true,
+      summarize: { claudeMdPattern: '' },
+      narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
+    };
+    writeCairnJson(tmpDir, config);
+    expect(fs.existsSync(path.join(tmpDir, 'cairn.json'))).toBe(true);
+    const legacy = JSON.parse(fs.readFileSync(path.join(tmpDir, 'ralph.json'), 'utf8'));
+    expect(legacy).toEqual({ legacy: true });
   });
 
   test('JSON is pretty-printed with 2-space indent', () => {
@@ -725,7 +787,7 @@ describe('writeCairnJson', () => {
       narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
     writeCairnJson(tmpDir, config);
-    const raw = fs.readFileSync(path.join(tmpDir, 'ralph.json'), 'utf8');
+    const raw = fs.readFileSync(path.join(tmpDir, 'cairn.json'), 'utf8');
     // Should match JSON.stringify with 2-space indent
     expect(raw).toBe(JSON.stringify(config, null, 2) + '\n');
   });
@@ -774,6 +836,22 @@ describe('createInstructionsFile', () => {
     const rl = createMockPrompt(['y']);
     await createInstructionsFile(dataDir, rl, noopSpawn);
     expect(stdoutLines.join('\n')).toContain('Created: .ralph/instructions.md');
+  });
+
+  test('prompts and prints using .cairn/ when dataDir is .cairn', async () => {
+    const cairnDataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(cairnDataDir);
+    const questions: string[] = [];
+    const rl: PromptInterface = {
+      question: async (query: string) => {
+        questions.push(query);
+        return 'y';
+      },
+      close: () => {},
+    };
+    await createInstructionsFile(cairnDataDir, rl, noopSpawn);
+    expect(questions.some(q => q.includes('.cairn/instructions.md'))).toBe(true);
+    expect(stdoutLines.join('\n')).toContain('Created: .cairn/instructions.md');
   });
 
   test('does not overwrite existing instructions.md', async () => {
@@ -921,6 +999,33 @@ describe('installNarrationHooks', () => {
       const content = fs.readFileSync(path.join(hooksDir, hook), 'utf8');
       expect(content).toMatch(/^#!\/bin\/bash/);
     }
+  });
+
+  test('hook scripts point at the cairn-tts socket, not the legacy ralph-tts one', async () => {
+    const rl = createMockPrompt(['y']);
+    await installNarrationHooks(tmpDir, true, rl);
+    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
+    for (const hook of ['narrate.sh', 'speak.sh', 'notify.sh']) {
+      const content = fs.readFileSync(path.join(hooksDir, hook), 'utf8');
+      expect(content).toContain('/tmp/cairn-tts.sock');
+      expect(content).not.toContain('/tmp/ralph-tts.sock');
+    }
+  });
+
+  test('prompt mentions the Cairn narration server and socket path', async () => {
+    const questions: string[] = [];
+    const rl: PromptInterface = {
+      question: async (query: string) => {
+        questions.push(query);
+        return 'n';
+      },
+      close: () => {},
+    };
+    await installNarrationHooks(tmpDir, true, rl);
+    const output = stdoutLines.join('\n');
+    expect(output).toContain('Cairn narration server');
+    expect(output).toContain('/tmp/cairn-tts.sock');
+    expect(output).not.toContain('Ralph narration server');
   });
 
   test('prints already installed when hooks exist', async () => {
@@ -1168,14 +1273,14 @@ describe('installAgents', () => {
 // --- showNextSteps tests ---
 
 describe('showNextSteps', () => {
-  test('prints ralph plan suggestion', () => {
+  test('prints cairn plan suggestion', () => {
     const lines: string[] = [];
     const spy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
       lines.push(args.join(' '));
     });
     showNextSteps();
     spy.mockRestore();
-    expect(lines.join('\n')).toContain('ralph plan');
+    expect(lines.join('\n')).toContain('cairn plan');
     expect(lines.join('\n')).toContain('Next steps');
   });
 });
@@ -1207,28 +1312,38 @@ describe('runInit', () => {
     return ['', '', '', '', '', '', '', '', 'n'];
   }
 
-  test('creates .ralph/ dir, tasks.json, and ralph.json', async () => {
+  test('creates .ralph/ dir, tasks.json, and cairn.json', async () => {
     const dataDir = path.join(tmpDir, '.ralph');
     const rl = createMockPrompt(allDefaultAnswers());
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(dataDir)).toBe(true);
     expect(fs.existsSync(path.join(dataDir, 'tasks.json'))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, 'ralph.json'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'cairn.json'))).toBe(true);
+  });
+
+  test('creates .cairn/ dir, tasks.json, and cairn.json', async () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    const rl = createMockPrompt(allDefaultAnswers());
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    expect(fs.existsSync(dataDir)).toBe(true);
+    expect(fs.existsSync(path.join(dataDir, 'tasks.json'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'cairn.json'))).toBe(true);
+    expect(stdoutLines.join('\n')).toContain('Created: .cairn/');
   });
 
   test('prints initializing banner with project root', async () => {
     const dataDir = path.join(tmpDir, '.ralph');
     const rl = createMockPrompt(allDefaultAnswers());
     await runInit(tmpDir, dataDir, rl, noopSpawn);
-    expect(stdoutLines.join('\n')).toContain('Initializing Ralph in:');
+    expect(stdoutLines.join('\n')).toContain('Initializing Cairn in:');
     expect(stdoutLines.join('\n')).toContain(tmpDir);
   });
 
-  test('prints Wrote: ralph.json', async () => {
+  test('prints Wrote: cairn.json', async () => {
     const dataDir = path.join(tmpDir, '.ralph');
     const rl = createMockPrompt(allDefaultAnswers());
     await runInit(tmpDir, dataDir, rl, noopSpawn);
-    expect(stdoutLines.join('\n')).toContain('Wrote: ralph.json');
+    expect(stdoutLines.join('\n')).toContain('Wrote: cairn.json');
   });
 
   test('prints Next steps at end', async () => {

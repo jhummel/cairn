@@ -5,6 +5,7 @@ import type { CairnConfig } from '../types';
 import { loadConfig, autoDetectHealthCheck } from '../config';
 import { resolveCairnRoot } from '../utils';
 import { seedNextId } from '../task-counter';
+import { BRAND } from '../brand';
 
 const GITIGNORE_CONTENT = `# Runtime temp files (tasks.json and planning-notes.md are tracked)
 .cairn_complete
@@ -46,39 +47,44 @@ export interface ConfigDefaults {
 }
 
 export function initCoreFiles(projectRoot: string, dataDir: string): void {
-  // Create .ralph/ directory
+  // dataDir's basename reflects whichever layout the caller resolved (current
+  // brand for a fresh init, legacy for a re-init on an existing project) — never
+  // hardcode it, or messages lie about which directory was actually touched.
+  const dirName = path.basename(dataDir);
+
+  // Create the data directory
   if (fs.existsSync(dataDir)) {
-    console.log('  .ralph/ directory already exists.');
+    console.log(`  ${dirName}/ directory already exists.`);
   } else {
     fs.mkdirSync(dataDir, { recursive: true });
-    console.log('  Created: .ralph/');
+    console.log(`  Created: ${dirName}/`);
   }
 
-  // Create .ralph/.gitignore
+  // Create the .gitignore inside the data directory
   const gitignorePath = path.join(dataDir, '.gitignore');
   if (!fs.existsSync(gitignorePath)) {
     fs.writeFileSync(gitignorePath, GITIGNORE_CONTENT);
-    console.log('  Created: .ralph/.gitignore');
+    console.log(`  Created: ${dirName}/.gitignore`);
   }
 
-  // Create .ralph/tasks.json
+  // Create tasks.json inside the data directory
   const tasksPath = path.join(dataDir, 'tasks.json');
   if (fs.existsSync(tasksPath)) {
     console.log('  tasks.json already exists.');
   } else {
     const projectName = path.basename(projectRoot);
     fs.writeFileSync(tasksPath, JSON.stringify({ project: projectName, tasks: [] }, null, 2) + '\n');
-    console.log('  Created: .ralph/tasks.json');
+    console.log(`  Created: ${dirName}/tasks.json`);
   }
 
-  // Create .ralph/state.json
+  // Create state.json inside the data directory
   const statePath = path.join(dataDir, 'state.json');
   if (fs.existsSync(statePath)) {
     console.log('  state.json already exists.');
   } else {
     const nextTaskId = seedNextId(dataDir);
     fs.writeFileSync(statePath, JSON.stringify({ nextTaskId }, null, 2) + '\n');
-    console.log('  Created: .ralph/state.json');
+    console.log(`  Created: ${dirName}/state.json`);
   }
 }
 
@@ -95,8 +101,9 @@ export function parseBooleanInput(input: string, defaultValue: boolean): boolean
 }
 
 /**
- * Get default config values for prompts. Loads from existing ralph.json if present,
- * otherwise uses sensible defaults. Auto-detects health check if not set.
+ * Get default config values for prompts. Loads from an existing cairn.json (or
+ * legacy ralph.json) if present, otherwise uses sensible defaults. Auto-detects
+ * health check if not set.
  */
 export function getConfigDefaults(projectRoot: string): ConfigDefaults {
   const config = loadConfig(projectRoot);
@@ -145,7 +152,7 @@ async function promptBoolean(
 }
 
 /**
- * Run interactive prompts for ralph.json configuration.
+ * Run interactive prompts for the project configuration file.
  * Uses the provided PromptInterface (real readline or mock for tests).
  */
 export async function promptForConfig(
@@ -189,10 +196,10 @@ export async function promptForConfig(
 }
 
 /**
- * Write a CairnConfig to ralph.json in the project root.
+ * Write a CairnConfig to cairn.json in the project root.
  */
 export function writeCairnJson(projectRoot: string, config: CairnConfig): void {
-  const configPath = path.join(projectRoot, 'ralph.json');
+  const configPath = path.join(projectRoot, BRAND.configFile);
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 }
 
@@ -200,20 +207,21 @@ export type SpawnSyncResult = { status: number | null; error?: Error };
 export type SpawnSyncFn = (cmd: string, args: string[], options: { stdio: 'inherit' }) => SpawnSyncResult;
 
 /**
- * Offer to create .ralph/instructions.md and open it in $EDITOR.
+ * Offer to create instructions.md inside the data directory and open it in $EDITOR.
  */
 export async function createInstructionsFile(
   dataDir: string,
   rl: PromptInterface,
   spawnSyncFn: SpawnSyncFn = (cmd, args, opts) => nodeSpawnSync(cmd, args, opts),
 ): Promise<void> {
-  const create = await promptBoolean(rl, 'Create .ralph/instructions.md for personal agent preferences?', false);
+  const dirName = path.basename(dataDir);
+  const create = await promptBoolean(rl, `Create ${dirName}/instructions.md for personal agent preferences?`, false);
   if (!create) return;
 
   const instructionsPath = path.join(dataDir, 'instructions.md');
   if (!fs.existsSync(instructionsPath)) {
     fs.writeFileSync(instructionsPath, '');
-    console.log('  Created: .ralph/instructions.md');
+    console.log(`  Created: ${dirName}/instructions.md`);
   }
 
   // Ensure instructions.md is in .gitignore
@@ -235,7 +243,7 @@ export async function createInstructionsFile(
 
 const NARRATE_SH = `#!/bin/bash
 # PostToolUse hook: narrates what just happened after each tool use
-SOCKET="/tmp/ralph-tts.sock"
+SOCKET="${BRAND.socket}"
 [ ! -S "$SOCKET" ] && exit 0
 
 INPUT=$(cat)
@@ -259,7 +267,7 @@ exit 0
 
 const SPEAK_SH = `#!/bin/bash
 # Stop hook: speaks assistant responses via narration server
-SOCKET="/tmp/ralph-tts.sock"
+SOCKET="${BRAND.socket}"
 [ ! -S "$SOCKET" ] && exit 0
 
 INPUT=$(cat)
@@ -278,7 +286,7 @@ exit 0
 
 const NOTIFY_SH = `#!/bin/bash
 # Notification hook: speaks when Claude needs user attention
-SOCKET="/tmp/ralph-tts.sock"
+SOCKET="${BRAND.socket}"
 [ ! -S "$SOCKET" ] && exit 0
 
 INPUT=$(cat)
@@ -314,7 +322,7 @@ export async function installNarrationHooks(
 
   console.log('');
   console.log("Narration is enabled. Install Claude Code hooks for standalone 'claude' usage?");
-  console.log('  (These forward events to the Ralph narration server at /tmp/ralph-tts.sock)');
+  console.log(`  (These forward events to the ${BRAND.displayName} narration server at ${BRAND.socket})`);
 
   const install = await promptBoolean(rl, 'Install hooks?', false);
   if (!install) return;
@@ -337,7 +345,7 @@ export async function installNarrationHooks(
 }
 
 /**
- * Copy slash command .md files from ralph's commands/ directory
+ * Copy slash command .md files from cairn's commands/ directory
  * into the target project's .claude/commands/ directory.
  * Accepts an optional cairnRoot override for testing.
  */
@@ -362,7 +370,7 @@ export function installSlashCommands(projectRoot: string, cairnRoot?: string): v
 }
 
 /**
- * Copy agent .md files from ralph's agents/ directory
+ * Copy agent .md files from cairn's agents/ directory
  * into the target project's .claude/agents/ directory.
  * Accepts an optional cairnRoot override for testing.
  */
@@ -392,7 +400,7 @@ export function installAgents(projectRoot: string, cairnRoot?: string): void {
 export function showNextSteps(): void {
   console.log('');
   console.log('Next steps:');
-  console.log("  1. Run 'ralph plan' to start planning");
+  console.log(`  1. Run '${BRAND.name} plan' to start planning`);
   console.log('');
 }
 
@@ -406,7 +414,7 @@ export async function runInit(
   spawnSyncFn?: SpawnSyncFn,
 ): Promise<void> {
   console.log('');
-  console.log(`Initializing Ralph in: ${projectRoot}`);
+  console.log(`Initializing ${BRAND.displayName} in: ${projectRoot}`);
   console.log('');
 
   initCoreFiles(projectRoot, dataDir);
@@ -418,7 +426,7 @@ export async function runInit(
   const config = await promptForConfig(rl, defaults);
   writeCairnJson(projectRoot, config);
   console.log('');
-  console.log('  Wrote: ralph.json');
+  console.log(`  Wrote: ${BRAND.configFile}`);
 
   await createInstructionsFile(dataDir, rl, spawnSyncFn);
   await installNarrationHooks(projectRoot, config.narration.enabled, rl);

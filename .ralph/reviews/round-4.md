@@ -190,3 +190,43 @@ None detected beyond the test-coverage gap above.
 
 ### Verdict
 HAS_GAPS
+
+---
+
+## Task #36: Internal identifiers to Cairn
+Reviewed: 2026-08-03T01:35:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] RalphConfig -> CairnConfig (src/types.ts declaration; call sites updated in src/config.ts, src/commands/init.ts, src/commands/run.ts, src/post-task-reviewer.ts, and test/agent-prompt.test.ts, test/commands/run.test.ts, test/config.test.ts, test/post-task-reviewer.test.ts)
+├── [DONE] resolveRalphRoot -> resolveCairnRoot (src/utils.ts; call sites updated in src/index.ts and src/commands/init.ts (installSlashCommands/installAgents), and test/utils.test.ts, test/commands/init.test.ts)
+├── [DONE] local var/param ralphRoot -> cairnRoot (src/index.ts: setupProjectContext's returned field + local const, both call sites in createProgram's helpers; src/commands/init.ts: installSlashCommands/installAgents param + internal `root` assignment)
+├── [DONE] RALPH_VERSION -> CAIRN_VERSION (src/index.ts:17, and both read sites: `.version()` call and the `ralph ${CAIRN_VERSION}` string)
+├── [DONE] writeRalphJson -> writeCairnJson (src/commands/init.ts, plus its call site in runInit and all four call sites in test/commands/init.test.ts)
+└── [DONE] Error message + doc comment in resolveCairnRoot updated ('Could not determine ralph repo root' -> '...cairn repo root'; JSDoc 'Find the ralph repo root...' -> '...cairn repo root...')
+
+### Files Changed
+- src/types.ts (RalphConfig -> CairnConfig, isValidConfig type guard)
+- src/utils.ts (resolveRalphRoot -> resolveCairnRoot, error message, doc comment)
+- src/config.ts, src/commands/run.ts, src/post-task-reviewer.ts (CairnConfig type import/usage)
+- src/index.ts (CAIRN_VERSION, cairnRoot field/local)
+- src/commands/init.ts (CairnConfig, resolveCairnRoot, cairnRoot params, writeCairnJson)
+- test/agent-prompt.test.ts, test/commands/init.test.ts, test/commands/run.test.ts, test/config.test.ts, test/index.test.ts, test/post-task-reviewer.test.ts, test/utils.test.ts (mechanical rename of imports/usages)
+- .ralph/tasks.json, .ralph/tasks.completed.json, .ralph/.ralph_iterations.log, .ralph/.ralph_tasks_snapshot.json (tool-managed bookkeeping)
+
+### Gaps
+None detected. Independently re-grepped `src/` and `test/` for `RalphConfig|resolveRalphRoot|\bralphRoot\b|RALPH_VERSION|writeRalphJson` — zero hits, matching the task notes' own scope-check claim. The five identifiers named in the task description, plus their doc comment, are all renamed with every call site and test import updated in lockstep.
+
+Two things intentionally left alone, and correctly so per the task's own scope:
+- The `ralph.json` filename itself (still written by `writeCairnJson`) — renaming the function is separate from renaming the file, consistent with the documented dual-name current/legacy convention in CLAUDE.md; the task only asked to rename the function.
+- The CLI's `.name('ralph')` and local test helper variable `fakeRalphRoot` in test/commands/init.test.ts — the former is user-facing branding out of scope for "internal identifiers," the latter is just a test's own descriptive local variable, not one of the five call-site identifiers the task named for renaming.
+
+### Regression Risks
+None detected.
+- Independently re-ran `bun test` → **795 pass, 0 fail**, matching the task notes exactly — no tests added, removed, or skipped.
+- Independently ran `bun build --target=bun src/index.ts --outfile ...` → succeeds, 108 modules, 0.43 MB — confirms no compile breakage from the rename.
+- No exports removed that anything outside this diff's own updated call sites depends on: `resolveRalphRoot`/`writeRalphJson`/`RalphConfig` are gone, but every one of their importers was updated in the same diff (confirmed via repo-wide grep above finding zero stragglers).
+- `ralphRoot` rename in `src/index.ts` correctly threads through `setupProjectContext`'s return type and both downstream uses (`CAIRN_LIB_DIR`, `CAIRN_NARRATE_PYTHON`) — no stale destructuring left behind.
+
+### Verdict
+CLEAN
