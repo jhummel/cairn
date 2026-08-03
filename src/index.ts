@@ -187,7 +187,7 @@ export function createProgram(): Command {
   program
     .command('migrate')
     .description(
-      `Migrate this project from the legacy ${LEGACY.dataDir}/ layout to ${BRAND.dataDir}/ (stages, never commits)`
+      `Migrate this project from the legacy ${LEGACY.dataDir}/ layout to ${BRAND.dataDir}/ and refresh installed agents, commands, and hooks (stages, never commits)`
     )
     .action(() => {
       // Deliberately process.cwd(), not the discovered project root: migrate

@@ -498,3 +498,38 @@ Task Requirements
 
 ### Verdict
 HAS_GAPS
+
+---
+
+## Task #49: migrate: refresh the data-dir .gitignore for .cairn_* temp names
+Reviewed: 2026-08-03T02:18:01Z
+
+### Coverage
+Task Requirements
+├── [DONE] In `src/commands/migrate.ts`, after the data-dir move, append missing `.cairn_*` ignore lines to `<dataDir>/.gitignore` — new exported `refreshDataDirGitignore(dataDir)`, called right after the stateful-temp-file rename loop and before the summary
+├── [DONE] Keep the legacy `.ralph_*` lines (still read as a fallback) — `refreshDataDirGitignore` only appends via `fs.appendFileSync`; existing lines (legacy included) are never rewritten or removed. Verified by test `appends every missing .cairn_* name, keeping the legacy lines`
+├── [DONE] Match the two-block layout already used by `GITIGNORE_CONTENT` in `src/commands/init.ts` (current names, then a `# Legacy names` block) — `init.ts` was refactored to expose `TEMP_IGNORE_SUFFIXES`, `GITIGNORE_CURRENT_HEADER`, `GITIGNORE_LEGACY_HEADER` and an `ignoreBlock()` helper that both `init.ts`'s `GITIGNORE_CONTENT` and `migrate.ts`'s `refreshDataDirGitignore` now share, so the two can't drift apart; verified byte-for-byte reconstruction of the old literal `GITIGNORE_CONTENT` string, and independently confirmed `bun test test/commands/init.test.ts` → 110/110 pass (untouched, no assertions needed updating)
+├── [DONE] Idempotent: appending twice adds nothing — verified by test `is idempotent — a second run leaves the file byte-identical` and `never duplicates a .cairn_* name that is already listed`; achieved via whole-file `Set` membership, not a fragile "did we already touch this file" flag
+├── [DONE] If `.gitignore` does not exist (partial install), do nothing — `refreshDataDirGitignore` returns `[]` immediately on `!isFile(gitignorePath)`; also gated at the call site by `if (dataDir)` so a config-only project (no data dir at all) never even attempts the check. Verified by test `creates no .gitignore when the data dir has none`
+└── [DONE] Stage the edit, never commit — `git(['add', rel], cwd)` at the call site; verified by test `stages the .gitignore edit without committing`, which asserts both the commit count is unchanged and `git show :.cairn/.gitignore` (the index, not just the worktree) contains the new lines
+
+### Files Changed
+- src/commands/migrate.ts (new `refreshDataDirGitignore()` export + call site + updated summary messaging)
+- src/commands/init.ts (refactored `GITIGNORE_CONTENT` into shared, exported building blocks — not in the task's "Expected Files" list, but a deliberate DRY choice to avoid two hand-maintained ignore-name lists drifting apart; explicitly called out in the task notes)
+- test/commands/migrate.test.ts (+7 tests, new `migrate .gitignore refresh` describe block)
+- .ralph/tasks.json, .ralph/tasks.completed.json, .ralph/reviews/round-4.md (tool-managed bookkeeping via `ralph task complete`, not direct edits)
+
+### Gaps
+None detected. All six literal requirements in the task description map to a [DONE] item above, each with an independent test assertion, and this review independently re-ran the suite rather than trusting the task notes' reported numbers.
+
+### Regression Risks
+None detected. Independently verified in this review session (not just trusting the task notes):
+- `bun test test/commands/migrate.test.ts` → 19 pass, 0 fail (12 pre-existing + 7 new), 110 expect() calls.
+- `bun test` (full suite) → 833 pass, 0 fail, 30 files — matches the task notes' reported count exactly, no discrepancy.
+- `bun test test/commands/init.test.ts` → 110 pass, 0 fail — confirms the `GITIGNORE_CONTENT` refactor in `init.ts` is behavior-preserving; no existing init test needed to change, consistent with the byte-identical claim in the task notes.
+- No exports were removed; `GITIGNORE_CONTENT` in `init.ts` keeps its existing (unexported, module-private) binding, and the newly exported symbols (`TEMP_IGNORE_SUFFIXES`, `GITIGNORE_CURRENT_HEADER`, `GITIGNORE_LEGACY_HEADER`, `ignoreBlock`, `refreshDataDirGitignore`) are additive.
+- No deleted or weakened tests — the new describe block is purely additive to the existing `migrate.test.ts`.
+- Minor, non-blocking: the `stagedNote` at migrate.ts:240 labels the gitignore append `(untracked)` whenever `git add` exits non-zero, but conflates two different causes — a genuinely untracked/gitignored `.gitignore` file vs. any other `git add` failure (e.g. a `rel` path computed wrong, or git not finding the file for an unrelated reason). Cosmetic only: the log line is informational, doesn't gate control flow, and isn't asserted on by any test.
+
+### Verdict
+CLEAN

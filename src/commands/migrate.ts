@@ -6,6 +6,10 @@ import {
   TEMP_IGNORE_SUFFIXES,
   GITIGNORE_CURRENT_HEADER,
   GITIGNORE_LEGACY_HEADER,
+  NARRATION_HOOKS,
+  installAgents,
+  installSlashCommands,
+  writeNarrationHooks,
 } from './init';
 
 /**
@@ -59,6 +63,44 @@ export function refreshDataDirGitignore(dataDir: string): string[] {
   fs.appendFileSync(gitignorePath, separator + addition);
   return [...current, ...legacy];
 }
+
+/**
+ * Reinstall the artifacts `cairn init` puts under .claude/ and regenerate the
+ * narration hooks, so a migrated project runs the current agents against the
+ * current socket path.
+ *
+ * Strictly overwrite-by-filename: nothing is deleted, nothing outside the source
+ * set is read or touched, so a project's own agents and commands survive. The
+ * full set is installed even where none existed — a project that never ran
+ * `init` gets them here, which is the whole point of the upgrade path.
+ *
+ * Hooks are the one exception: they are regenerated only where they already
+ * exist. Creating them in a project that never opted in would wire up narration
+ * nobody asked for.
+ *
+ * Returns the project-relative paths actually written; empty when everything was
+ * already current.
+ */
+export function refreshClaudeArtifacts(cwd: string): string[] {
+  const quiet = { skipUnchanged: true, log: () => {} };
+  const written = [...installSlashCommands(cwd, undefined, quiet), ...installAgents(cwd, undefined, quiet)];
+
+  const hooksDir = path.join(cwd, '.claude', 'hooks');
+  if (NARRATION_HOOKS.some((h) => isFile(path.join(hooksDir, h.name)))) {
+    written.push(...writeNarrationHooks(cwd, quiet));
+  }
+  return written;
+}
+
+/** git's --name-status letters, rendered the way `git status` words them. */
+const STATUS_LABELS: Record<string, string> = {
+  A: 'new file',
+  M: 'modified',
+  R: 'renamed',
+  C: 'copied',
+  D: 'deleted',
+  T: 'typechange',
+};
 
 export interface MigrateIo {
   log?: (message: string) => void;
@@ -192,12 +234,23 @@ export function runMigrate(cwd: string, io: MigrateIo = {}): number {
 
   let moved = 0;
 
+  /**
+   * The closing summary: one `git status`-style line per thing this run staged.
+   * git mv stages itself, everything else is staged explicitly — both land here,
+   * so the user can see the migration's full footprint without diffing.
+   */
+  const stagedLines: string[] = [];
+  const record = (label: string, detail: string) => {
+    stagedLines.push(`  ${`${label}:`.padEnd(11)}${detail}`);
+  };
+
   /** git mv when the path is tracked, plain rename when it is not. */
   const move = (fromAbs: string, toAbs: string): void => {
     const from = path.relative(cwd, fromAbs);
     const to = path.relative(cwd, toAbs);
     if (git(['mv', from, to], cwd).status === 0) {
       log(`  ${from} -> ${to} (staged)`);
+      record('renamed', `${from} -> ${to}`);
     } else {
       // Untracked or gitignored: git mv refuses, but the file still has to move.
       // There is nothing to stage in that case.
@@ -237,19 +290,42 @@ export function runMigrate(cwd: string, io: MigrateIo = {}): number {
       ignoreUpdated = true;
       const rel = path.relative(cwd, path.join(dataDir, '.gitignore'));
       // Untracked .gitignore: nothing to stage, but the edit still stands.
-      const stagedNote = git(['add', rel], cwd).status === 0 ? '(staged)' : '(untracked)';
-      log(`  ${rel}: added ${added.length} ignore line(s) ${stagedNote}`);
+      const isStaged = git(['add', rel], cwd).status === 0;
+      log(`  ${rel}: added ${added.length} ignore line(s) ${isStaged ? '(staged)' : '(untracked)'}`);
+      if (isStaged) record('modified', rel);
     }
   }
 
-  if (moved === 0 && !ignoreUpdated) {
+  // Installed artifacts: current agents, commands, and hooks for the new socket.
+  // Unlike the renames these are plain writes — without an explicit 'git add'
+  // they sit unstaged, or untracked entirely in a project that never had them,
+  // and 'git diff --cached' would understate the migration.
+  const installed = refreshClaudeArtifacts(cwd);
+  for (const rel of installed) {
+    if (git(['add', '--', rel], cwd).status !== 0) {
+      warn(`Warning: could not stage ${rel} (ignored by git?) — it is written but untracked.`);
+      continue;
+    }
+    // Ask git how it sees the result rather than guessing new-vs-modified. Empty
+    // output means the write matched HEAD exactly, so nothing was staged.
+    const line = git(['diff', '--cached', '--name-status', '-M', '--', rel], cwd).stdout.trim();
+    if (line === '') continue;
+    record(STATUS_LABELS[line[0]!] ?? 'changed', rel);
+  }
+
+  if (moved === 0 && !ignoreUpdated && installed.length === 0) {
     log(`Already on the ${BRAND.dataDir}/ layout — nothing to do.`);
     return 0;
   }
 
   log('');
+  if (stagedLines.length > 0) {
+    log('Staged changes:');
+    for (const line of stagedLines) log(line);
+    log('');
+  }
   if (moved === 0) {
-    log(`Refreshed ${path.basename(dataDir!)}/.gitignore in ${cwd}.`);
+    log(`Refreshed ${BRAND.displayName} artifacts in ${cwd}.`);
   } else {
     log(`Migrated ${cwd} to the ${BRAND.dataDir}/ layout (${moved} path(s) moved).`);
   }

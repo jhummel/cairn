@@ -53,6 +53,8 @@ interface FixtureOptions {
   statuses?: string[];
   /** Content for .ralph/.gitignore; null writes no .gitignore at all. */
   gitignore?: string | null;
+  /** Files to pre-create under .claude/, keyed by path relative to .claude/. */
+  claude?: Record<string, string>;
   /** Skip state.json, reviews/, audit/ and the config file (partial install). */
   partial?: boolean;
   /** Create a .cairn/ directory too (ambiguous layout). */
@@ -115,6 +117,10 @@ function makeFixture(opts: FixtureOptions = {}): string {
 
   if (opts.alsoCairnDir) {
     write(path.join(dir, '.cairn', 'tasks.json'), '{"tasks":[]}');
+  }
+
+  for (const [rel, content] of Object.entries(opts.claude ?? {})) {
+    write(path.join(dir, '.claude', rel), content);
   }
 
   if (opts.commit !== false) {
@@ -309,6 +315,134 @@ describe('migrate .gitignore refresh', () => {
 
     expect(second.status).toBe(0);
     expect(second.output.toLowerCase()).toContain('nothing to do');
+  });
+});
+
+describe('migrate .claude refresh', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const sourceNames = (kind: 'agents' | 'commands') =>
+    fs.readdirSync(path.join(REPO_ROOT, kind)).filter((f) => f.endsWith('.md'));
+  const HOOKS = ['narrate.sh', 'speak.sh', 'notify.sh'];
+
+  test('installs the full agent and command set into a project that has none', () => {
+    const dir = makeFixture();
+    expect(fs.existsSync(path.join(dir, '.claude'))).toBe(false);
+    expect(runCli(dir).status).toBe(0);
+
+    for (const file of sourceNames('agents')) {
+      const dest = path.join(dir, '.claude', 'agents', file);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(
+        fs.readFileSync(path.join(REPO_ROOT, 'agents', file), 'utf-8')
+      );
+    }
+    for (const file of sourceNames('commands')) {
+      const dest = path.join(dir, '.claude', 'commands', file);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(
+        fs.readFileSync(path.join(REPO_ROOT, 'commands', file), 'utf-8')
+      );
+    }
+  });
+
+  test('stages every newly installed agent and command file', () => {
+    const dir = makeFixture();
+    const before = commitCount(dir);
+    expect(runCli(dir).status).toBe(0);
+
+    expect(commitCount(dir)).toBe(before);
+    const s = staged(dir);
+    for (const file of sourceNames('agents')) expect(s).toContain(`.claude/agents/${file}`);
+    for (const file of sourceNames('commands')) expect(s).toContain(`.claude/commands/${file}`);
+    // Staged, not merely on disk: the blob must be readable from the index.
+    const indexed = sh(['git', 'show', ':.claude/agents/planner.md'], dir);
+    expect(indexed.status).toBe(0);
+    expect(indexed.stdout!.length).toBeGreaterThan(0);
+  });
+
+  test('overwrites a stale cairn-owned agent but leaves a custom one untouched', () => {
+    const dir = makeFixture({
+      claude: {
+        'agents/planner.md': 'stale planner\n',
+        'agents/frontend-code-analyzer.md': 'custom analyzer\n',
+        'commands/deploy.md': 'custom command\n',
+      },
+    });
+    expect(runCli(dir).status).toBe(0);
+
+    expect(fs.readFileSync(path.join(dir, '.claude', 'agents', 'planner.md'), 'utf-8')).toBe(
+      fs.readFileSync(path.join(REPO_ROOT, 'agents', 'planner.md'), 'utf-8')
+    );
+    expect(
+      fs.readFileSync(path.join(dir, '.claude', 'agents', 'frontend-code-analyzer.md'), 'utf-8')
+    ).toBe('custom analyzer\n');
+    expect(fs.readFileSync(path.join(dir, '.claude', 'commands', 'deploy.md'), 'utf-8')).toBe(
+      'custom command\n'
+    );
+    expect(staged(dir)).not.toContain('frontend-code-analyzer.md');
+  });
+
+  test('regenerates all three hooks for the current socket when hooks already exist', () => {
+    const dir = makeFixture({
+      claude: { 'hooks/narrate.sh': '#!/bin/bash\nSOCKET="/tmp/ralph-tts.sock"\n' },
+    });
+    expect(runCli(dir).status).toBe(0);
+
+    const hooksDir = path.join(dir, '.claude', 'hooks');
+    for (const hook of HOOKS) {
+      const content = fs.readFileSync(path.join(hooksDir, hook), 'utf-8');
+      expect(content).toContain('/tmp/cairn-tts.sock');
+      expect(content).not.toContain('/tmp/ralph-tts.sock');
+      expect(fs.statSync(path.join(hooksDir, hook)).mode & 0o100).toBeTruthy();
+    }
+
+    const s = staged(dir);
+    for (const hook of HOOKS) expect(s).toContain(`.claude/hooks/${hook}`);
+  });
+
+  test('creates no hooks in a project that never had them', () => {
+    const dir = makeFixture();
+    expect(runCli(dir).status).toBe(0);
+
+    expect(fs.existsSync(path.join(dir, '.claude', 'hooks'))).toBe(false);
+    expect(staged(dir)).not.toContain('.claude/hooks/');
+  });
+
+  test('is idempotent — a second run reinstalls nothing and stages nothing new', () => {
+    const dir = makeFixture({
+      claude: { 'hooks/narrate.sh': '#!/bin/bash\nSOCKET="/tmp/ralph-tts.sock"\n' },
+    });
+    expect(runCli(dir).status).toBe(0);
+    const stagedAfterFirst = staged(dir);
+
+    const second = runCli(dir);
+    expect(second.status).toBe(0);
+    expect(second.output.toLowerCase()).toContain('nothing to do');
+    expect(staged(dir)).toBe(stagedAfterFirst);
+  });
+
+  test('prints a git-status style summary of what it staged', () => {
+    const dir = makeFixture();
+    const out = runCli(dir).output;
+
+    expect(out).toContain('Staged changes:');
+    expect(out).toMatch(/renamed:\s+\.ralph -> \.cairn/);
+    expect(out).toMatch(/renamed:\s+ralph\.json -> cairn\.json/);
+    expect(out).toMatch(/modified:\s+\.cairn\/\.gitignore/);
+    expect(out).toMatch(/new file:\s+\.claude\/agents\/planner\.md/);
+  });
+
+  test('refreshes artifacts in a project already on the .cairn/ layout', () => {
+    const dir = makeFixture();
+    expect(runCli(dir).status).toBe(0);
+    // Tamper with an installed agent, then re-run: nothing to move, plenty to refresh.
+    const planner = path.join(dir, '.claude', 'agents', 'planner.md');
+    fs.writeFileSync(planner, 'stale\n');
+
+    const res = runCli(dir);
+    expect(res.status).toBe(0);
+    expect(res.output.toLowerCase()).not.toContain('nothing to do');
+    expect(fs.readFileSync(planner, 'utf-8')).toBe(
+      fs.readFileSync(path.join(REPO_ROOT, 'agents', 'planner.md'), 'utf-8')
+    );
   });
 });
 

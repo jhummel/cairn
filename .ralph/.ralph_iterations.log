@@ -376,3 +376,9 @@ Iteration 10 completed: 2026-08-03T01:51:33.058Z — SUCCESS
 Iteration 11 started: 2026-08-03T01:53:49.513Z — Task #41: Python narration rename and socket
 Iteration 11 completed: 2026-08-03T01:57:36.388Z — SUCCESS
 Iteration 12 started: 2026-08-03T02:00:11.397Z — Task #42: Agent and slash-command source files
+Iteration 12 completed: 2026-08-03T02:02:17.593Z — SUCCESS
+Iteration 13 started: 2026-08-03T02:03:32.846Z — Task #43: cairn migrate command - core moves
+Iteration 13 completed: 2026-08-03T02:08:33.750Z — SUCCESS
+Iteration 14 started: 2026-08-03T02:12:36.569Z — Task #49: migrate: refresh the data-dir .gitignore for .cairn_* temp names
+Iteration 14 completed: 2026-08-03T02:16:12.552Z — SUCCESS
+Iteration 15 started: 2026-08-03T02:18:55.290Z — Task #44: cairn migrate - .claude refresh and git staging

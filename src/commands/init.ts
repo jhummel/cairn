@@ -316,6 +316,56 @@ s.close()
 exit 0
 `;
 
+/** The three narration hooks, in install order. */
+export const NARRATION_HOOKS: ReadonlyArray<{ name: string; event: string; content: string }> = [
+  { name: 'narrate.sh', event: 'PostToolUse', content: NARRATE_SH },
+  { name: 'speak.sh', event: 'Stop', content: SPEAK_SH },
+  { name: 'notify.sh', event: 'Notification', content: NOTIFY_SH },
+];
+
+/**
+ * Shared knobs for the three installers. `cairn migrate` reuses them to refresh
+ * an existing project, where re-reporting untouched files would be noise.
+ */
+export interface InstallOptions {
+  /** Leave files whose destination is already byte-identical alone and omit them from the result. */
+  skipUnchanged?: boolean;
+  /** Where per-file lines go. Defaults to console.log. */
+  log?: (message: string) => void;
+}
+
+function sameContent(srcPath: string, destPath: string): boolean {
+  try {
+    return fs.readFileSync(srcPath).equals(fs.readFileSync(destPath));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Write hook scripts and return the project-relative paths actually written.
+ * Overwrites by name only — anything else in the hooks directory is left alone.
+ */
+export function writeNarrationHooks(projectRoot: string, opts: InstallOptions = {}): string[] {
+  const log = opts.log ?? ((m: string) => console.log(m));
+  const hooksDir = path.join(projectRoot, '.claude', 'hooks');
+  fs.mkdirSync(hooksDir, { recursive: true });
+
+  const written: string[] = [];
+  for (const hook of NARRATION_HOOKS) {
+    const hookPath = path.join(hooksDir, hook.name);
+    const rel = path.join('.claude', 'hooks', hook.name);
+    if (opts.skipUnchanged && fs.existsSync(hookPath) && fs.readFileSync(hookPath, 'utf8') === hook.content) {
+      continue;
+    }
+    fs.writeFileSync(hookPath, hook.content);
+    fs.chmodSync(hookPath, 0o755);
+    written.push(rel);
+    log(`  Created: .claude/hooks/${hook.name} (${hook.event})`);
+  }
+  return written;
+}
+
 /**
  * Offer to install Claude Code narration hooks (only when narration is enabled).
  */
@@ -340,21 +390,45 @@ export async function installNarrationHooks(
   const install = await promptBoolean(rl, 'Install hooks?', false);
   if (!install) return;
 
-  fs.mkdirSync(hooksDir, { recursive: true });
+  writeNarrationHooks(projectRoot);
+}
 
-  const writeHook = (name: string, content: string) => {
-    const hookPath = path.join(hooksDir, name);
-    fs.writeFileSync(hookPath, content);
-    fs.chmodSync(hookPath, 0o755);
-  };
+/**
+ * Copy every .md file out of one of cairn's source directories into the
+ * matching .claude/ directory of the target project.
+ *
+ * Overwrite by filename only: files the project added itself are never removed
+ * and never inspected. Returns the project-relative paths actually written.
+ */
+function installMdDir(
+  projectRoot: string,
+  root: string,
+  dirName: 'commands' | 'agents',
+  opts: InstallOptions,
+): string[] {
+  const log = opts.log ?? ((m: string) => console.log(m));
+  const srcDir = path.join(root, dirName);
 
-  writeHook('narrate.sh', NARRATE_SH);
-  writeHook('speak.sh', SPEAK_SH);
-  writeHook('notify.sh', NOTIFY_SH);
+  if (!fs.existsSync(srcDir)) {
+    return [];
+  }
 
-  console.log('  Created: .claude/hooks/narrate.sh (PostToolUse)');
-  console.log('  Created: .claude/hooks/speak.sh (Stop)');
-  console.log('  Created: .claude/hooks/notify.sh (Notification)');
+  const mdFiles = fs.readdirSync(srcDir).filter(f => f.endsWith('.md'));
+  if (mdFiles.length === 0) return [];
+
+  const destDir = path.join(projectRoot, '.claude', dirName);
+  fs.mkdirSync(destDir, { recursive: true });
+
+  const written: string[] = [];
+  for (const file of mdFiles) {
+    const srcPath = path.join(srcDir, file);
+    const destPath = path.join(destDir, file);
+    if (opts.skipUnchanged && sameContent(srcPath, destPath)) continue;
+    fs.copyFileSync(srcPath, destPath);
+    written.push(path.join('.claude', dirName, file));
+    log(`  Installed: .claude/${dirName}/${file}`);
+  }
+  return written;
 }
 
 /**
@@ -362,24 +436,12 @@ export async function installNarrationHooks(
  * into the target project's .claude/commands/ directory.
  * Accepts an optional cairnRoot override for testing.
  */
-export function installSlashCommands(projectRoot: string, cairnRoot?: string): void {
-  const root = cairnRoot ?? resolveCairnRoot();
-  const srcDir = path.join(root, 'commands');
-
-  if (!fs.existsSync(srcDir)) {
-    return;
-  }
-
-  const mdFiles = fs.readdirSync(srcDir).filter(f => f.endsWith('.md'));
-  if (mdFiles.length === 0) return;
-
-  const destDir = path.join(projectRoot, '.claude', 'commands');
-  fs.mkdirSync(destDir, { recursive: true });
-
-  for (const file of mdFiles) {
-    fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
-    console.log(`  Installed: .claude/commands/${file}`);
-  }
+export function installSlashCommands(
+  projectRoot: string,
+  cairnRoot?: string,
+  opts: InstallOptions = {},
+): string[] {
+  return installMdDir(projectRoot, cairnRoot ?? resolveCairnRoot(), 'commands', opts);
 }
 
 /**
@@ -387,24 +449,12 @@ export function installSlashCommands(projectRoot: string, cairnRoot?: string): v
  * into the target project's .claude/agents/ directory.
  * Accepts an optional cairnRoot override for testing.
  */
-export function installAgents(projectRoot: string, cairnRoot?: string): void {
-  const root = cairnRoot ?? resolveCairnRoot();
-  const srcDir = path.join(root, 'agents');
-
-  if (!fs.existsSync(srcDir)) {
-    return;
-  }
-
-  const mdFiles = fs.readdirSync(srcDir).filter(f => f.endsWith('.md'));
-  if (mdFiles.length === 0) return;
-
-  const destDir = path.join(projectRoot, '.claude', 'agents');
-  fs.mkdirSync(destDir, { recursive: true });
-
-  for (const file of mdFiles) {
-    fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
-    console.log(`  Installed: .claude/agents/${file}`);
-  }
+export function installAgents(
+  projectRoot: string,
+  cairnRoot?: string,
+  opts: InstallOptions = {},
+): string[] {
+  return installMdDir(projectRoot, cairnRoot ?? resolveCairnRoot(), 'agents', opts);
 }
 
 /**
