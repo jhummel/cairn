@@ -1,5 +1,346 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "project": "ralph-cli-tool",
-  "tasks": []
+  "project": "cairn-cli-tool",
+  "tasks": [
+    {
+      "id": 51,
+      "priority": 1,
+      "title": "src/config.ts — drop ralph.json and RALPH_ANTHROPIC_API_KEY fallback legs",
+      "description": "Remove all 5 markers in src/config.ts. In findConfigFile, delete the LEGACY.configFile branch and its warnLegacyOnce('config-file', ...) call — the function keeps its name and signature and just returns path.join(projectRoot, BRAND.configFile); callers still need a resolved path. In resolveAnthropicApiKeyChain, delete the env.RALPH_ANTHROPIC_API_KEY leg. Delete warnIfLegacyApiKey entirely and drop 'legacy' from the AnthropicApiKeyResolution['source'] union. Remove the LEGACY and warnLegacyOnce imports from './brand' if they become unused. Then update the two call sites that import the deleted function: src/commands/narrate.ts (import at ~line 11, call at ~line 74) and src/commands/run.ts (import at ~line 19, call at ~line 416) — delete the warnIfLegacyApiKey(resolveAnthropicApiKeyChain()) statement and the import in each. Do NOT normalize the resolved key onto plain ANTHROPIC_API_KEY — the loop deliberately blanks that to force Max-plan usage, so the CAIRN_-prefixed name is load-bearing. TDD: adjust test/config.test.ts (delete the legacy-fallback describe blocks; keep assertions literal as 'cairn.json', never BRAND.configFile) and test/commands/narrate.test.ts, watch them fail, then make them pass. Do NOT modify cairn.json's healthCheck — the user has pinned the binary and redirected the health check to a throwaway outfile for this round. Do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/ — these are historical record and legitimately contain the string 'ralph'.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "src/config.ts",
+        "src/commands/narrate.ts",
+        "src/commands/run.ts",
+        "test/config.test.ts",
+        "test/commands/narrate.test.ts"
+      ],
+      "tests": [
+        "bun test test/config.test.ts",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "opus",
+      "agent": "planner",
+      "completedAt": "2026-08-03T16:15:10.508Z",
+      "completedBy": "iteration-1",
+      "notes": "# Task #51 — src/config.ts: drop ralph.json and RALPH_ANTHROPIC_API_KEY fallback legs\n\n## What changed\n\n**src/config.ts** — all 5 removal markers are gone; the file no longer contains the string `ralph` in any case.\n- `findConfigFile(projectRoot)` keeps its name and signature and is now a one-liner: `path.join(projectRoot, BRAND.configFile)`. The `LEGACY.configFile` branch and its `warnLegacyOnce('config-file', …)` call are deleted. Callers (`loadConfig`, `src/commands/edit.ts`, `src/commands/init.ts`) still get a resolved path, so nothing downstream changed shape.\n- `resolveAnthropicApiKeyChain` lost the `env.RALPH_ANTHROPIC_API_KEY` leg; the chain is now `CAIRN_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY`. `AnthropicApiKeyResolution['source']` is now `'cairn' | 'plain' | 'none'`.\n- `warnIfLegacyApiKey` deleted entirely.\n- Imports narrowed from `{ BRAND, LEGACY, warnLegacyOnce }` to `{ BRAND }` — both `LEGACY` and `warnLegacyOnce` became unused here. They are still used elsewhere in `src/` (utils, narration, run, init), so `src/brand.ts` is untouched.\n- The resolved key is still **not** normalized onto plain `ANTHROPIC_API_KEY`; the doc comment explaining why (the loop blanks that name to force Max-plan usage) is preserved verbatim minus the legacy sentence.\n\n**src/commands/narrate.ts** and **src/commands/run.ts** — deleted the `warnIfLegacyApiKey(resolveAnthropicApiKeyChain())` statement and the whole `import … from '../config'` line in each. In both files those were the only symbols imported from `../config`, so the import lines went entirely rather than being narrowed.\n\n## Test changes (TDD — 3 red, then green)\n\n**test/config.test.ts**\n- Dropped `warnIfLegacyApiKey` from the import list and removed the now-unused `resetLegacyWarnings` import from `../src/brand`.\n- Rewrote `loadConfig — dual-read config file discovery` as `loadConfig — config file discovery`: kept the cairn.json / no-config cases, replaced the fallback case with `ignores a ralph.json left behind by an unmigrated project`, and replaced the warn-once case with `emits no warnings when loading config`.\n- `findConfigFile` describe: the legacy-resolution test became `resolves to cairn.json even when only a ralph.json exists`. All assertions are literal `'cairn.json'`, never `BRAND.configFile`.\n- `resolveAnthropicApiKeyChain` describe: dropped the legacy leg tests, added `ignores a RALPH_ANTHROPIC_API_KEY still exported by an old shell profile` (expects `{key: undefined, source: 'none'}`), and kept the never-normalize guard (now keyed off `CAIRN_ANTHROPIC_API_KEY`).\n- Deleted the whole `warnIfLegacyApiKey` describe.\n- Mechanical: every fixture that wrote `ralph.json` and expected it to load (the `loadConfig` and `loadConfig review.postTask` blocks) now writes `cairn.json`; test title `sets all RALPH_* env vars` → `sets all CAIRN_* env vars` (it always asserted CAIRN_ names).\n\n**test/commands/narrate.test.ts** — no change needed. It never referenced `warnIfLegacyApiKey`, the API key chain, or `ralph.json`. Its only `ralph` mention is `expect(output).not.toContain('/tmp/ralph-tts')` at line 236, which belongs to the socket tier (task #52). Confirmed green as-is (16 pass).\n\n## Out-of-scope files I had to touch, and why\n\nTwo test files outside the task's file list broke as direct fallout. Both were fixed:\n\n1. **test/commands/edit.test.ts** — this one is worth knowing about: the test `target \"config\" resolves an existing legacy ralph.json` wrote only a `ralph.json`, so once `findConfigFile` stopped resolving it, `runEdit` hit its not-found path and called the **real** `process.exit(1)`. That killed the bun test *runner process* mid-suite: `bun test` exited 1 after 8 files with no summary line and no failure attributed to edit.test.ts (running that file alone printed only the version banner). If a future removal task sees `bun test` end abruptly with no summary, look for a test that reaches an unmocked `process.exit`. Replaced with `target \"config\" never opens a leftover ralph.json` (spies on `process.exit`, asserts the not-found error and that no editor spawned) and renamed the both-files test to `opens cairn.json even when a ralph.json also exists`.\n\n2. **test/commands/init.test.ts** — 5 `getConfigDefaults` tests wrote `ralph.json` and expected the values to load. Converted those fixtures to `cairn.json`, renamed the full-field test to `loads every field of an existing cairn.json as defaults` (the pre-existing smaller `loads existing cairn.json values as defaults` test is left in place), and added `ignores a leftover ralph.json when deriving defaults`. Note task **#54** is a cosmetic `.ralph` → `.cairn` fixture rename in this same file — it will still find work (the `.ralph` *data-dir* fixtures, line ~770's `does not touch an existing legacy ralph.json`, and the line ~1320 comment are all untouched by me; that last test is about init not clobbering a legacy config and still passes).\n\n## Verification\n\n- `bun test test/config.test.ts` → 55 pass, 0 fail.\n- `bun test` → **859 pass, 0 fail, 31 files** (baseline before my change was 862; net −3 is the deleted legacy tests minus the ones I added).\n- `test/legacy-markers.test.ts` passes — no unmarked `ralph` mention was introduced.\n- Health check `bun build --target=bun src/index.ts --outfile /tmp/cairn-healthcheck` succeeds. Did not touch `cairn.json`'s `healthCheck` and did not run `./install.sh`.\n\n## Discovered\n\nAdded task **#66** (depends on #59): `resolveAnthropicApiKeyChain` now has **zero production callers** — `warnIfLegacyApiKey` was its only consumer. It remains exported and tested, mirroring the same chain in `lib/cairn_narrate_server.py`. #66 asks for a decision: delete it, or give it a real caller by passing the resolved key into the narration server env. Sequenced after #59 so both sides of the mirror are settled together.\n"
+    },
+    {
+      "id": 52,
+      "priority": 2,
+      "title": "src/narration.ts — drop legacy socket and pid-file candidates",
+      "description": "Remove all 5 markers in src/narration.ts. Delete warnIfLegacySocket and warnIfLegacyPidFile. In findNarrationSocketPath, collapse the two-candidate probe over [BRAND.socket, LEGACY.socket] to a single existence check on BRAND.socket. In findNarrationPidFile, do the same for BRAND.pidFile. DELIBERATELY KEEP the .claude/hooks/narrate.sh HOOK_SOCKET_RE probe and the PathProbeDeps injection seam — this is an explicit decision, not an oversight. The hooks are the socket's only clients and the probe is how the server binds where they actually dial; it is NOT a legacy fallback and carries no removal marker (the markers at ~lines 76 and 93 target only the LEGACY candidates). Removing it would also collapse the RunRunDeps.findNarrationSocketPath seam used by run.ts tests, for no compatibility benefit. Remove the now-unused LEGACY/warnLegacyOnce imports. Update the header comment block (~lines 11-22) to drop the compatibility-window framing while KEEPING the explanation of why the hook file is authoritative. TDD: adjust test/narration.test.ts, watch fail, make pass. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/narration.ts",
+        "test/narration.test.ts"
+      ],
+      "tests": [
+        "bun test test/narration.test.ts",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "opus"
+    },
+    {
+      "id": 53,
+      "priority": 3,
+      "title": "src/commands/init.ts — drop legacy gitignore block, KEEPING the notes-scratch line",
+      "description": "Remove the 3 markers in src/commands/init.ts. Delete GITIGNORE_LEGACY_HEADER and rewrite GITIGNORE_CONTENT so it no longer calls ignoreBlock(LEGACY.tempPrefix). CRITICAL — do NOT drop the legacy block wholesale. TEMP_IGNORE_SUFFIXES includes 'task_*_notes.md', and .ralph_task_*_notes.md is a deliberate PERMANENT exception: src/commands/run.ts:52 still hands agents that exact filename, so it must stay gitignored or agents will commit scratch files (this is exactly how karaoke-platform ended up with 24 committed scratch files). Keep exactly one surviving legacy line, emitted as `${LEGACY.tempPrefix}task_*_notes.md\\n` — keep using LEGACY.tempPrefix rather than a bare '.ralph_' literal, because test/legacy-markers.test.ts is still live at this point and an unmarked literal would fail it; task 63 rehomes this constant. Drop the other legacy suffixes. Also strip the 'legacy ralph.json' caveat from the getConfigDefaults doc comment (~line 120). Verify the exception against CLAUDE.md's 'The temp-file prefix — a second naming tier' section before touching anything here. TDD: update ONLY the behavioral legacy tests in test/commands/init.test.ts — the ralph.json-defaults block, the 'does not touch an existing legacy ralph.json' test, the .gitignore content test, and the hook-socket test. Leave the ~70 cosmetic .ralph fixture-path references alone; task 54 renames those. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/init.ts",
+        "test/commands/init.test.ts"
+      ],
+      "tests": [
+        "bun test test/commands/init.test.ts",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "opus"
+    },
+    {
+      "id": 54,
+      "priority": 4,
+      "title": "test/commands/init.test.ts — cosmetic .ralph -> .cairn fixture rename",
+      "description": "Mechanical sweep of the remaining ~70 '.ralph' references in test/commands/init.test.ts that are incidental fixture paths and test NAMES, not behavior — e.g. fs.mkdirSync(path.join(tmpDir, '.ralph')), test('creates .ralph/ directory when it does not exist'), test('prints Created: .ralph/tasks.json'). Rename each to '.cairn'. No source file changes and no assertion-semantics changes. If a rename makes a test fail, that test was behavioral and belongs to task 53 — leave it as-is and report it in your notes rather than editing the assertion. Assertions stay literal ('.cairn'), never BRAND.dataDir. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "test/commands/init.test.ts"
+      ],
+      "tests": [
+        "bun test test/commands/init.test.ts",
+        "bun test"
+      ],
+      "dependencies": [
+        53
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 55,
+      "priority": 5,
+      "title": "src/commands/run.ts — collapse completion-flag probe and temp-file cleanup",
+      "description": "Remove 2 of the 3 markers in src/commands/run.ts. At ~line 444, replace allTempFilePaths(dataDir, 'complete').some((p) => deps.existsSync(p)) with deps.existsSync(tempFilePath(dataDir, 'complete')) and delete the accompanying legacy comment. At ~line 700, collapse the TEMP_FILE_SUFFIXES cleanup loop from allTempFilePaths to tempFilePath. Drop the allTempFilePaths import. CRITICAL — do NOT touch NOTES_TEMPFILE_RE (~line 367), its doc comment (~line 364), the notes-sweep comment (~line 711), the marker at ~line 714, or buildSystemPrompt's notesFile (~line 52). .ralph_task_<id>_notes.md is a deliberate PERMANENT exception (see CLAUDE.md, 'The temp-file prefix — a second naming tier'): agents are still handed that exact filename, so the sweep regex must keep matching the legacy prefix or scratch files leak into every data dir forever. The marker comments at ~365 and ~714 must survive so test/legacy-markers.test.ts stays green. Task 63 rehomes those. TDD: update test/commands/run.test.ts — only the completion-flag and cleanup-sweep cases here — watch fail, make pass. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/run.ts",
+        "test/commands/run.test.ts"
+      ],
+      "tests": [
+        "bun test test/commands/run.test.ts",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "opus"
+    },
+    {
+      "id": 56,
+      "priority": 6,
+      "title": "Migrate temp-file read callers to tempFilePath (4 files)",
+      "description": "Switch every findTempFilePath / allTempFilePaths call OUTSIDE src/utils.ts to tempFilePath, so the resolvers can be deleted in task 58. Four files: src/task-selector.ts:12 (loadCompletedIds, 1 marker); src/tasks-file.ts:134 (snapshot recovery, 1 marker); src/task-archiver.ts:68 (delete existingIdsFile, use idsFile for both read and write) and :90 (delete the allTempFilePaths stale-copy sweep loop entirely — 2 markers); and src/commands/logs.ts:5 — NOTE this file is not in the planning notes and carries NO marker because it never spells 'ralph', but it calls findTempFilePath(dataDir, 'iterations.log') and must be migrated or task 58 breaks the build. Remove the dual-read explanation comments and fix imports in each file. TDD: update test/task-selector.test.ts, test/tasks-file.test.ts, test/task-archiver.test.ts, and test/commands/logs.test.ts (delete the 'falls back to the legacy .ralph_iterations.log' test at ~line 66); watch fail, make pass. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/task-selector.ts",
+        "src/tasks-file.ts",
+        "src/task-archiver.ts",
+        "src/commands/logs.ts",
+        "test/task-selector.test.ts",
+        "test/tasks-file.test.ts",
+        "test/task-archiver.test.ts",
+        "test/commands/logs.test.ts"
+      ],
+      "tests": [
+        "bun test test/task-selector.test.ts test/tasks-file.test.ts test/task-archiver.test.ts test/commands/logs.test.ts",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 57,
+      "priority": 7,
+      "title": "Comment-only legacy caveat removal (post-task-reviewer, index, edit)",
+      "description": "Three files where the marker covers only a comment — the CODE STAYS EXACTLY AS-IS. src/post-task-reviewer.ts (~lines 126-129): drop the '(which may be the legacy .ralph/)' caveat and the marker, keeping the rule that reviewFileRule is derived from the resolved dataDir; also fix the '.ralph/reviews/**' example (~line 138) and the '.ralph/' mention (~line 147) to '.cairn/'. src/index.ts (~lines 38-40): drop the 'projects still on the legacy layout' caveat; the findDataDir(projectRoot) call stays. src/commands/edit.ts (~lines 19-21): drop the 'a project still on ralph.json' caveat; the findConfigFile(projectRoot) call stays. TDD: delete test/commands/edit.test.ts's \"target 'config' resolves an existing legacy ralph.json\" test (~line 91) and the related case (~line 105), and test/post-task-reviewer.test.ts's 'allowlist rule follows the resolved data dir (legacy .ralph/)' test (~line 284). Leave the other cosmetic .ralph fixture paths in those files — task 64 handles them. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/post-task-reviewer.ts",
+        "src/index.ts",
+        "src/commands/edit.ts",
+        "test/commands/edit.test.ts",
+        "test/post-task-reviewer.test.ts"
+      ],
+      "tests": [
+        "bun test test/commands/edit.test.ts test/post-task-reviewer.test.ts test/index.test.ts",
+        "bun test"
+      ],
+      "dependencies": [
+        51
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 58,
+      "priority": 8,
+      "title": "src/utils.ts — collapse data-dir tier and delete temp-file resolvers",
+      "description": "Remove all 7 markers in src/utils.ts. Delete dataDirNameAt and warnIfLegacyDataDir outright; rewrite findDataDir(projectRoot) to a plain existence check on join(projectRoot, BRAND.dataDir) — the function KEEPS its name and signature, since callers still need a resolved data dir. In findProjectRoot, the upward walk now tests BRAND.dataDir directly at each level; keep CAIRN_PROJECT_ROOT as priority #1 and the git-root/cwd fallbacks unchanged, and drop the legacy note from the doc comment. Delete findTempFilePath and allTempFilePaths ENTIRELY. This task depends on tasks 55 and 56, which migrated all five external callers (task-selector.ts, tasks-file.ts, task-archiver.ts, commands/logs.ts, commands/run.ts) — before deleting, verify with `grep -rn \"findTempFilePath\\|allTempFilePaths\" src/ test/` that nothing outside src/utils.ts and test/utils.test.ts still references them. If anything does, STOP and report rather than deleting: the health check runs before every iteration, so a broken build stalls the whole loop. Keep tempFilePath and the surrounding 'Runtime temp files' comment, minus the dual-read framing. Drop the LEGACY/warnLegacyOnce imports. TDD: update test/utils.test.ts (delete the legacy-fallback describes and the findTempFilePath/allTempFilePaths blocks) and test/index.test.ts's two behavioral tests, 'falls back to an existing legacy .ralph/ data dir' and 'points completedTasksPath at a legacy .ralph/ data dir'. Watch fail, make pass. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/utils.ts",
+        "test/utils.test.ts",
+        "test/index.test.ts"
+      ],
+      "tests": [
+        "bun test test/utils.test.ts test/index.test.ts",
+        "bun test"
+      ],
+      "dependencies": [
+        55,
+        56
+      ],
+      "model": "opus",
+      "agent": "planner"
+    },
+    {
+      "id": 59,
+      "priority": 9,
+      "title": "lib/cairn_narrate_server.py — drop RALPH_ env fallbacks",
+      "description": "Remove both markers in lib/cairn_narrate_server.py. At ~line 216, simplify the --socket default to os.environ.get('CAIRN_NARRATE_SOCKET', DEFAULT_SOCKET) — drop the RALPH_NARRATE_SOCKET leg. At ~lines 228-238, drop the RALPH_ANTHROPIC_API_KEY lookup and its stderr warning, leaving the CAIRN_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY chain. KEEP the comment explaining why the prefixed name exists (the loop blanks ANTHROPIC_API_KEY to force Max-plan usage) and that it mirrors resolveAnthropicApiKeyChain() in src/config.ts. There is no dedicated test file for this script; verify with `python3 -m py_compile lib/cairn_narrate_server.py` plus the full suite. Note: this silences narration in any long-lived shell still exporting only RALPH_ANTHROPIC_API_KEY — that is expected and the user is aware. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "lib/cairn_narrate_server.py"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 60,
+      "priority": 10,
+      "title": "Delete the cairn migrate command",
+      "description": "Delete src/commands/migrate.ts (1 marker, ~337 lines) and test/commands/migrate.test.ts (~500 lines). Remove the Commander registration from src/index.ts: the `import { runMigrate } from './commands/migrate'` (~line 14) and the whole '--- Native migrate command ---' block (~lines 186-200), which also carries a LEGACY.dataDir reference in its description string. Verify no other file imports runMigrate or references the 'migrate' command name in a way that breaks — check test/index.test.ts's command-registration tests, which may assert 'migrate' is present. Rationale: nothing on this machine remains on the .ralph/ layout, so the command has no work to do; it stays recoverable from git history if an old clone ever surfaces. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/migrate.ts",
+        "test/commands/migrate.test.ts",
+        "src/index.ts",
+        "test/index.test.ts"
+      ],
+      "tests": [
+        "bun test test/index.test.ts",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 61,
+      "priority": 11,
+      "title": "install.sh — drop the ralph compatibility symlink",
+      "description": "Remove both markers in install.sh. Delete the `ln -sf \"$CAIRN_BIN\" \"$PREFIX/bin/ralph\"` line (~34) and its `echo \"Installed: $PREFIX/bin/ralph -> $CAIRN_BIN\"` (~37), and rewrite the header comment (~lines 4-8) to describe only the cairn symlink. EDIT ONLY THE SYMLINK BLOCK. Do not touch `bun run build` (~line 23), CAIRN_BIN=\"$CAIRN_ROOT/dist/cairn\" (~line 25), the dist/cairn existence check, or package.json's build script — the user has pinned ~/.local/bin/cairn to a frozen copy and redirected cairn.json's healthCheck to a throwaway outfile for this round, and changing the build path would un-freeze the binary mid-round. Do NOT run ./install.sh. TDD: update test/install-script.test.ts — replace 'symlinks both cairn and ralph to the built binary' with a cairn-only assertion PLUS a negative assertion that no bin/ralph symlink is created, delete 'does not print a deprecation warning for the ralph symlink', and KEEP the existing RALPH_ROOT/RALPH_BIN and dist/ralph negative assertions. Note for the record: this does NOT delete the existing ~/.local/bin/ralph symlink on disk — that is a manual post-round step the user performs. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "install.sh",
+        "test/install-script.test.ts"
+      ],
+      "tests": [
+        "bun test test/install-script.test.ts",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 62,
+      "priority": 12,
+      "title": "Delete test/legacy-markers.test.ts",
+      "description": "Delete test/legacy-markers.test.ts. It exists to guarantee every legacy fallback carries the 'remove once all projects migrated' marker so this removal round could be mechanical; with every fallback now gone it has nothing left to enforce. BEFORE deleting, run `grep -rn \"remove once all projects migrated\" src/ lib/ install.sh` and confirm the only remaining hits are in src/brand.ts (the LEGACY object, handled by task 63). If any other file still carries a marker, STOP and report rather than deleting — that means an earlier task left work behind. This task is deliberately ordered BEFORE the src/brand.ts task, inverting what the planning notes originally said. The reason: deleting LEGACY forces a hardcoded '.ralph_' literal for the permanent .ralph_task_<id>_notes.md scratch exception, and this test fails on that unmarked mention — which would leave task 63 with a red suite and get it reverted to in-progress by the post-iteration validator. Tasks 51-61 only REMOVE marked mentions and can never introduce an unmarked one, so the guardrail has no remaining work. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "test/legacy-markers.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        51,
+        52,
+        53,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 63,
+      "priority": 13,
+      "title": "src/brand.ts — delete LEGACY and rehome the permanent notes prefix",
+      "description": "Delete the LEGACY object, warnLegacyOnce, resetLegacyWarnings, and the module-level warnedKeys set from src/brand.ts; BRAND remains the single source of truth. Verified in advance: all warnLegacyOnce call sites lived in src/narration.ts, src/utils.ts, and src/config.ts (all removed by tasks 51, 52, 58), and resetLegacyWarnings is called only from test/brand.test.ts, test/utils.test.ts, test/narration.test.ts, and test/config.test.ts (all rewritten by earlier tasks) — so all three symbols have zero surviving callers. Confirm with `grep -rn \"LEGACY\\|warnLegacyOnce\\|resetLegacyWarnings\" src/ test/` before deleting. Update the BRAND doc comment to drop the legacy-layout framing while KEEPING the CREATE-vs-RESOLVE standing rule. THEN rehome the one permanent exception: .ralph_task_<id>_notes.md keeps the pre-rename name forever (write-and-sweep scratch never read back; renaming would churn committed history — see CLAUDE.md 'The temp-file prefix' and the planning notes' rejected alternatives). Add a dedicated exported constant in src/brand.ts, e.g. `export const NOTES_TEMP_PREFIX = '.ralph_';`, with a comment stating it is a deliberate PERMANENT exception and NOT a compatibility fallback. Then repoint the three consumers: src/commands/run.ts:52 (buildSystemPrompt's notesFile), src/commands/run.ts:367 (NOTES_TEMPFILE_RE — the sweep must keep matching this prefix or scratch leaks forever; it can now match NOTES_TEMP_PREFIX alone, since .cairn_task_*_notes.md was never written), and src/commands/init.ts's surviving .ralph_task_*_notes.md gitignore line. Fix the now-stale comments at run.ts ~364 and ~711. TDD: update test/brand.test.ts — replace the LEGACY assertions with a NOTES_TEMP_PREFIX assertion and a check that LEGACY is no longer exported — watch fail, make pass. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/brand.ts",
+        "src/commands/run.ts",
+        "src/commands/init.ts",
+        "test/brand.test.ts"
+      ],
+      "tests": [
+        "bun test test/brand.test.ts test/commands/run.test.ts test/commands/init.test.ts",
+        "bun test"
+      ],
+      "dependencies": [
+        62
+      ],
+      "model": "opus",
+      "agent": "planner"
+    },
+    {
+      "id": 64,
+      "priority": 14,
+      "title": "Cosmetic test-fixture sweep across remaining test files",
+      "description": "Mechanical rename of the remaining incidental '.ralph' fixture paths and test names across the suite — these are temp-dir names, not behavior, and they are what would otherwise make the manual post-round grep sweep non-empty. Files and approximate counts: test/commands/summarize.test.ts (21), test/commands/status.test.ts (17), test/commands/plan.test.ts (10), test/post-task-reviewer.test.ts (~26 remaining), test/commands/run.test.ts (remaining), test/commands/edit.test.ts (remaining), test/index.test.ts (remaining), test/config.test.ts and test/utils.test.ts (any stragglers). Do NOT re-touch test/commands/init.test.ts — task 54 owns it. Rename '.ralph' -> '.cairn' and 'ralph.json' -> 'cairn.json' in fixture paths and test names only. Assertions stay literal ('.cairn', 'cairn.json'), never BRAND.dataDir/BRAND.configFile. If any rename makes a test fail, that test was behavioral — STOP and report rather than editing assertions. Finish by running `grep -rni ralph test/` and reporting whatever is left. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "test/commands/summarize.test.ts",
+        "test/commands/status.test.ts",
+        "test/commands/plan.test.ts",
+        "test/post-task-reviewer.test.ts",
+        "test/commands/run.test.ts",
+        "test/commands/edit.test.ts",
+        "test/index.test.ts",
+        "test/config.test.ts",
+        "test/utils.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        63
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 65,
+      "priority": 15,
+      "title": "Docs — remove the compatibility window from CLAUDE.md and README.md",
+      "description": "CLAUDE.md: delete the sections 'Branding and the legacy layout' (including the 'temp-file prefix' and 'narration socket' tier subsections), 'The compatibility window', 'The removal marker', and 'The cairn migrate command'. KEEP 'Pin/unpin procedure for self-modifying rounds' — it is generic, reusable guidance not tied to the rename. Fold what survives into a short src/brand.ts note in the Architecture section, and add a brief note under Conventions that .ralph_task_<id>_notes.md (via NOTES_TEMP_PREFIX in src/brand.ts) is a deliberate permanent exception — write-and-sweep scratch that keeps the pre-rename name so committed history is not churned. Update the 'What is Cairn' opener, the .cairn/ layout diagram (drop 'or .ralph/ on projects not yet migrated'), the findDataDir/findConfigFile descriptions, and the 'Agent workflow' section (drop the 'ralph task ...' equivalence note). README.md: delete the 'Migrating from Ralph' section and all links to it, drop 'cairn migrate' from the command table, fix the install section (only ~/.local/bin/cairn is symlinked now), remove legacy-layout notes from the discovery/config/project-structure sections, remove migrate.ts from the source tree diagram, and fix the narration paragraphs (no legacy socket fallback; the server reads only CAIRN_NARRATE_SOCKET). docs/parallel-execution-rfc.md: fix its single 'ralph' reference. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "CLAUDE.md",
+        "README.md",
+        "docs/parallel-execution-rfc.md"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        63
+      ],
+      "model": "sonnet",
+      "agent": "summarizer"
+    },
+    {
+      "priority": 16,
+      "title": "Decide the fate of resolveAnthropicApiKeyChain — no production callers remain",
+      "description": "Task #51 deleted warnIfLegacyApiKey and its two call sites (src/commands/narrate.ts, src/commands/run.ts), which were the only consumers of resolveAnthropicApiKeyChain(). The function is still exported from src/config.ts and covered by test/config.test.ts, but nothing in src/ calls it — the resolution is now purely documentary, mirroring the same chain in lib/cairn_narrate_server.py (see task #59). Either (a) delete the helper, its AnthropicApiKeyResolution type, and its tests, leaving the Python server as the single implementation, or (b) keep it and give it a real caller — e.g. have runNarrate/runRun pass the resolved key into the narration server env instead of relying on the child process re-reading the environment. Do NOT normalize onto plain ANTHROPIC_API_KEY under either option: the loop deliberately blanks that name to force Max-plan usage. Sequence this after #59 so both sides of the mirror are decided together.",
+      "directory": "src",
+      "status": "pending",
+      "files": [
+        "src/config.ts",
+        "test/config.test.ts",
+        "src/commands/narrate.ts",
+        "src/commands/run.ts"
+      ],
+      "dependencies": [
+        59
+      ],
+      "tests": [
+        "bun test test/config.test.ts",
+        "bun test"
+      ],
+      "id": 66
+    }
+  ]
 }

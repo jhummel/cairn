@@ -88,18 +88,23 @@ describe('runEdit', () => {
     expect(args).toContain(configFile);
   });
 
-  test('target "config" resolves an existing legacy ralph.json', () => {
-    const legacyFile = path.join(tmpDir, 'ralph.json');
-    fs.writeFileSync(legacyFile, '{}');
+  test('target "config" never opens a leftover ralph.json', () => {
+    const exitSpy = spyOn(process, 'exit').mockImplementation((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    });
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), '{}');
 
-    runEdit('config', tmpDir, dataDir);
+    try {
+      expect(() => runEdit('config', tmpDir, dataDir)).toThrow();
+    } finally {
+      exitSpy.mockRestore();
+    }
 
-    expect(spawnSpy).toHaveBeenCalledTimes(1);
-    const [, args] = spawnSpy.mock.calls[0];
-    expect(args).toContain(legacyFile);
+    expect(spawnSpy).not.toHaveBeenCalled();
+    expect(stderrLines.join('\n')).toContain('File not found:');
   });
 
-  test('target "config" prefers cairn.json when both config files exist', () => {
+  test('target "config" opens cairn.json even when a ralph.json also exists', () => {
     const configFile = path.join(tmpDir, 'cairn.json');
     fs.writeFileSync(configFile, '{}');
     fs.writeFileSync(path.join(tmpDir, 'ralph.json'), '{}');

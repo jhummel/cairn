@@ -16,7 +16,6 @@ import { loadPersonalInstructions } from '../personal-instructions';
 import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnapshotTasksFile, TasksFileError, type TasksFile } from '../tasks-file';
 import { tempFilePath, allTempFilePaths } from '../utils';
 import { BRAND, LEGACY } from '../brand';
-import { resolveAnthropicApiKeyChain, warnIfLegacyApiKey } from '../config';
 
 export interface SystemPromptInput {
   taskDir: string;
@@ -413,7 +412,6 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   const narrationSocketPath = deps.findNarrationSocketPath(projectRoot);
 
   if (narrationEnabled) {
-    warnIfLegacyApiKey(resolveAnthropicApiKeyChain());
     try {
       narrationPid = await deps.startNarrationServer({
         pythonPath: process.env.CAIRN_NARRATE_PYTHON!,

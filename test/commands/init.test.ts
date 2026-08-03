@@ -315,7 +315,7 @@ describe('getConfigDefaults', () => {
     fs.rmSync(tmpDir, { recursive: true });
   });
 
-  test('returns sensible defaults when no ralph.json exists', () => {
+  test('returns sensible defaults when no cairn.json exists', () => {
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.projectName).toBe(path.basename(tmpDir));
     expect(defaults.projectDescription).toBe('');
@@ -355,7 +355,7 @@ describe('getConfigDefaults', () => {
     expect(defaults.narrationVoice).toBe('af_sky');
   });
 
-  test('loads existing ralph.json values as defaults', () => {
+  test('loads every field of an existing cairn.json as defaults', () => {
     const existing = {
       projectName: 'my-app',
       projectDescription: 'A cool app',
@@ -366,7 +366,7 @@ describe('getConfigDefaults', () => {
       summarize: { claudeMdPattern: '**/CLAUDE.md' },
       narration: { enabled: true, voice: 'af_sky', ntfyTopic: 'my-topic' },
     };
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(existing, null, 2));
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(existing, null, 2));
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.projectName).toBe('my-app');
     expect(defaults.projectDescription).toBe('A cool app');
@@ -380,9 +380,19 @@ describe('getConfigDefaults', () => {
     expect(defaults.ntfyTopic).toBe('my-topic');
   });
 
-  test('partially populated ralph.json fills in missing fields with defaults', () => {
+  test('ignores a leftover ralph.json when deriving defaults', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'ralph.json'),
+      JSON.stringify({ projectName: 'my-app', narration: { voice: 'af_sky' } })
+    );
+    const defaults = getConfigDefaults(tmpDir);
+    expect(defaults.projectName).toBe(path.basename(tmpDir));
+    expect(defaults.narrationVoice).toBe('bf_emma');
+  });
+
+  test('partially populated cairn.json fills in missing fields with defaults', () => {
     const partial = { projectName: 'partial-app' };
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(partial));
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(partial));
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.projectName).toBe('partial-app');
     expect(defaults.implementationFile).toBe('IMPLEMENTATION.md');
@@ -390,63 +400,63 @@ describe('getConfigDefaults', () => {
     expect(defaults.narrationEnabled).toBe(false);
   });
 
-  test('auto-detect does not override existing ralph.json healthCheck', () => {
+  test('auto-detect does not override existing cairn.json healthCheck', () => {
     fs.writeFileSync(
       path.join(tmpDir, 'package.json'),
       JSON.stringify({ scripts: { 'type-check': 'tsc' } })
     );
     fs.writeFileSync(
-      path.join(tmpDir, 'ralph.json'),
+      path.join(tmpDir, 'cairn.json'),
       JSON.stringify({ healthCheck: 'custom check' })
     );
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.healthCheck).toBe('custom check');
   });
 
-  test('auto-detect is used when ralph.json healthCheck is empty', () => {
+  test('auto-detect is used when cairn.json healthCheck is empty', () => {
     fs.writeFileSync(
       path.join(tmpDir, 'package.json'),
       JSON.stringify({ scripts: { 'type-check': 'tsc' } })
     );
     fs.writeFileSync(
-      path.join(tmpDir, 'ralph.json'),
+      path.join(tmpDir, 'cairn.json'),
       JSON.stringify({ healthCheck: '' })
     );
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.healthCheck).toBe('npm run type-check');
   });
 
-  test('returns reviewMaxIterations default of 3 when no ralph.json', () => {
+  test('returns reviewMaxIterations default of 3 when no cairn.json', () => {
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.reviewMaxIterations).toBe(3);
   });
 
-  test('loads reviewMaxIterations from ralph.json', () => {
+  test('loads reviewMaxIterations from cairn.json', () => {
     fs.writeFileSync(
-      path.join(tmpDir, 'ralph.json'),
+      path.join(tmpDir, 'cairn.json'),
       JSON.stringify({ review: { maxIterations: 5 } })
     );
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.reviewMaxIterations).toBe(5);
   });
 
-  test('returns reviewPostTask default of false when no ralph.json', () => {
+  test('returns reviewPostTask default of false when no cairn.json', () => {
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.reviewPostTask).toBe(false);
   });
 
-  test('loads reviewPostTask: true from ralph.json', () => {
+  test('loads reviewPostTask: true from cairn.json', () => {
     fs.writeFileSync(
-      path.join(tmpDir, 'ralph.json'),
+      path.join(tmpDir, 'cairn.json'),
       JSON.stringify({ review: { maxIterations: 3, postTask: true } })
     );
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.reviewPostTask).toBe(true);
   });
 
-  test('loads reviewPostTask: false from ralph.json', () => {
+  test('loads reviewPostTask: false from cairn.json', () => {
     fs.writeFileSync(
-      path.join(tmpDir, 'ralph.json'),
+      path.join(tmpDir, 'cairn.json'),
       JSON.stringify({ review: { maxIterations: 3, postTask: false } })
     );
     const defaults = getConfigDefaults(tmpDir);

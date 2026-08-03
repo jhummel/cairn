@@ -8,7 +8,6 @@ import {
   findNarrationPidFile,
   type StartNarrationOpts,
 } from '../narration';
-import { resolveAnthropicApiKeyChain, warnIfLegacyApiKey } from '../config';
 import { findProjectRoot } from '../utils';
 
 const DEFAULT_VOICE = 'bf_emma';
@@ -70,8 +69,6 @@ export async function runNarrate(action: string, opts: RunNarrateOpts = {}): Pro
         // Stale PID file — remove it
         fs.unlinkSync(pidFile);
       }
-
-      warnIfLegacyApiKey(resolveAnthropicApiKeyChain());
 
       console.log(`Starting narration server (voice: ${voice})...`);
       let pid: number;

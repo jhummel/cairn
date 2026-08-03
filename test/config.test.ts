@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { loadConfig, findConfigFile, autoDetectHealthCheck, discoverAgents, setConfigEnvVars, resolveAnthropicApiKeyChain, warnIfLegacyApiKey } from '../src/config';
-import { resetLegacyWarnings } from '../src/brand';
+import { loadConfig, findConfigFile, autoDetectHealthCheck, discoverAgents, setConfigEnvVars, resolveAnthropicApiKeyChain } from '../src/config';
 import { isValidConfig } from '../src/types';
 import type { CairnConfig } from '../src/types';
 
@@ -24,7 +23,7 @@ describe('loadConfig', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('returns all defaults when ralph.json does not exist', () => {
+  it('returns all defaults when cairn.json does not exist', () => {
     const config = loadConfig(tmpDir);
     expect(config.projectName).toBe(path.basename(tmpDir));
     expect(config.projectDescription).toBe('');
@@ -38,7 +37,7 @@ describe('loadConfig', () => {
     expect(config.narration.ntfyTopic).toBe('');
   });
 
-  it('loads a complete ralph.json', () => {
+  it('loads a complete cairn.json', () => {
     const configData = {
       projectName: 'my-project',
       projectDescription: 'A test project',
@@ -49,7 +48,7 @@ describe('loadConfig', () => {
       summarize: { claudeMdPattern: '**/CLAUDE.md' },
       narration: { enabled: true, voice: 'custom_voice', ntfyTopic: 'my-topic' },
     };
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(configData));
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
 
     const config = loadConfig(tmpDir);
     expect(config.projectName).toBe('my-project');
@@ -64,9 +63,9 @@ describe('loadConfig', () => {
     expect(config.narration.ntfyTopic).toBe('my-topic');
   });
 
-  it('applies defaults for missing fields in partial ralph.json', () => {
+  it('applies defaults for missing fields in partial cairn.json', () => {
     const configData = { projectName: 'partial-project' };
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(configData));
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
 
     const config = loadConfig(tmpDir);
     expect(config.projectName).toBe('partial-project');
@@ -83,7 +82,7 @@ describe('loadConfig', () => {
 
   it('applies defaults for partial narration object', () => {
     const configData = { narration: { enabled: true } };
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(configData));
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
 
     const config = loadConfig(tmpDir);
     expect(config.narration.enabled).toBe(true);
@@ -93,7 +92,7 @@ describe('loadConfig', () => {
 
   it('applies defaults for partial summarize object', () => {
     const configData = { summarize: {} };
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(configData));
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
 
     const config = loadConfig(tmpDir);
     expect(config.summarize.claudeMdPattern).toBe('');
@@ -111,23 +110,23 @@ describe('loadConfig', () => {
     expect(config.review?.maxIterations).toBe(3);
   });
 
-  it('loads review.maxIterations from ralph.json when specified', () => {
+  it('loads review.maxIterations from cairn.json when specified', () => {
     const configData = { review: { maxIterations: 5 } };
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(configData));
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
     const config = loadConfig(tmpDir);
     expect(config.review?.maxIterations).toBe(5);
   });
 
-  it('defaults review.maxIterations to 3 when review object is missing from ralph.json', () => {
+  it('defaults review.maxIterations to 3 when review object is missing from cairn.json', () => {
     const configData = { projectName: 'my-project' };
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(configData));
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
     const config = loadConfig(tmpDir);
     expect(config.review?.maxIterations).toBe(3);
   });
 
   it('defaults review.maxIterations to 3 when review.maxIterations is missing', () => {
     const configData = { review: {} };
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify(configData));
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
     const config = loadConfig(tmpDir);
     expect(config.review?.maxIterations).toBe(3);
   });
@@ -411,7 +410,7 @@ describe('setConfigEnvVars', () => {
     }
   });
 
-  it('sets all RALPH_* env vars from config', () => {
+  it('sets all CAIRN_* env vars from config', () => {
     const config: CairnConfig = {
       projectName: 'test-proj',
       projectDescription: 'A desc',
@@ -505,50 +504,44 @@ describe('loadConfig review.postTask', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('defaults review.postTask to false when no ralph.json exists', () => {
+  it('defaults review.postTask to false when no cairn.json exists', () => {
     const config = loadConfig(tmpDir);
     expect(config.review?.postTask).toBe(false);
   });
 
   it('defaults review.postTask to false when review object is missing', () => {
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ projectName: 'x' }));
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify({ projectName: 'x' }));
     const config = loadConfig(tmpDir);
     expect(config.review?.postTask).toBe(false);
   });
 
   it('defaults review.postTask to false when review.postTask is missing', () => {
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ review: { maxIterations: 5 } }));
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify({ review: { maxIterations: 5 } }));
     const config = loadConfig(tmpDir);
     expect(config.review?.postTask).toBe(false);
   });
 
-  it('loads review.postTask: true from ralph.json', () => {
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ review: { maxIterations: 3, postTask: true } }));
+  it('loads review.postTask: true from cairn.json', () => {
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify({ review: { maxIterations: 3, postTask: true } }));
     const config = loadConfig(tmpDir);
     expect(config.review?.postTask).toBe(true);
   });
 
-  it('loads review.postTask: false from ralph.json', () => {
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ review: { maxIterations: 3, postTask: false } }));
+  it('loads review.postTask: false from cairn.json', () => {
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify({ review: { maxIterations: 3, postTask: false } }));
     const config = loadConfig(tmpDir);
     expect(config.review?.postTask).toBe(false);
   });
 });
 
-describe('loadConfig — dual-read config file discovery', () => {
+describe('loadConfig — config file discovery', () => {
   let tmpDir: string;
-  let originalError: typeof console.error;
 
   beforeEach(() => {
     tmpDir = makeTempDir();
-    resetLegacyWarnings();
-    originalError = console.error;
-    console.error = () => {};
   });
 
   afterEach(() => {
-    console.error = originalError;
-    resetLegacyWarnings();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -557,56 +550,37 @@ describe('loadConfig — dual-read config file discovery', () => {
     expect(loadConfig(tmpDir).projectName).toBe('modern');
   });
 
-  it('falls back to a legacy ralph.json', () => {
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ projectName: 'legacy' }));
-    expect(loadConfig(tmpDir).projectName).toBe('legacy');
-  });
-
-  it('prefers cairn.json when both exist', () => {
-    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify({ projectName: 'modern' }));
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ projectName: 'legacy' }));
-    expect(loadConfig(tmpDir).projectName).toBe('modern');
-  });
-
-  it('returns defaults when neither config file exists', () => {
+  it('returns defaults when no config file exists', () => {
     expect(loadConfig(tmpDir).projectName).toBe(path.basename(tmpDir));
   });
 
-  it('warns exactly once when falling back to the legacy config file', () => {
-    const seen: string[] = [];
-    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
+  it('ignores a ralph.json left behind by an unmigrated project', () => {
     fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ projectName: 'legacy' }));
-    loadConfig(tmpDir);
-    loadConfig(tmpDir);
-    findConfigFile(tmpDir);
-    expect(seen.length).toBe(1);
-    expect(seen[0]).toContain('ralph.json');
-    expect(seen[0]).toContain('cairn.json');
+    expect(loadConfig(tmpDir).projectName).toBe(path.basename(tmpDir));
   });
 
-  it('does not warn when cairn.json is used', () => {
+  it('emits no warnings when loading config', () => {
     const seen: string[] = [];
+    const originalError = console.error;
     console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
-    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify({ projectName: 'modern' }));
-    loadConfig(tmpDir);
+    try {
+      fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify({ projectName: 'modern' }));
+      loadConfig(tmpDir);
+    } finally {
+      console.error = originalError;
+    }
     expect(seen.length).toBe(0);
   });
 });
 
 describe('findConfigFile', () => {
   let tmpDir: string;
-  let originalError: typeof console.error;
 
   beforeEach(() => {
     tmpDir = makeTempDir();
-    resetLegacyWarnings();
-    originalError = console.error;
-    console.error = () => {};
   });
 
   afterEach(() => {
-    console.error = originalError;
-    resetLegacyWarnings();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -615,9 +589,9 @@ describe('findConfigFile', () => {
     expect(findConfigFile(tmpDir)).toBe(path.join(tmpDir, 'cairn.json'));
   });
 
-  it('resolves to the legacy ralph.json when only that exists', () => {
+  it('resolves to cairn.json even when only a ralph.json exists', () => {
     fs.writeFileSync(path.join(tmpDir, 'ralph.json'), '{}');
-    expect(findConfigFile(tmpDir)).toBe(path.join(tmpDir, 'ralph.json'));
+    expect(findConfigFile(tmpDir)).toBe(path.join(tmpDir, 'cairn.json'));
   });
 
   it('defaults to cairn.json when neither exists, so new config is created there', () => {
@@ -626,72 +600,37 @@ describe('findConfigFile', () => {
 });
 
 describe('resolveAnthropicApiKeyChain', () => {
-  it('prefers CAIRN_ANTHROPIC_API_KEY over everything else', () => {
+  it('prefers CAIRN_ANTHROPIC_API_KEY over plain ANTHROPIC_API_KEY', () => {
     const env = {
       CAIRN_ANTHROPIC_API_KEY: 'cairn-key',
-      RALPH_ANTHROPIC_API_KEY: 'legacy-key',
       ANTHROPIC_API_KEY: 'plain-key',
     };
     expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'cairn-key', source: 'cairn' });
   });
 
-  it('falls back to legacy RALPH_ANTHROPIC_API_KEY when CAIRN_ANTHROPIC_API_KEY is unset', () => {
-    const env = { RALPH_ANTHROPIC_API_KEY: 'legacy-key', ANTHROPIC_API_KEY: 'plain-key' };
-    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'legacy-key', source: 'legacy' });
-  });
-
-  it('falls back to plain ANTHROPIC_API_KEY when neither prefixed name is set', () => {
+  it('falls back to plain ANTHROPIC_API_KEY when CAIRN_ANTHROPIC_API_KEY is unset', () => {
     const env = { ANTHROPIC_API_KEY: 'plain-key' };
     expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'plain-key', source: 'plain' });
   });
 
-  it('returns no key when none of the three are set', () => {
+  it('returns no key when neither name is set', () => {
     expect(resolveAnthropicApiKeyChain({})).toEqual({ key: undefined, source: 'none' });
   });
 
-  it('never normalizes onto plain ANTHROPIC_API_KEY when the legacy name resolves', () => {
+  it('ignores a RALPH_ANTHROPIC_API_KEY still exported by an old shell profile', () => {
     const env = { RALPH_ANTHROPIC_API_KEY: 'legacy-key' };
+    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: undefined, source: 'none' });
+  });
+
+  it('never normalizes the resolved key onto plain ANTHROPIC_API_KEY', () => {
+    const env: Record<string, string | undefined> = { CAIRN_ANTHROPIC_API_KEY: 'cairn-key' };
     const result = resolveAnthropicApiKeyChain(env);
-    expect(result.key).toBe('legacy-key');
+    expect(result.key).toBe('cairn-key');
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
-  it('ignores an empty-string CAIRN_ANTHROPIC_API_KEY and falls through to legacy', () => {
-    const env = { CAIRN_ANTHROPIC_API_KEY: '', RALPH_ANTHROPIC_API_KEY: 'legacy-key' };
-    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'legacy-key', source: 'legacy' });
-  });
-});
-
-describe('warnIfLegacyApiKey', () => {
-  beforeEach(() => resetLegacyWarnings());
-  afterEach(() => resetLegacyWarnings());
-
-  it('warns exactly once when the resolution source is legacy', () => {
-    const seen: string[] = [];
-    const originalError = console.error;
-    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
-    try {
-      warnIfLegacyApiKey({ key: 'legacy-key', source: 'legacy' });
-      warnIfLegacyApiKey({ key: 'legacy-key', source: 'legacy' });
-    } finally {
-      console.error = originalError;
-    }
-    expect(seen.length).toBe(1);
-    expect(seen[0]).toContain('RALPH_ANTHROPIC_API_KEY');
-    expect(seen[0]).toContain('CAIRN_ANTHROPIC_API_KEY');
-  });
-
-  it('does not warn when the resolution source is cairn, plain, or none', () => {
-    const seen: string[] = [];
-    const originalError = console.error;
-    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
-    try {
-      warnIfLegacyApiKey({ key: 'k', source: 'cairn' });
-      warnIfLegacyApiKey({ key: 'k', source: 'plain' });
-      warnIfLegacyApiKey({ key: undefined, source: 'none' });
-    } finally {
-      console.error = originalError;
-    }
-    expect(seen.length).toBe(0);
+  it('ignores an empty-string CAIRN_ANTHROPIC_API_KEY and falls through to plain', () => {
+    const env = { CAIRN_ANTHROPIC_API_KEY: '', ANTHROPIC_API_KEY: 'plain-key' };
+    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'plain-key', source: 'plain' });
   });
 });
