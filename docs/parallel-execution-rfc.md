@@ -2,11 +2,11 @@
 
 **Status:** Draft — for discussion
 **Scope:** Design only. No code or tests are introduced by this document.
-**Author:** Ralph (iteration 6)
+**Author:** Cairn (iteration 6, written when the tool was still named Ralph)
 
 ## 1. Summary
 
-Ralph today executes tasks strictly one at a time. Each iteration of the loop in
+Cairn today executes tasks strictly one at a time. Each iteration of the loop in
 `src/commands/run.ts` (`runRun`) picks a single task via `selectNextTask`
 (`src/task-selector.ts`), spawns one `claude -p` agent, waits for it to exit,
 validates tests, optionally reviews, archives, and carries notes forward to the
@@ -43,7 +43,7 @@ every design choice below is constrained by them:
 - **Unlocked task-file mutation.** `mutateTasksFile`
   (`src/tasks-file.ts:174`) does read → mutate → atomic temp-write → rename,
   plus a snapshot. It is atomic *per write* but has **no cross-process lock**:
-  concurrent `ralph task` subcommands can interleave read-modify-write and lose
+  concurrent `cairn task` subcommands can interleave read-modify-write and lose
   updates (last writer wins). This is safe today only because exactly one agent
   ever mutates the file at a time.
 - **Per-iteration snapshot.** Before spawning, the loop snapshots a known-good
@@ -86,7 +86,7 @@ share a filesystem checkout; merges happen after each agent exits.
 
 **Cons**
 
-- Merge complexity moves to Ralph: after a wave, branches must be merged back
+- Merge complexity moves to Cairn: after a wave, branches must be merged back
   (fast-forward where possible, otherwise a real merge that can *conflict*).
   Conflict resolution in autonomous mode is a hard, possibly agent-requiring
   problem with no obvious safe default.
@@ -198,7 +198,7 @@ into noise. Three options, in increasing order of preference:
    writer changes, output stays a single scrolling log. Lines from different
    agents still intermix but are attributable. Good default for piped/CI output.
 2. **Per-task log files.** Each agent's stream is written to
-   `.ralph/logs/iter-<n>-task-<id>.log`; the console shows a compact status
+   `.cairn/logs/iter-<n>-task-<id>.log`; the console shows a compact status
    line per task. Best for post-hoc debugging; loses the live feel.
 3. **Sectioned/TUI view.** A multi-pane live view, one region per active task.
    Best UX, highest cost, and fragile across terminals / non-TTY contexts.
@@ -276,7 +276,7 @@ mid-flight. The snapshot remains best-effort and non-fatal.
 
 This is the sharpest knock-on. `mutateTasksFile` (`src/tasks-file.ts:174`) is
 atomic per write but **not locked across processes**. With `N` agents each
-running `ralph task start/complete/note` concurrently, two read-modify-write
+running `cairn task start/complete/note` concurrently, two read-modify-write
 cycles can interleave and silently lose an update.
 
 This *must* be addressed before any parallel mode ships. Options:
@@ -318,7 +318,7 @@ diff would conflate multiple tasks' changes. Mitigations:
 
 ## 8. Rollout
 
-- **Opt-in flag:** `ralph run --parallel N`. Default (flag absent) = `1` =
+- **Opt-in flag:** `cairn run --parallel N`. Default (flag absent) = `1` =
   today's exact serial path. The serial code path is preserved verbatim, not
   reimplemented in terms of the parallel one, until parallel mode is proven.
 - **Sequencing of work** (each independently shippable):

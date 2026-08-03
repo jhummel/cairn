@@ -2,16 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What is Ralph
+## What is Cairn
 
-Ralph is an agentic task orchestration CLI that wraps Claude Code. It turns a planning conversation into a task list (`tasks.json`), then executes each task autonomously with fresh Claude agents — including health checks, test validation, dependency ordering, and archival of completed work.
+Cairn (formerly Ralph — see [Branding and the legacy layout](#branding-and-the-legacy-layout)) is an agentic task orchestration CLI that wraps Claude Code. It turns a planning conversation into a task list (`tasks.json`), then executes each task autonomously with fresh Claude agents — including health checks, test validation, dependency ordering, and archival of completed work.
 
 ## Development
 
-Ralph is a TypeScript project built with Bun. The entry point is `src/index.ts`, compiled to `dist/ralph` via `bun run build`.
+Cairn is a TypeScript project built with Bun. The entry point is `src/index.ts`, compiled to `dist/cairn` via `bun run build`.
 
 ```bash
-# Install (runs bun build, symlinks dist/ralph to ~/.local/bin/)
+# Install (runs bun build, symlinks dist/cairn to both ~/.local/bin/cairn and ~/.local/bin/ralph)
 ./install.sh
 
 # Build manually
@@ -21,7 +21,7 @@ bun run build
 bun test
 
 # Verify
-ralph --version
+cairn --version
 ```
 
 ## Architecture
@@ -41,26 +41,26 @@ ralph --version
 - **System prompt construction**: `buildSystemPrompt()` in `src/commands/run.ts` generates per-task prompts based on directory and project config. The agent is told its task via the user prompt, not by reading `tasks.json`.
 - **Task lifecycle**: pending → in-progress (set by agent) → complete (set by agent) → archived (moved to `tasks.completed.json` by the loop). Post-iteration test validation can revert a task to in-progress.
 - **Stream filtering**: `src/stream-filter.ts` parses `stream-json` output from Claude and renders colored one-line summaries of tool calls and results.
-- **Config loading**: `src/config.ts` reads `ralph.json`, exports config values, and auto-detects health checks from `package.json`/`Cargo.toml`/`Makefile`.
-- **Narration**: `lib/ralph_narrate.py` and `lib/ralph_narrate_server.py` are Python scripts used for audio narration of task progress. Managed via `src/narration.ts`.
+- **Config loading**: `src/config.ts` reads `cairn.json` (or legacy `ralph.json` — see [Branding and the legacy layout](#branding-and-the-legacy-layout)), exports config values, and auto-detects health checks from `package.json`/`Cargo.toml`/`Makefile`.
+- **Narration**: `lib/cairn_narrate.py` and `lib/cairn_narrate_server.py` are Python scripts used for audio narration of task progress. Managed via `src/narration.ts`.
 
-### Per-project data layout (created by `ralph init` in the target project)
+### Per-project data layout (created by `cairn init` in the target project)
 
 ```
 target-project/
-├── .ralph/
+├── .cairn/                     # or .ralph/ on projects not yet migrated
 │   ├── tasks.json              # Active task list
 │   ├── tasks.completed.json    # Archive of completed tasks
 │   ├── state.json              # Monotonic task-ID counter + planning round { "nextTaskId": N, "round": R } — committed to git
 │   ├── reviews/
 │   │   └── round-<N>.md        # Per-planning-round post-task review logs
 │   └── planning-notes.md       # Output from planning discussions
-└── ralph.json                  # Project configuration (optional)
+└── cairn.json                  # Project configuration (optional; or legacy ralph.json)
 ```
 
 ## Conventions
 
-- All source lives in `src/`. `lib/` contains only Python narration scripts (`ralph_narrate.py`, `ralph_narrate_server.py`).
+- All source lives in `src/`. `lib/` contains only Python narration scripts (`cairn_narrate.py`, `cairn_narrate_server.py`).
 - Task selection logic lives in `src/task-selector.ts`, prompt building and loop control in `src/commands/run.ts`, test validation in `src/test-validator.ts`.
 - Paths are kept absolute internally; task `directory` fields in `tasks.json` are relative to the project root.
 - No external runtime dependencies beyond Bun and the `claude` CLI.
@@ -92,18 +92,49 @@ The one deliberate exception is `.ralph_task_<id>_notes.md`: write-and-sweep scr
 
 ## Agent workflow
 
-Agents **must** use the `ralph task` subcommand group for every mutation of `.ralph/tasks.json`:
+Agents **must** use the `cairn task` subcommand group for every mutation of `.cairn/tasks.json` (`.ralph/tasks.json` on a project not yet migrated — the subcommands resolve either layout automatically):
 
 ```
-ralph task start <id> --iteration <n>
-ralph task complete <id> --iteration <n> [--notes "..."]
-ralph task note <id> "message"
-ralph task set-status <id> <status>
-ralph task add --title "..." --description "..." [...]
-ralph task next-id [--count <n>]
-ralph task show <id>
+cairn task start <id> --iteration <n>
+cairn task complete <id> --iteration <n> [--notes "..."]
+cairn task note <id> "message"
+cairn task set-status <id> <status>
+cairn task add --title "..." --description "..." [...]
+cairn task next-id [--count <n>]
+cairn task show <id>
 ```
 
-Task IDs are allocated by `ralph task next-id`, which reads and increments `state.json`. IDs are never reused — once allocated, an ID remains reserved even if the task is deleted or archived. `state.json` is seeded lazily on first call and is committed to git alongside `tasks.json`. `state.json` also tracks the current planning round; `ralph plan` bumps the round counter on every planning run, and the post-task reviewer writes its findings to `.ralph/reviews/round-<N>.md` for the active round.
+`ralph task ...` still works identically — see [Branding and the legacy layout](#branding-and-the-legacy-layout) — but new documentation and prompts should say `cairn`.
 
-Direct `Edit` or `Write` on `.ralph/tasks.json` is **forbidden**. This is enforced two ways: the per-agent system prompt explicitly bans it, and the post-task reviewer runs with a directory-scoped allowlist covering only `<dataDir>/reviews/**`, which excludes `tasks.json`. That allowlist rule is derived from the same resolved `reviewsDir` the reviewer's prompt targets (`src/post-task-reviewer.ts`), so the grant and the write path can never name different data dirs — if they did, every reviewer write would be *silently* denied. The CLI routes all writes through `writeTasksFile()`, which performs atomic temp-file replacement and validates JSON on every write — making corruption structurally impossible via this path.
+Task IDs are allocated by `cairn task next-id`, which reads and increments `state.json`. IDs are never reused — once allocated, an ID remains reserved even if the task is deleted or archived. `state.json` is seeded lazily on first call and is committed to git alongside `tasks.json`. `state.json` also tracks the current planning round; `cairn plan` bumps the round counter on every planning run, and the post-task reviewer writes its findings to `.cairn/reviews/round-<N>.md` for the active round.
+
+Direct `Edit` or `Write` on `tasks.json` is **forbidden**. This is enforced two ways: the per-agent system prompt explicitly bans it, and the post-task reviewer runs with a directory-scoped allowlist covering only `<dataDir>/reviews/**`, which excludes `tasks.json`. That allowlist rule is derived from the same resolved `reviewsDir` the reviewer's prompt targets (`src/post-task-reviewer.ts`), so the grant and the write path can never name different data dirs — if they did, every reviewer write would be *silently* denied. The CLI routes all writes through `writeTasksFile()`, which performs atomic temp-file replacement and validates JSON on every write — making corruption structurally impossible via this path.
+
+## The `cairn migrate` command
+
+`cairn migrate` (`src/commands/migrate.ts`) converts a single project from the legacy `.ralph/`/`ralph.json` layout to `.cairn/`/`cairn.json`. Key mechanics:
+
+- **Operates on `cwd` only.** No scanning, no walking upward, no recursion into subdirectories. Run it from the project root you want to migrate.
+- **Stages, never commits.** Every rename (`git mv`) and every write (refreshed `.claude/` artifacts, the appended `.gitignore` lines) ends up in the git index, not in a commit. The run prints a `Staged changes:` summary and closes with "Changes are STAGED, not committed" — review with `git status` / `git diff --cached`, then commit yourself.
+- **Refuses rather than guesses.** It aborts (exit 1, nothing touched) if both layouts exist side by side (`.ralph/` + `.cairn/`, or `ralph.json` + `cairn.json`), if the project isn't inside a git repo, or if any task is `in-progress` (an agent mid-task would lose its data directory underneath it). A dirty working tree is only a warning.
+- **Also refreshes `.claude/` artifacts.** Beyond the directory/config rename, it reinstalls the current slash-command and agent set (even into a project that never ran `cairn init`) and regenerates the narration hooks *if* they already exist, so a migrated project points at the current socket path instead of a stale one. Custom, non-Cairn files under `.claude/` are never touched (overwrite is by filename only).
+- **Idempotent.** A second run against an already-migrated project with current artifacts finds nothing to do and says so.
+
+## The compatibility window
+
+The rename from Ralph to Cairn is being rolled out gradually across every project on this machine, not in one atomic cutover. Until every project has run `cairn migrate`, both names must keep working simultaneously:
+
+- **Both data layouts are read.** `.cairn/` is preferred; `.ralph/` is used when `.cairn/` doesn't exist. Same for `cairn.json` vs. `ralph.json`. See [Branding and the legacy layout](#branding-and-the-legacy-layout) for the exact resolution helpers.
+- **Both binaries are installed.** `./install.sh` symlinks `~/.local/bin/cairn` and `~/.local/bin/ralph` to the same compiled binary. The `ralph` symlink is a long-lived compatibility commitment, not a deprecation stub — other projects have `ralph task ...` frozen into their installed `.claude/agents/*.md` files, and they break the moment `ralph` stops resolving. Do not add a deprecation warning that fires on every `ralph` invocation.
+- **The `ralph` symlink stays until every project is migrated.** There is no scheduled removal date; it comes out only once nothing on the machine still depends on the old name.
+
+## Pin/unpin procedure for self-modifying rounds
+
+Cairn's own health check (`ralph.json`/`cairn.json`'s `healthCheck` field) is `bun build --target=bun src/index.ts --outfile ...`, and it runs before *every* iteration of `cairn run`. That is a problem specifically when a planning round's own task list is renaming this tool: the loop is executing changes to the same binary it uses to build and check itself, mid-round, with no atomicity between "task N edits `src/`" and "the next iteration's health check builds `src/`".
+
+The fix used during the Ralph→Cairn rename rounds — worth reusing for any future self-modifying round:
+
+1. **Freeze the installed binary before starting the round.** Copy the last known-good `~/.local/bin/ralph` (or `cairn`) aside, or simply stop re-running `./install.sh` for the duration of the round. Agents are explicitly told not to run `./install.sh` themselves.
+2. **Redirect the health check to a throwaway outfile.** Point `healthCheck` at something like `bun build --target=bun src/index.ts --outfile /tmp/cairn-healthcheck` instead of the real `dist/` output, so a build-outfile-path task (e.g. renaming `dist/ralph` → `dist/cairn`) doesn't corrupt the binary developers are actively using.
+3. **Tell agents both values are user-managed for the round.** Any task whose file scope could plausibly touch `install.sh`, `package.json`'s build script, or `healthCheck` should say so explicitly in its description (e.g. "do NOT modify `ralph.json`'s `healthCheck` value — the user has pinned the binary and redirected the health check to a throwaway outfile"). Without that, an unrelated task can innocently "fix" the health check back to the real outfile and re-introduce the self-modification hazard mid-round.
+4. **Revert both manually once the round finishes.** Un-pin the binary (re-run `./install.sh`) and restore `healthCheck` to its real value. Neither is done automatically — both are explicitly user-managed for the duration of the round.
