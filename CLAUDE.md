@@ -65,7 +65,8 @@ target-project/
 - Task selection logic lives in `src/task-selector.ts`, prompt building and loop control in `src/commands/run.ts`, test validation in `src/test-validator.ts`.
 - Paths are kept absolute internally; task `directory` fields in `tasks.json` are relative to the project root.
 - No external runtime dependencies beyond Bun and the `claude` CLI.
-- The health check must pass `--target=bun` (`bun build --target=bun src/index.ts ...`). Without it Bun assumes a browser target and fails on the Node builtins imported by `src/index.ts`.
+- The health check must use the `--compile` form (`bun build --compile src/index.ts --outfile ...`), matching `package.json`'s `build` script (`bun run build` → `bun build --compile src/index.ts --outfile dist/cairn`). `--compile` is what exercises the same standalone-executable compile step that produces the shipped binary; a plain bundle build (e.g. `--target=bun`) skips that step, so a compile-stage failure would pass the check and only surface later at install time.
+- BRAND.dataDir / BRAND.configFile / BRAND.socket / BRAND.pidFile are for CREATING paths, never for RESOLVING them. Any path pointing at something expected to already exist must come from `findDataDir()` (`src/utils.ts`), `findConfigFile()` (`src/config.ts`), or `findNarrationSocketPath()` / `findNarrationPidFile()` (`src/narration.ts`) — otherwise the path is built from what the name *should* be rather than from what discovery actually found on disk.
 - The per-task notes scratch file is named `.ralph_task_<id>_notes.md` (prefix `NOTES_TEMP_PREFIX` in `src/brand.ts`), not `.cairn_...`. This is a deliberate permanent exception, not a leftover: the file is write-and-sweep scratch that's never read back, so renaming it would only churn every project's committed `.gitignore` history for zero behavioral gain.
 
 ## Agent workflow
@@ -88,11 +89,13 @@ Direct `Edit` or `Write` on `tasks.json` is **forbidden**. This is enforced two 
 
 ## Pin/unpin procedure for self-modifying rounds
 
-Cairn's own health check (`cairn.json`'s `healthCheck` field) is `bun build --target=bun src/index.ts --outfile ...`, and it runs before *every* iteration of `cairn run`. That is a problem specifically when a planning round's own task list is modifying this tool: the loop is executing changes to the same binary it uses to build and check itself, mid-round, with no atomicity between "task N edits `src/`" and "the next iteration's health check builds `src/`".
+This section is permanent, generic guidance for *any* self-modifying round — it is not tied to the historical Ralph→Cairn rename, and does not get removed once a given round ends.
 
-The fix used during past self-modifying rounds (e.g. the Ralph→Cairn rename) — worth reusing for any future one:
+Cairn's own health check (`cairn.json`'s `healthCheck` field) is `bun build --compile src/index.ts --outfile dist/cairn`, and it runs before *every* iteration of `cairn run`. That is a problem specifically when a planning round's own task list is modifying this tool: the loop is executing changes to the same binary it uses to build and check itself, mid-round, with no atomicity between "task N edits `src/`" and "the next iteration's health check builds `src/`".
+
+The fix used during past self-modifying rounds — worth reusing for any future one:
 
 1. **Freeze the installed binary before starting the round.** Copy the last known-good `~/.local/bin/cairn` aside, or simply stop re-running `./install.sh` for the duration of the round. Agents are explicitly told not to run `./install.sh` themselves.
-2. **Redirect the health check to a throwaway outfile.** Point `healthCheck` at something like `bun build --target=bun src/index.ts --outfile /tmp/cairn-healthcheck` instead of the real `dist/` output, so a build-outfile-path task doesn't corrupt the binary developers are actively using.
+2. **Redirect the health check to a throwaway outfile.** Point `healthCheck` at something like `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck` instead of the real `dist/cairn` output, so a build-outfile-path task doesn't corrupt the binary developers are actively using.
 3. **Tell agents both values are user-managed for the round.** Any task whose file scope could plausibly touch `install.sh`, `package.json`'s build script, or `healthCheck` should say so explicitly in its description (e.g. "do NOT modify `cairn.json`'s `healthCheck` value — the user has pinned the binary and redirected the health check to a throwaway outfile"). Without that, an unrelated task can innocently "fix" the health check back to the real outfile and re-introduce the self-modification hazard mid-round.
 4. **Revert both manually once the round finishes.** Un-pin the binary (re-run `./install.sh`) and restore `healthCheck` to its real value. Neither is done automatically — both are explicitly user-managed for the duration of the round.

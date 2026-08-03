@@ -443,3 +443,5 @@ Iteration 2 completed: 2026-08-03T22:16:42.418Z — SUCCESS
 Iteration 3 started: 2026-08-03T22:19:15.316Z — Task #71: Consecutive-revert guard plus blocked-aware run summary
 Iteration 3 completed: 2026-08-03T22:24:59.992Z — SUCCESS
 Iteration 4 started: 2026-08-03T22:27:05.451Z — Task #72: Rewrite the tests-field description in commands/generate-tasks.md
+Iteration 4 completed: 2026-08-03T22:28:51.216Z — SUCCESS
+Iteration 5 started: 2026-08-03T22:30:08.119Z — Task #73: CLAUDE.md truth-up: health check command and the CREATE-vs-RESOLVE standing rule
