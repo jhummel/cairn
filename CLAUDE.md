@@ -64,6 +64,19 @@ target-project/
 - Task selection logic lives in `src/task-selector.ts`, prompt building and loop control in `src/commands/run.ts`, test validation in `src/test-validator.ts`.
 - Paths are kept absolute internally; task `directory` fields in `tasks.json` are relative to the project root.
 - No external runtime dependencies beyond Bun and the `claude` CLI.
+- The health check must pass `--target=bun` (`bun build --target=bun src/index.ts ...`). Without it Bun assumes a browser target and fails on the Node builtins imported by `src/index.ts`.
+
+## Branding and the legacy layout
+
+`src/brand.ts` is the single source of truth for the project name (`BRAND`, frozen, not user-configurable). `LEGACY` holds the pre-rename names, which are still **read** so that projects on the old layout keep working:
+
+- `findDataDir(projectRoot)` in `src/utils.ts` → existing `.cairn/`, else existing `.ralph/`, else `.cairn/`.
+- `findConfigFile(projectRoot)` in `src/config.ts` → existing `cairn.json`, else existing `ralph.json`, else `cairn.json`.
+- `findProjectRoot()` checks both names at every level of the upward walk, so the nearest project wins regardless of layout.
+
+**Standing rule:** `BRAND.dataDir` / `BRAND.configFile` are for CREATING paths, never for RESOLVING them. Any path to data that should already exist must come from `findDataDir()` / `findConfigFile()` — otherwise a project still on `.ralph/` gets paths into a nonexistent `.cairn/`.
+
+Legacy fallbacks warn via `warnLegacyOnce(key, message)` (stderr, once per key per process; `resetLegacyWarnings()` exists for tests).
 
 ## Agent workflow
 

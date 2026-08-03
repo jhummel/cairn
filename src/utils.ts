@@ -1,6 +1,7 @@
 import { lstatSync, readlinkSync, existsSync, statSync } from 'fs';
 import { resolve, dirname, basename, join, isAbsolute } from 'path';
 import { execSync } from 'child_process';
+import { BRAND, LEGACY, warnLegacyOnce } from './brand';
 
 /**
  * Resolve symlinks to find the real path of a file or directory.
@@ -27,9 +28,52 @@ export function resolvePath(target: string): string {
 }
 
 /**
+ * Name of the data directory present in `dir`, preferring the current brand
+ * over the legacy one. Returns null when neither exists.
+ */
+function dataDirNameAt(dir: string): string | null {
+  for (const name of [BRAND.dataDir, LEGACY.dataDir]) {
+    const candidate = join(dir, name);
+    try {
+      if (statSync(candidate).isDirectory()) return name;
+    } catch {
+      // Not present (or not readable) — try the next candidate.
+    }
+  }
+  return null;
+}
+
+function warnIfLegacyDataDir(name: string, dir: string): void {
+  if (name !== LEGACY.dataDir) return;
+  warnLegacyOnce(
+    'data-dir',
+    `Using legacy ${LEGACY.dataDir}/ data directory at ${dir}. ` +
+      `${BRAND.displayName} now creates ${BRAND.dataDir}/; ` +
+      `${LEGACY.dataDir}/ is still read but support will be removed in a future release.`
+  );
+}
+
+/**
+ * Resolve the data directory for a project root.
+ *
+ * Prefers an existing .cairn/, falls back to an existing legacy .ralph/, and
+ * defaults to .cairn/ when neither exists so that new data is created under the
+ * current brand. Always use this (never BRAND.dataDir) when building a path to
+ * data that is expected to already exist.
+ */
+export function findDataDir(projectRoot: string): string {
+  const name = dataDirNameAt(projectRoot);
+  if (name) {
+    warnIfLegacyDataDir(name, projectRoot);
+    return join(projectRoot, name);
+  }
+  return join(projectRoot, BRAND.dataDir);
+}
+
+/**
  * Find the project root directory. Detection order:
  * 1. RALPH_PROJECT_ROOT env var
- * 2. Walk upward from cwd looking for .ralph/ directory
+ * 2. Walk upward from cwd looking for a .cairn/ (or legacy .ralph/) directory
  * 3. Git root via `git rev-parse --show-toplevel`
  * 4. Fall back to cwd
  *
@@ -43,10 +87,13 @@ export function findProjectRoot(cwd?: string): string {
     return process.env.RALPH_PROJECT_ROOT;
   }
 
-  // 2. Walk upward looking for .ralph/
+  // 2. Walk upward looking for a data directory. Both names are checked at
+  // every level so the *nearest* project wins, whichever layout it uses.
   let dir = resolve(startDir);
   while (dir !== dirname(dir)) {
-    if (existsSync(join(dir, '.ralph')) && statSync(join(dir, '.ralph')).isDirectory()) {
+    const name = dataDirNameAt(dir);
+    if (name) {
+      warnIfLegacyDataDir(name, dir);
       return dir;
     }
     dir = dirname(dir);

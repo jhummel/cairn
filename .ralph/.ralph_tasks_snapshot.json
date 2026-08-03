@@ -1,5 +1,379 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "project": "ralph-cli-tool",
-  "tasks": []
+  "tasks": [
+    {
+      "id": 31,
+      "priority": 1,
+      "title": "src/brand.ts + dual-read discovery and config",
+      "description": "Create src/brand.ts exporting a frozen constant: BRAND = { name: 'cairn', displayName: 'Cairn', dataDir: '.cairn', configFile: 'cairn.json', envPrefix: 'CAIRN_', tempPrefix: '.cairn_', socket: '/tmp/cairn-tts.sock' }. This is the single source of truth for the project name; it is NOT user-configurable.\n\nThen add the backwards-compatibility surface, which every later task depends on:\n1. findProjectRoot() in src/utils.ts (~lines 38-68) walks upward from cwd looking for the data dir. Make it try '.cairn/' first, then fall back to '.ralph/'. Five other projects on this machine still use .ralph/, so the fallback is load-bearing, not decorative.\n2. loadConfig() in src/config.ts (line 10) reads 'ralph.json'. Make it try 'cairn.json' first, then fall back to 'ralph.json'.\nEach fallback should emit a ONE-TIME legacy warning (do not spam per call).\n\nSTANDING RULE for this entire round, established here: BRAND.dataDir is for CREATING paths, never for RESOLVING them. Any path pointing at an existing project's data must come from the resolved dataDir that discovery actually found — otherwise a project still on .ralph/ gets paths pointing at a nonexistent .cairn/.\n\nRename nothing else in this task. TDD: write the failing test first. Assert on literal '.cairn' / 'cairn.json' strings rather than importing BRAND — tests should independently verify the real output contract and catch a wrong value in brand.ts.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "src/brand.ts",
+        "src/utils.ts",
+        "src/config.ts",
+        "test/utils.test.ts",
+        "test/config.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "opus",
+      "completedAt": "2026-08-03T00:52:27.053Z",
+      "completedBy": "iteration-1",
+      "notes": "# Task #31 — src/brand.ts + dual-read discovery and config\n\n## What was built\n\n**`src/brand.ts` (new)**\n- `BRAND` — frozen: `name: 'cairn'`, `displayName: 'Cairn'`, `dataDir: '.cairn'`, `configFile: 'cairn.json'`, `envPrefix: 'CAIRN_'`, `tempPrefix: '.cairn_'`, `socket: '/tmp/cairn-tts.sock'`.\n- `LEGACY` — frozen: `name: 'ralph'`, `displayName: 'Ralph'`, `dataDir: '.ralph'`, `configFile: 'ralph.json'`. Read-only fallback surface; nothing writes these.\n- `warnLegacyOnce(key, message)` — stderr, at most once per key per process, returns whether it emitted. stderr (not stdout) because commands like `ralph task next-id` print machine-readable stdout.\n- `resetLegacyWarnings()` — re-arms the warnings; exists for tests.\n\n**`src/utils.ts`**\n- New `findDataDir(projectRoot)`: existing `.cairn/` → existing `.ralph/` → default `.cairn/`. **This is the function every later task should use to resolve a data path.**\n- `findProjectRoot()` now checks *both* names at *every* level of the upward walk (via the private `dataDirNameAt()`), so the *nearest* project wins regardless of layout. A parent on `.cairn/` no longer shadows a child on `.ralph/`.\n- Non-directory `.cairn` entries are ignored (`statSync(...).isDirectory()` in try/catch), so a stray `.cairn` file doesn't mask a real `.ralph/`.\n\n**`src/config.ts`**\n- New `findConfigFile(projectRoot)`: existing `cairn.json` → existing `ralph.json` → default `cairn.json`.\n- `loadConfig()` now resolves through `findConfigFile()` instead of hardcoding `ralph.json`. Behaviour otherwise unchanged (all pre-existing config tests pass untouched).\n\nLegacy warning keys are `'data-dir'` and `'config-file'` — one warning each per process, no matter how many call sites hit them.\n\n## STANDING RULE (carry into every later task in this round)\n\n`BRAND.dataDir` / `BRAND.configFile` are for **CREATING** paths, never for **RESOLVING** them. Anything pointing at data that should already exist must come from `findDataDir()` / `findConfigFile()`. Five other projects on this machine still use `.ralph/`; hardcoding `BRAND.dataDir` at a read site silently points them at a nonexistent `.cairn/`.\n\nKnown call sites that still hardcode `'.ralph'` and must be converted by later tasks (NOT touched here — this task was scoped to rename nothing else):\n- `src/index.ts:36` — `const dataDir = join(projectRoot, '.ralph')`\n- `src/index.ts:127` — `join(projectRoot, '.ralph', 'tasks.completed.json')`\n- `src/post-task-reviewer.ts:137` — allowlist rule `/${projectRoot}/.ralph/reviews/**`\n- `src/commands/init.ts` — creates `.ralph/` (creation site, so `BRAND.dataDir` is correct there, but it must not clobber an existing legacy dir)\n- `src/commands/edit.ts:17` — `join(projectRoot, 'ralph.json')` → should use `findConfigFile()`\n- `src/commands/init.ts:185` — writes `ralph.json` (creation site → `BRAND.configFile`)\n\n`RALPH_PROJECT_ROOT` and the `RALPH_*` env vars in `setConfigEnvVars()` were deliberately left alone — that's the `envPrefix` task.\n\n## Tests\n\n`test/brand.test.ts` (new), plus appended blocks in `test/utils.test.ts` and `test/config.test.ts`. Per the task, they assert on literal `'.cairn'` / `'cairn.json'` strings rather than importing `BRAND`, so a wrong value in brand.ts fails loudly. Coverage: preference order, legacy fallback, nearest-root-wins, non-directory `.cairn`, warn-exactly-once, and no-warn on the modern layout.\n\nSuites that override `console.error` must call `resetLegacyWarnings()` in `beforeEach` — otherwise an earlier test consumes the one-time warning and the assertion sees zero output.\n\n`bun test` → **756 pass, 0 fail** (28 files).\n\n## Build health fix (incidental)\n\nThe failing health check was `ralph.json`'s `healthCheck` command: `bun build src/index.ts --outfile /tmp/cairn-healthcheck` defaults to the browser target and dies on `readline` and other Node builtins imported by `src/index.ts`. Added `--target=bun`. Both `bun run build` (which uses `--compile`, and so was never broken) and the health check now succeed. Noted in CLAUDE.md.\n\n## Docs\n\nAdded a \"Branding and the legacy layout\" section to the root `CLAUDE.md` documenting the dual-read helpers and the standing rule.\n"
+    },
+    {
+      "id": 32,
+      "priority": 2,
+      "title": "Thread the resolved dataDir instead of reconstructing paths",
+      "description": "Two sites rebuild a hardcoded '.ralph' path segment instead of using the dataDir already in scope. Under the dual-read fallback added in task 31, discovery may resolve '.ralph/' while BRAND.dataDir says '.cairn' — so these reconstructions will point at the wrong directory.\n\n1. src/index.ts:127 — `completedTasksPath: join(projectRoot, '.ralph', 'tasks.completed.json')` in the summarize action. Use the resolved dataDir.\n2. src/post-task-reviewer.ts:137 — `const reviewFileRule = `/${projectRoot}/.ralph/reviews/**`` which becomes the Edit/Write permission allowlist rule for the reviewer subagent. Use the resolved dataDir.\n\nThe second is the dangerous one. If the reviewer is granted an allowlist for '.cairn/reviews/**' while the project is actually on '.ralph/', every reviewer write is SILENTLY DENIED — no error, reviews just vanish. That exact failure mode was the subject of a previous round's fix; do not reintroduce it.\n\nTDD: write a failing test asserting that a project whose data dir resolves to legacy '.ralph/' produces an allowlist rule pointing at '.ralph/reviews/**', and that a '.cairn/' project produces '.cairn/reviews/**'. Then make it pass.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/index.ts",
+        "src/post-task-reviewer.ts",
+        "test/index.test.ts",
+        "test/post-task-reviewer.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 33,
+      "priority": 3,
+      "title": "Stateful temp files: .cairn_ prefix with .ralph_ dual-read",
+      "description": "There is a second naming tier INSIDE the data dir: runtime temp files prefixed '.ralph_', independent of the directory name. Four of them carry live cross-run state, so switching writes to '.cairn_' without a read fallback would SILENTLY DISCARD that state:\n\n- .ralph_completed_ids — read at src/task-selector.ts:9, written at src/task-archiver.ts:63\n- .ralph_prev_notes — the PREV_NOTES cross-iteration mechanism, src/task-archiver.ts:81\n- .ralph_iterations.log — src/commands/logs.ts:5 and src/commands/run.ts:361\n- .ralph_tasks_snapshot.json — corruption recovery, src/tasks-file.ts:130 and :191\n\nAlso handle .ralph_complete (src/commands/run.ts:47, :420 and the TEMP_FILES array at :354).\n\nPattern: WRITE with the '.cairn_' prefix; READ trying '.cairn_' first and falling back to '.ralph_'.\n\nAlso update the notes-sweep regex at src/commands/run.ts:689 from /^\\.ralph_task_\\d+_notes\\.md$/ so it matches BOTH prefixes — otherwise old scratch files linger forever.\n\nDo NOT rename the .ralph_task_*_notes.md files themselves or change how they are written. They are write-and-sweep scratch, never read back, and 24 of them are committed history in another project.\n\nTDD: explicitly test the fallback read path for each of the four stateful files — that is the whole point of the task.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/task-selector.ts",
+        "src/task-archiver.ts",
+        "src/tasks-file.ts",
+        "src/commands/logs.ts",
+        "src/commands/run.ts",
+        "test/task-selector.test.ts",
+        "test/task-archiver.test.ts",
+        "test/tasks-file.test.ts",
+        "test/commands/logs.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 34,
+      "priority": 4,
+      "title": "Dual-name build and install",
+      "description": "package.json: change \"name\" to \"cairn\" and the build script outfile from dist/ralph to dist/cairn.\n\ninstall.sh: symlink BOTH ~/.local/bin/cairn AND ~/.local/bin/ralph to dist/cairn. Rename the internal shell vars RALPH_ROOT/RALPH_BIN to CAIRN_ROOT/CAIRN_BIN (these are local to the script, never exported). Update echo messages.\n\nThe 'ralph' symlink is a LONG-LIVED compatibility commitment, not a deprecation stub: four other projects on this machine have `ralph task ...` frozen into their installed .claude/agents/*.md copies, and they break the moment it stops resolving. Do not add a deprecation warning that fires on every invocation.\n\nCRITICAL — do NOT run ./install.sh, and do NOT modify ralph.json's healthCheck value. For the duration of this round the user has pinned ~/.local/bin/ralph to a frozen binary copy and redirected the health check to a throwaway outfile, specifically so that changing the build outfile here is inert. Both are user-managed and reverted manually after the loop finishes.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "package.json",
+        "install.sh"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 35,
+      "priority": 5,
+      "title": "Env vars to CAIRN_* plus three-way API-key chain",
+      "description": "Rename the 22 RALPH_* env var names to CAIRN_*. Start with setConfigEnvVars() at src/config.ts:132-143, then every reader across src/ (index.ts, commands/*.ts, utils.ts). Note the comment at src/config.ts:130 claims these match 'ralph_config.sh for shell fallback compatibility' — that file does not exist anywhere in the repo. Delete the stale comment.\n\nTWO EXCEPTIONS that need fallbacks, because they live outside every repo:\n\n1. RALPH_ANTHROPIC_API_KEY — read at lib/ralph_narrate_server.py:222 as `os.environ.get(\"RALPH_ANTHROPIC_API_KEY\") or os.environ.get(\"ANTHROPIC_API_KEY\")`. This prefix is LOAD-BEARING: the main loop blanks ANTHROPIC_API_KEY (run.ts:203, plan.ts:170, summarize.ts:111, post-task-reviewer.ts:119) to force Max-plan usage, and the prefixed name is what still lets the narration server reach a real key. It is exported in the user's ~/.zshrc. Implement a three-way chain: CAIRN_ANTHROPIC_API_KEY -> RALPH_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY, warning when it lands on the legacy name. Never normalize it to plain ANTHROPIC_API_KEY.\n2. RALPH_NARRATE_SOCKET — user-facing, documented at README:161 for standalone claude sessions. Keep a fallback.\n\nDelete RALPH_FORCE_SHELL entirely — it is dead, surviving only in a stale .claude/settings.local.json permission entry.\n\nTDD: test the API-key chain resolution order explicitly.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/config.ts",
+        "src/index.ts",
+        "src/utils.ts",
+        "src/commands/run.ts",
+        "src/commands/narrate.ts",
+        "lib/ralph_narrate_server.py",
+        "test/config.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 36,
+      "priority": 6,
+      "title": "Internal identifiers to Cairn",
+      "description": "Pure mechanical rename of internal TypeScript identifiers, no behavior change:\n\n- RalphConfig -> CairnConfig (declared in src/types.ts, imported across src/)\n- resolveRalphRoot -> resolveCairnRoot (src/utils.ts, imported by src/index.ts and src/commands/init.ts)\n- local variable/param ralphRoot -> cairnRoot (src/index.ts, src/commands/init.ts installSlashCommands/installAgents)\n- RALPH_VERSION -> CAIRN_VERSION (src/index.ts:17)\n- writeRalphJson -> writeCairnJson (src/commands/init.ts:184)\n\nUpdate all call sites and all test imports. The error message inside resolveCairnRoot ('Could not determine ralph repo root') should be updated too.\n\nTDD: the existing test suite covers these; update test files alongside the rename and confirm bun test passes.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/types.ts",
+        "src/utils.ts",
+        "src/config.ts",
+        "src/index.ts",
+        "src/commands/init.ts",
+        "test/utils.test.ts",
+        "test/config.test.ts",
+        "test/index.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 37,
+      "priority": 7,
+      "title": "Rename sweep: src/commands/init.ts",
+      "description": "src/commands/init.ts has 42 ralph references — the densest single source file. Update:\n\n1. Data dir creation and all user-facing console messages — use the BRAND constant, not a literal.\n2. GITIGNORE_CONTENT (lines 9-16) — must list BOTH the new .cairn_* names AND the legacy .ralph_* names. If only the new prefix is listed, stale .ralph_* files in existing projects stop being ignored and show up as untracked noise in git status exactly when a large rename diff needs reviewing.\n3. The three narration hook script templates (NARRATE_SH, SPEAK_SH, NOTIFY_SH at approximately lines 228, 252, 271) — SOCKET=\"/tmp/ralph-tts.sock\" becomes /tmp/cairn-tts.sock. Also the console message at :307 referencing the Ralph narration server.\n4. writeCairnJson writes cairn.json instead of ralph.json (function already renamed in task 36).\n5. getConfigDefaults reads existing config — should use the dual-read helper so it still finds a legacy ralph.json.\n6. showNextSteps() — \"Run 'ralph plan'\" becomes \"Run 'cairn plan'\".\n7. The 'Initializing Ralph in:' banner.\n\nTDD: test/commands/init.test.ts has 166 ralph references. Assert on literal '.cairn' / 'cairn.json' strings.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/init.ts",
+        "test/commands/init.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31,
+        33,
+        36
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 38,
+      "priority": 8,
+      "title": "src/commands/task.ts agent-facing usage strings",
+      "description": "src/commands/task.ts contains roughly 20 agent-facing usage strings of the form 'ralph task start <id>', 'ralph task complete <id>', 'ralph task note', 'ralph task add', 'ralph task next-id', 'ralph task show', 'ralph task set-status'. These appear in command descriptions, help text, and error messages.\n\nRename them all to 'cairn task ...'. These strings are read by live agents deciding what command to type, so they must match the real binary name.\n\nAlso update the subcommand group description at :340 ('Manage tasks in .ralph/tasks.json') to use the brand data dir.\n\nTDD: update test/commands/task.test.ts alongside; assert on literal 'cairn task' strings.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/task.ts",
+        "test/commands/task.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 39,
+      "priority": 9,
+      "title": "Agent-facing prompts and reviewer allowlist",
+      "description": "Update the prompt text that tells agents which commands to run:\n\n1. buildSystemPrompt() in src/commands/run.ts — the numbered workflow lines around :121 and :127 ('Run: ralph task start <id> --iteration N', 'Run: ralph task complete <id> ...'), the discovered-task instruction at :132 ('use ralph task add --file <path>'), and the prohibition at :141 ('Do NOT use Edit or Write on .ralph/tasks.json directly — the ralph task subcommands are the only supported path'). The data-dir portion must come from the resolved dataDir threaded in task 32, not a hardcoded literal.\n2. src/agent-prompt.ts:13 — \"run `ralph init` to install default agents\" becomes `cairn init`.\n3. The warning at src/commands/run.ts:66 ('[ralph] Agent ... is marked internal').\n\nNote: the git commit prefix at src/commands/run.ts:55 is DERIVED from the directory basename — do not hardcode it. It resolves correctly once the repo folder is renamed (a manual post-round step).\n\nTDD: update test/agent-prompt.test.ts and test/commands/run.test.ts.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/run.ts",
+        "src/agent-prompt.ts",
+        "test/agent-prompt.test.ts",
+        "test/commands/run.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31,
+        32
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 40,
+      "priority": 10,
+      "title": "Remaining src/ rename sweep",
+      "description": "Sweep the remaining ralph references in src/ modules not covered by earlier tasks: status.ts, edit.ts, logs.ts, narrate.ts, summarize.ts, plan.ts, stream-filter.ts, tasks-file.ts, task-archiver.ts, task-counter.ts, task-selector.ts, file-lock.ts, process.ts, index.ts. Mostly comments, user-facing console strings, and doc comments referencing 'ralph' or 'bin/ralph'.\n\nUser-visible command hints matter: src/commands/status.ts:25 (\"ralph init\"), :46 (\"ralph plan\"), src/commands/run.ts:367 (\"ralph plan\").\n\nRespect prior work: task 32 fixed reconstructed paths in index.ts and task 33 changed temp-file handling in several of these files. Do not revert either — if a path is derived from a resolved dataDir, leave it that way rather than substituting a brand literal.\n\nEXPLICIT EXCLUSION LIST — do NOT rewrite these, they are historical record and move only by git mv:\n.ralph/tasks.completed.json, .ralph/.ralph_iterations.log, .ralph/.ralph_tasks_snapshot.json, .ralph/reviews/round-*.md, any .ralph_task_*_notes.md, and any audit/ directory contents.\n\nTDD: update the corresponding test files as you go; bun test must pass.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/status.ts",
+        "src/commands/edit.ts",
+        "src/commands/logs.ts",
+        "src/commands/narrate.ts",
+        "src/commands/summarize.ts",
+        "src/commands/plan.ts",
+        "src/stream-filter.ts",
+        "src/tasks-file.ts",
+        "src/task-archiver.ts",
+        "src/task-counter.ts",
+        "src/task-selector.ts",
+        "src/file-lock.ts",
+        "src/process.ts",
+        "src/index.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31,
+        32,
+        33,
+        35,
+        36
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 41,
+      "priority": 11,
+      "title": "Python narration rename and socket",
+      "description": "Rename the Python narration layer:\n\n1. `git mv lib/ralph_narrate.py lib/cairn_narrate.py` and `git mv lib/ralph_narrate_server.py lib/cairn_narrate_server.py` (use git mv to preserve history).\n2. Change the default socket path from /tmp/ralph-tts.sock to /tmp/cairn-tts.sock in both files.\n3. The --socket argparse default at cairn_narrate_server.py:213 reads RALPH_NARRATE_SOCKET — switch to CAIRN_NARRATE_SOCKET with a RALPH_NARRATE_SOCKET fallback (it is user-facing and documented in README).\n4. Delete the stale lib/__pycache__/ directory.\n5. Update the script paths referenced in src/narration.ts and any RALPH_LIB_DIR / RALPH_NARRATE_PYTHON usage.\n\nNote the three .claude/hooks/*.sh scripts in this repo also hardcode the old socket, but those are installed artifacts — they are regenerated manually after the round, not edited here.\n\nNarration is disabled in this repo's config (narration.enabled: false), so this is the cheapest moment to change it. TDD: update test/narration.test.ts and test/commands/narrate.test.ts.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "lib/ralph_narrate.py",
+        "lib/ralph_narrate_server.py",
+        "src/narration.ts",
+        "test/narration.test.ts",
+        "test/commands/narrate.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31,
+        35
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 42,
+      "priority": 12,
+      "title": "Agent and slash-command source files",
+      "description": "Update the ralph references in the SOURCE agent and slash-command definitions at the repo root:\n\n- agents/planner.md, agents/post-task-reviewer.md, agents/summarizer.md, agents/audit-planner.md\n- commands/generate-tasks.md, commands/review-tasks.md, commands/codebase-audit.md\n\nThese contain `ralph task ...` command instructions and `.ralph/` path references (e.g. commands/generate-tasks.md:159 instructs running `ralph task next-id --count <n>`, and several files reference .ralph/planning-notes.md and .ralph/tasks.json).\n\nCRITICAL: edit ONLY the repo-root agents/ and commands/ directories. These are the source of truth. The .claude/agents/ and .claude/commands/ copies in this repo are INSTALLED ARTIFACTS — they get refreshed by a manual re-install step after the round. Editing them directly causes the two to drift.\n\nThere are no unit tests for these markdown files; verify by reading the diff and confirming no `.claude/` file was touched. bun test must still pass.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "agents/planner.md",
+        "agents/post-task-reviewer.md",
+        "agents/summarizer.md",
+        "agents/audit-planner.md",
+        "commands/generate-tasks.md",
+        "commands/review-tasks.md",
+        "commands/codebase-audit.md"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 43,
+      "priority": 13,
+      "title": "cairn migrate command - core moves",
+      "description": "Create a new `migrate` command: src/commands/migrate.ts plus registration in src/index.ts. It converts one project from the .ralph/ layout to .cairn/.\n\nBEHAVIOR (all settled decisions, do not re-litigate):\n- Operates on the CURRENT WORKING DIRECTORY ONLY. No scanning for projects. Resolve the root via the same dual-read discovery as everything else, and exit with a clear error if cwd is neither a Cairn nor a Ralph project.\n- Non-interactive and idempotent — running twice must be safe.\n- PREFLIGHT: refuse to run if any task in tasks.json has status 'in-progress'; warn (do not refuse) if the git working tree is dirty.\n- `git mv` the data dir (.ralph -> .cairn) and the config file (ralph.json -> cairn.json). Verified behavior: git mv on a directory renames it on the filesystem AND stages the tracked renames, so untracked and gitignored files come along automatically — a single git mv handles everything inside.\n- Rename the four stateful temp files inside the data dir: .ralph_completed_ids, .ralph_prev_notes, .ralph_iterations.log, .ralph_tasks_snapshot.json -> .cairn_* equivalents.\n- Leave .ralph_task_*_notes.md and ALL archive files (tasks.completed.json, reviews/round-*.md, audit/) completely untouched — they are historical record and must move unmodified.\n- Tolerate partial installs: one target project has no state.json, no reviews/ dir, and no installed agents. Nothing may assume a complete layout.\n- STAGES CHANGES, NEVER COMMITS. The user reviews before it lands.\n\nTDD: test against a temp git fixture directory using `bun run src/index.ts migrate`, NOT the installed binary (which is pinned to a frozen build for this round and will not contain your new command).",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/migrate.ts",
+        "src/index.ts",
+        "test/commands/migrate.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        31,
+        32,
+        33
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 44,
+      "priority": 14,
+      "title": "cairn migrate - .claude refresh and git staging",
+      "description": "Extend the migrate command from task 43 to refresh installed artifacts and stage everything it touched.\n\n1. Re-install agents and slash commands by reusing installAgents() and installSlashCommands() from src/commands/init.ts — they already overwrite via copyFileSync. Install the FULL current set even where none existed previously: one target project has zero installed agents and this is its upgrade path.\n2. NON-DESTRUCTIVE RULE: overwrite by filename only. Never delete, never sync-and-prune, never touch files outside the source set. One target project has a custom .claude/agents/frontend-code-analyzer.md that must survive untouched.\n3. Regenerate the three .claude/hooks/*.sh scripts for the new socket path — but ONLY if hooks already exist in that project. Do not create hooks where there were none.\n4. Rewrite the data dir's .gitignore with both .cairn_* and .ralph_* prefixes, PRESERVING any custom lines the project added (one project appended 'instructions.md').\n5. GIT STAGING: git mv stages itself, but everything else here does not. Explicitly `git add` all non-git-mv output — the rewritten .gitignore, regenerated hooks, and any newly installed agent/command files. Without this they sit unstaged, or for a project that never had them, entirely UNTRACKED — so the user would review an incomplete `git diff --cached` and think the migration was smaller than it was.\n6. Finish by printing a `git status` style summary of exactly what was staged.\n\nMust remain idempotent. TDD via temp git fixture using `bun run src/index.ts migrate`, not the installed binary.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/migrate.ts",
+        "src/commands/init.ts",
+        "test/commands/migrate.test.ts"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        43
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 45,
+      "priority": 15,
+      "title": "Docs: README, CLAUDE.md, RFC",
+      "description": "Update documentation for the Cairn rename:\n\n1. README.md (72 references) — all command examples, the API key section around :20, and the RALPH_NARRATE_SOCKET export instructions at :161 (which tell the user to export it manually for standalone claude sessions, so the new name and new socket path must both appear).\n2. CLAUDE.md (21 references) — the 'What is Ralph' intro, the per-project data layout tree (.ralph/ -> .cairn/, note the reviews/ dir and the round field in state.json), the Agent workflow section listing `ralph task` subcommands, and the paragraph about direct Edit/Write on tasks.json being forbidden.\n3. docs/parallel-execution-rfc.md (9 references).\n\nAlso DOCUMENT THE NEW MECHANICS:\n- The `cairn migrate` command: what it does, that it operates on cwd only, and that it stages without committing.\n- The compatibility window: .cairn/ and .ralph/ are both read, cairn.json and ralph.json are both read, and both `cairn` and `ralph` binaries are installed. Explain that the ralph symlink stays until every project is migrated.\n- The pin/unpin procedure for self-modifying rounds: because the health check is the build and it runs every iteration, renaming the tool while it runs requires freezing the installed binary and redirecting the health check to a throwaway outfile first. This is genuinely useful institutional knowledge for future rounds.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "README.md",
+        "CLAUDE.md",
+        "docs/parallel-execution-rfc.md"
+      ],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        34,
+        43,
+        44
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 46,
+      "priority": 16,
+      "title": "Verification sweep",
+      "description": "Final audit. Run `grep -rni ralph` across the repo, excluding .git/, node_modules/, dist/, .venv/, and the historical-record files.\n\nEvery surviving hit must fall into exactly one of two categories:\n1. An INTENTIONAL compatibility fallback — dual-read discovery (.ralph/), config fallback (ralph.json), temp-file prefix fallback (.ralph_*), the RALPH_ANTHROPIC_API_KEY and RALPH_NARRATE_SOCKET env chains, and the ralph symlink in install.sh.\n2. A HISTORICAL RECORD file that must never be rewritten: .ralph/tasks.completed.json, .ralph/.ralph_iterations.log, .ralph/.ralph_tasks_snapshot.json, .ralph/reviews/round-*.md, .ralph_task_*_notes.md, audit/ contents, and .ralph/planning-notes.md.\n\nAnything else is a miss from an earlier task — fix it.\n\nMark every fallback in category 1 with a comment: `// remove once all projects migrated` (or the language-appropriate equivalent). Six projects share this tool and five still use the .ralph/ layout; the removal round happens only after all are migrated, and these markers make it mechanical.\n\nReport the final tally: how many references remain, and the category breakdown. bun test must pass.",
+      "directory": "",
+      "status": "pending",
+      "files": [],
+      "tests": [
+        "bun test"
+      ],
+      "dependencies": [
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45
+      ],
+      "model": "opus"
+    }
+  ]
 }

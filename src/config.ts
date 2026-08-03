@@ -1,13 +1,41 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { RalphConfig, AgentInfo } from './types';
+import { BRAND, LEGACY, warnLegacyOnce } from './brand';
 
 /**
- * Load and parse ralph.json from projectRoot, applying defaults for missing fields.
- * Returns all defaults if ralph.json doesn't exist.
+ * Resolve the config file path for a project root.
+ *
+ * Prefers an existing cairn.json, falls back to an existing legacy ralph.json,
+ * and defaults to cairn.json when neither exists so that new config is written
+ * under the current brand. Always use this (never BRAND.configFile) when
+ * reading or editing config that is expected to already exist.
+ */
+export function findConfigFile(projectRoot: string): string {
+  const current = path.join(projectRoot, BRAND.configFile);
+  if (fs.existsSync(current)) return current;
+
+  const legacy = path.join(projectRoot, LEGACY.configFile);
+  if (fs.existsSync(legacy)) {
+    warnLegacyOnce(
+      'config-file',
+      `Using legacy ${LEGACY.configFile} at ${projectRoot}. ` +
+        `${BRAND.displayName} now reads ${BRAND.configFile}; ` +
+        `${LEGACY.configFile} is still read but support will be removed in a future release.`
+    );
+    return legacy;
+  }
+
+  return current;
+}
+
+/**
+ * Load and parse cairn.json (or a legacy ralph.json) from projectRoot,
+ * applying defaults for missing fields.
+ * Returns all defaults if no config file exists.
  */
 export function loadConfig(projectRoot: string): RalphConfig {
-  const configPath = path.join(projectRoot, 'ralph.json');
+  const configPath = findConfigFile(projectRoot);
 
   let raw: Record<string, unknown> = {};
   if (fs.existsSync(configPath)) {

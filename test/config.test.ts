@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { loadConfig, autoDetectHealthCheck, discoverAgents, setConfigEnvVars } from '../src/config';
+import { loadConfig, findConfigFile, autoDetectHealthCheck, discoverAgents, setConfigEnvVars } from '../src/config';
+import { resetLegacyWarnings } from '../src/brand';
 import { isValidConfig } from '../src/types';
 import type { RalphConfig } from '../src/types';
 
@@ -531,5 +532,95 @@ describe('loadConfig review.postTask', () => {
     fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ review: { maxIterations: 3, postTask: false } }));
     const config = loadConfig(tmpDir);
     expect(config.review?.postTask).toBe(false);
+  });
+});
+
+describe('loadConfig — dual-read config file discovery', () => {
+  let tmpDir: string;
+  let originalError: typeof console.error;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    resetLegacyWarnings();
+    originalError = console.error;
+    console.error = () => {};
+  });
+
+  afterEach(() => {
+    console.error = originalError;
+    resetLegacyWarnings();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('loads cairn.json', () => {
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify({ projectName: 'modern' }));
+    expect(loadConfig(tmpDir).projectName).toBe('modern');
+  });
+
+  it('falls back to a legacy ralph.json', () => {
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ projectName: 'legacy' }));
+    expect(loadConfig(tmpDir).projectName).toBe('legacy');
+  });
+
+  it('prefers cairn.json when both exist', () => {
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify({ projectName: 'modern' }));
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ projectName: 'legacy' }));
+    expect(loadConfig(tmpDir).projectName).toBe('modern');
+  });
+
+  it('returns defaults when neither config file exists', () => {
+    expect(loadConfig(tmpDir).projectName).toBe(path.basename(tmpDir));
+  });
+
+  it('warns exactly once when falling back to the legacy config file', () => {
+    const seen: string[] = [];
+    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), JSON.stringify({ projectName: 'legacy' }));
+    loadConfig(tmpDir);
+    loadConfig(tmpDir);
+    findConfigFile(tmpDir);
+    expect(seen.length).toBe(1);
+    expect(seen[0]).toContain('ralph.json');
+    expect(seen[0]).toContain('cairn.json');
+  });
+
+  it('does not warn when cairn.json is used', () => {
+    const seen: string[] = [];
+    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify({ projectName: 'modern' }));
+    loadConfig(tmpDir);
+    expect(seen.length).toBe(0);
+  });
+});
+
+describe('findConfigFile', () => {
+  let tmpDir: string;
+  let originalError: typeof console.error;
+
+  beforeEach(() => {
+    tmpDir = makeTempDir();
+    resetLegacyWarnings();
+    originalError = console.error;
+    console.error = () => {};
+  });
+
+  afterEach(() => {
+    console.error = originalError;
+    resetLegacyWarnings();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('resolves to cairn.json when it exists', () => {
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), '{}');
+    expect(findConfigFile(tmpDir)).toBe(path.join(tmpDir, 'cairn.json'));
+  });
+
+  it('resolves to the legacy ralph.json when only that exists', () => {
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), '{}');
+    expect(findConfigFile(tmpDir)).toBe(path.join(tmpDir, 'ralph.json'));
+  });
+
+  it('defaults to cairn.json when neither exists, so new config is created there', () => {
+    expect(findConfigFile(tmpDir)).toBe(path.join(tmpDir, 'cairn.json'));
   });
 });
