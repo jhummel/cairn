@@ -3,39 +3,12 @@
   "project": "ralph-cli-tool",
   "tasks": [
     {
-      "id": 42,
-      "priority": 12,
-      "title": "Agent and slash-command source files",
-      "description": "Update the ralph references in the SOURCE agent and slash-command definitions at the repo root:\n\n- agents/planner.md, agents/post-task-reviewer.md, agents/summarizer.md, agents/audit-planner.md\n- commands/generate-tasks.md, commands/review-tasks.md, commands/codebase-audit.md\n\nThese contain `ralph task ...` command instructions and `.ralph/` path references (e.g. commands/generate-tasks.md:159 instructs running `ralph task next-id --count <n>`, and several files reference .ralph/planning-notes.md and .ralph/tasks.json).\n\nCRITICAL: edit ONLY the repo-root agents/ and commands/ directories. These are the source of truth. The .claude/agents/ and .claude/commands/ copies in this repo are INSTALLED ARTIFACTS — they get refreshed by a manual re-install step after the round. Editing them directly causes the two to drift.\n\nThere are no unit tests for these markdown files; verify by reading the diff and confirming no `.claude/` file was touched. bun test must still pass.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "agents/planner.md",
-        "agents/post-task-reviewer.md",
-        "agents/summarizer.md",
-        "agents/audit-planner.md",
-        "commands/generate-tasks.md",
-        "commands/review-tasks.md",
-        "commands/codebase-audit.md"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        31
-      ],
-      "model": "sonnet",
-      "completedAt": "2026-08-03T02:01:59.526Z",
-      "completedBy": "iteration-12",
-      "notes": "# Task #42 — Agent and slash-command source files\n\n## Changes\n\nEdited only the repo-root `agents/` and `commands/` source-of-truth files (never `.claude/agents/` or `.claude/commands/`, verified via `git status --short agents/ commands/ .claude/` showing zero `.claude/` hits):\n\n**`agents/planner.md`** — \"You are a planning assistant for the Ralph agentic loop system.\" → \"...Cairn agentic loop system.\"\n\n**`agents/post-task-reviewer.md`** — \"`.ralph/tasks.json`\" → \"`.cairn/tasks.json`\" in the write-restriction sentence.\n\n**`commands/review-tasks.md`** — \"Ralph agentic loop system\" → \"Cairn agentic loop system\"; all four `.ralph/{tasks.json,planning-notes.md,instructions.md}` path references → `.cairn/`.\n\n**`commands/codebase-audit.md`** — \"`.ralph/planning-notes.md`\" → \"`.cairn/planning-notes.md`\" in the write instruction.\n\n**`commands/generate-tasks.md`** — \"Ralph agentic loop system\" → \"Cairn agentic loop system\"; all `.ralph/{planning-notes.md,tasks.json,instructions.md}` references → `.cairn/`; both `ralph task next-id --count <n>` command examples → `cairn task next-id --count <n>`.\n\n**`agents/summarizer.md`, `agents/audit-planner.md`** — no changes. Grep (case-insensitive) found zero \"ralph\" references in either file; they only mention generic filenames (`tasks.completed.json`, `planning-notes.md`) without the `.ralph/` prefix or the \"Ralph\" brand name.\n\n## Rationale for `.ralph/` → `.cairn/` (not left dynamic)\n\nThese are static markdown prompt files, not TypeScript — they can't call `findDataDir()`/`BRAND.dataDir` at read time. Consistent with the pattern already established by task #38 (`src/commands/task.ts` agent-facing strings → `cairn task ...`) and #39 (`src/agent-prompt.ts` / `buildSystemPrompt()` → `cairn task`, `cairn init`), agent-facing instruction text uses the new brand name/paths directly. This matches the project-wide rename: `BRAND.name = 'cairn'`, `BRAND.dataDir = '.cairn'` (src/brand.ts). Legacy `.ralph/` remains a read-only fallback handled entirely by runtime discovery code (`findDataDir`), not by agent-facing prompt text.\n\n## Verification\n\n- `grep -rni \"ralph\" agents/planner.md agents/post-task-reviewer.md agents/summarizer.md agents/audit-planner.md commands/generate-tasks.md commands/review-tasks.md commands/codebase-audit.md` → zero hits.\n- `git status --short agents/ commands/ .claude/` → only the 5 edited source files listed (`agents/planner.md`, `agents/post-task-reviewer.md`, `commands/codebase-audit.md`, `commands/generate-tasks.md`, `commands/review-tasks.md`); no `.claude/` entries — confirms installed artifacts untouched.\n- `bun test` → **814 pass, 0 fail**, 1603 expect() calls, 29 files. No test changes needed — no unit tests target these markdown files (per task description).\n- `bun build --target=bun src/index.ts --outfile /tmp/task42-health-check` → succeeds, 0.43 MB, 108 modules.\n\n## Note on the harness's \"BUILD HEALTH CHECK FAILED\" banner\n\nSame root cause flagged in tasks #40/#41's notes: the frozen `~/.local/bin/ralph` binary predates the `--target=bun` fix already present in `ralph.json`'s health check config. Not a defect introduced by this task (which touched only markdown files) — clears on `./install.sh` re-run after the rename round completes (tasks #43/#44).\n\n## Discovered tasks\n\nNone filed (0/3 used this iteration). No new gaps found; the remaining `.ralph/` doc references (README.md, CLAUDE.md, docs/parallel-execution-rfc.md) are already scoped to task #45.\n"
-    },
-    {
       "id": 43,
       "priority": 13,
       "title": "cairn migrate command - core moves",
       "description": "Create a new `migrate` command: src/commands/migrate.ts plus registration in src/index.ts. It converts one project from the .ralph/ layout to .cairn/.\n\nBEHAVIOR (all settled decisions, do not re-litigate):\n- Operates on the CURRENT WORKING DIRECTORY ONLY. No scanning for projects. Resolve the root via the same dual-read discovery as everything else, and exit with a clear error if cwd is neither a Cairn nor a Ralph project.\n- Non-interactive and idempotent — running twice must be safe.\n- PREFLIGHT: refuse to run if any task in tasks.json has status 'in-progress'; warn (do not refuse) if the git working tree is dirty.\n- `git mv` the data dir (.ralph -> .cairn) and the config file (ralph.json -> cairn.json). Verified behavior: git mv on a directory renames it on the filesystem AND stages the tracked renames, so untracked and gitignored files come along automatically — a single git mv handles everything inside.\n- Rename the four stateful temp files inside the data dir: .ralph_completed_ids, .ralph_prev_notes, .ralph_iterations.log, .ralph_tasks_snapshot.json -> .cairn_* equivalents.\n- Leave .ralph_task_*_notes.md and ALL archive files (tasks.completed.json, reviews/round-*.md, audit/) completely untouched — they are historical record and must move unmodified.\n- Tolerate partial installs: one target project has no state.json, no reviews/ dir, and no installed agents. Nothing may assume a complete layout.\n- STAGES CHANGES, NEVER COMMITS. The user reviews before it lands.\n\nTDD: test against a temp git fixture directory using `bun run src/index.ts migrate`, NOT the installed binary (which is pinned to a frozen build for this round and will not contain your new command).",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "src/commands/migrate.ts",
         "src/index.ts",
@@ -49,7 +22,10 @@
         32,
         33
       ],
-      "model": "opus"
+      "model": "opus",
+      "completedAt": "2026-08-03T02:08:08.563Z",
+      "completedBy": "iteration-13",
+      "notes": "# Task #43 — `cairn migrate` command, core moves\n\n## What was built\n\n**`src/commands/migrate.ts`** (new) — exports `runMigrate(cwd: string, io?: MigrateIo): number`.\nReturns a process exit code: `0` on success *and* on the already-migrated no-op, `1` on any refusal.\n`MigrateIo` is an optional `{ log, warn, error }` injection point (defaults to `console.log` /\n`console.error` / `console.error`) so the function is unit-testable without spawning.\n\n**`src/index.ts`** — registers the `migrate` command. Two details worth keeping:\n- The action calls `runMigrate(process.cwd())`, **not** `process.env.CAIRN_PROJECT_ROOT`. That env var\n  comes from `findProjectRoot()`, which walks upward; migrate must operate on the current directory\n  only. There is a comment on the line saying so — don't \"fix\" it to use the project root.\n- It sets `process.exitCode` rather than calling `process.exit()`, so Commander's async teardown runs.\n- The import line now pulls `LEGACY` alongside `BRAND` from `./brand` (used in the description string).\n\n## Behavior as implemented (order matters — every refusal happens before the first rename)\n\n1. **Discovery, cwd only.** Checks `.cairn/`, `.ralph/`, `cairn.json`, `ralph.json` at `cwd`. If none of\n   the four exist → error, exit 1. No upward walk, no scanning.\n2. **Ambiguity refusals.** Both `.ralph/` and `.cairn/` present → refuse. Both `ralph.json` and\n   `cairn.json` present → refuse. Migrate will not guess which one is live.\n3. **Git repo required.** `git rev-parse --is-inside-work-tree` must succeed. Rationale: the whole\n   contract is \"stages changes\"; outside git there is nothing to stage. Clear error, exit 1.\n4. **In-progress refusal.** Parses `<dataDir>/tasks.json` (plain `JSON.parse`, deliberately *not*\n   `readTasksFile()` — that one repairs and can write, and preflight must have zero side effects).\n   Any task with `status === 'in-progress'` → refuse, listing the ids. Unparseable tasks.json → also\n   refuse (can't verify the invariant). Missing tasks.json → fine, skip the check.\n5. **Dirty tree = warning only.** `git status --porcelain` non-empty → warn on stderr and continue.\n6. **Moves**, via a `move()` helper that tries `git mv <rel> <rel>` and falls back to\n   `fs.renameSync` when git refuses (untracked / gitignored path). Confirmed by the tests: the four\n   stateful temp files are gitignored by the legacy `.gitignore`, so they all take the fallback path\n   and print `(untracked — moved, nothing to stage)`.\n   - `.ralph/` → `.cairn/` (one `git mv` carries untracked + gitignored contents along)\n   - `ralph.json` → `cairn.json`\n   - Then, inside the *new* data-dir path: `.ralph_completed_ids`, `.ralph_prev_notes`,\n     `.ralph_iterations.log`, `.ralph_tasks_snapshot.json` → `.cairn_*`. If both names already\n     exist for a suffix, it warns and leaves both (never clobbers live state).\n7. **Untouched by design:** `.ralph_task_*_notes.md`, `tasks.completed.json`, `reviews/`, `audit/`.\n   These come along inside the directory move, unmodified.\n8. **Never commits.** Final output tells the user to review `git status` / `git diff --cached`.\n9. **Idempotent.** A `moved === 0` run prints `Already on the .cairn/ layout — nothing to do.` and\n   exits 0.\n10. **Partial installs tolerated.** No `state.json`, no `reviews/`, no config file, no installed\n    agents — nothing in the code assumes a complete layout.\n\n## Tests\n\n`test/commands/migrate.test.ts` — 12 tests, all passing. Per the task instruction they drive the real\nentry point via `spawnSync('bun', ['run', src/index.ts, 'migrate'])` with `cwd` set to a temp git\nfixture, **not** the installed binary (which is a frozen build for this round and has no `migrate`).\n\nThe `runCli` helper strips every `CAIRN_*` / `RALPH_*` var from the child env — otherwise the parent\nloop's `CAIRN_PROJECT_ROOT` leaks in and `setupProjectContext` resolves the wrong project.\n\n`makeFixture()` builds a realistic legacy project: `git init`, tracked `tasks.json` /\n`tasks.completed.json` / `planning-notes.md` / `state.json` / `reviews/round-1.md` /\n`audit/findings.md` / `ralph.json`, a legacy `.gitignore` listing the `.ralph_*` names, the four\nstateful temp files, and a `.ralph_task_7_notes.md` scratch file. Options: `statuses`, `partial`,\n`alsoCairnDir`, `empty`, `commit`.\n\nCoverage: command registration; dir + config rename; the four temp-file renames with content\npreserved; scratch/archive files untouched; renames staged with commit count unchanged; partial\ninstall; idempotency; in-progress refusal leaving everything in place; dirty-tree warning + proceed;\nnot-a-project error; both-dirs refusal; non-git-repo error.\n\n## Verification\n\n- `bun test` → **826 pass, 0 fail**, 30 files (was 814 before this task; +12).\n- `bun build --target=bun src/index.ts --outfile /tmp/task43-health` → succeeds, 0.43 MB, 109 modules.\n\nThe harness's \"BUILD HEALTH CHECK FAILED / Browser build cannot import readline\" banner is the same\nstale-binary artifact noted in #40/#41/#42: `ralph.json` already carries `--target=bun`\n(line 4), but the frozen `~/.local/bin/ralph` predates that config. Clears on `./install.sh` after\nthe rename round.\n\n## Discovered task filed (1 of 3)\n\n**#49 — migrate: refresh the data-dir .gitignore for `.cairn_*` temp names.** Real gap, deliberately\nleft out of #43's stated scope: the `.gitignore` *inside* the data dir moves over unmodified and\nstill lists only `.ralph_*` runtime names, so after migrating, every `.cairn_*` temp file a later run\nwrites shows up as untracked noise. Depends on #43.\n\n## Note for #44 (`.claude` refresh and git staging)\n\n`runMigrate` returns an exit code and takes an injectable `io` — extend it in place rather than\nwrapping it. The `move()` helper already handles the tracked/untracked split; reuse it for any\nfurther renames. The final \"changes are STAGED, not committed\" summary lines are at the bottom of the\nfunction and should stay last.\n"
     },
     {
       "id": 44,
@@ -139,6 +115,24 @@
       ],
       "id": 48,
       "notes": "Task #40 scope note: /tmp/ralph-tts.pid (DEFAULT_PID_FILE, src/commands/narrate.ts:11) is NOT listed in this task's description but must move together with the socket path — it lives in the same /tmp namespace and a half-migrated pair (cairn socket + ralph pid) would orphan a running server's PID file. Whatever strategy is chosen (dual-probe vs remove BRAND.socket), apply it to the pid file too. Left untouched by #40 for that reason."
+    },
+    {
+      "priority": 2,
+      "title": "migrate: refresh the data-dir .gitignore for .cairn_* temp names",
+      "description": "After `cairn migrate` moves .ralph/ -> .cairn/, the .gitignore INSIDE the data dir is carried over unmodified and still lists only the legacy `.ralph_*` runtime temp names (.ralph_complete, .ralph_iterations.log, .ralph_prev_notes, .ralph_completed_ids, .ralph_tasks_snapshot.json, .ralph_task_*_notes.md). Every subsequent run writes `.cairn_*` files, which are therefore NOT ignored and show up as untracked noise in git status.\n\nFix: in src/commands/migrate.ts, after the data-dir move, append any missing `.cairn_*` ignore lines to <dataDir>/.gitignore (keep the legacy lines — they are still read as a fallback). Match the two-block layout already used by GITIGNORE_CONTENT in src/commands/init.ts (current names, then a '# Legacy names' block). Must be idempotent: appending twice adds nothing. If .gitignore does not exist (partial install), do nothing. Stage the edit, never commit.\n\nExplicitly out of scope for task #43, which was limited to the core moves.",
+      "directory": ".",
+      "status": "pending",
+      "files": [
+        "src/commands/migrate.ts",
+        "test/commands/migrate.test.ts"
+      ],
+      "dependencies": [
+        43
+      ],
+      "tests": [
+        "bun test test/commands/migrate.test.ts"
+      ],
+      "id": 49
     }
   ]
 }
