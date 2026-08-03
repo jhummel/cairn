@@ -18,23 +18,16 @@ import { BRAND } from './brand';
 const HOOK_SOCKET_RE = /^\s*SOCKET="([^"]+)"/m;
 
 /**
- * Injection seam so tests can pin a /tmp probe instead of the real filesystem.
- * With a single candidate per path there is nothing left to probe for, so both
- * resolvers currently ignore it; it stays on the signatures because these are
- * the resolution entry points and a future candidate would need it back.
- */
-export interface PathProbeDeps {
-  exists?: (path: string) => boolean;
-}
-
-/**
  * Resolve the Unix socket the narration server should bind.
  *
  * 1. Whatever `<projectRoot>/.claude/hooks/narrate.sh` dials, when installed —
  *    the hooks are the clients, so they decide.
  * 2. Otherwise BRAND.socket, live or not, so a fresh server comes up there.
+ *
+ * The hook file is the only input; /tmp is never probed for a live socket, so
+ * the result depends on the project, not on what happens to be running.
  */
-export function findNarrationSocketPath(projectRoot?: string, _deps: PathProbeDeps = {}): string {
+export function findNarrationSocketPath(projectRoot?: string): string {
   if (projectRoot) {
     try {
       const hook = readFileSync(join(projectRoot, '.claude', 'hooks', 'narrate.sh'), 'utf8');
@@ -48,8 +41,14 @@ export function findNarrationSocketPath(projectRoot?: string, _deps: PathProbeDe
   return BRAND.socket;
 }
 
-/** Resolve the narration server's PID file. */
-export function findNarrationPidFile(_deps: PathProbeDeps = {}): string {
+/**
+ * Compose the narration server's PID file path.
+ *
+ * There is a single candidate, so this is a plain composition of BRAND.pidFile
+ * rather than a search. It stays a function because it is the one entry point
+ * callers are expected to use — see the CREATE-vs-RESOLVE note in src/brand.ts.
+ */
+export function findNarrationPidFile(): string {
   return BRAND.pidFile;
 }
 

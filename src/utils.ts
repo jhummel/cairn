@@ -28,10 +28,13 @@ export function resolvePath(target: string): string {
 }
 
 /**
- * Resolve the data directory for a project root.
+ * Compose the data directory path for a project root.
  *
- * Always use this (never BRAND.dataDir directly) when building a path to data
- * that is expected to already exist, so every caller agrees on one location.
+ * This joins `projectRoot` with BRAND.dataDir unconditionally — it does not
+ * probe the filesystem, and returns the same path whether or not the directory
+ * exists yet. Always use this (never BRAND.dataDir directly) when building a
+ * path to data that is expected to already exist, so every caller agrees on one
+ * location instead of each spelling the directory name itself.
  */
 export function findDataDir(projectRoot: string): string {
   return join(projectRoot, BRAND.dataDir);

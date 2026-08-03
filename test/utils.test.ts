@@ -173,16 +173,19 @@ describe('findDataDir', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('resolves to .cairn when it exists', () => {
+  // findDataDir composes <root>/.cairn unconditionally — it never probes the
+  // filesystem — so what is or isn't on disk must not change the answer.
+
+  it('composes <root>/.cairn when the directory already exists', () => {
     mkdirSync(join(tempDir, '.cairn'));
     expect(findDataDir(tempDir)).toBe(join(tempDir, '.cairn'));
   });
 
-  it('defaults to .cairn for a project with neither, so new data is created there', () => {
+  it('composes the same <root>/.cairn when nothing exists yet, so new data is created there', () => {
     expect(findDataDir(tempDir)).toBe(join(tempDir, '.cairn'));
   });
 
-  it('never resolves to a legacy .ralph directory', () => {
+  it('never composes a legacy .ralph path, even when one is present on disk', () => {
     mkdirSync(join(tempDir, '.ralph'));
     expect(findDataDir(tempDir)).toBe(join(tempDir, '.cairn'));
   });

@@ -310,8 +310,6 @@ function projectWithHook(socket: string | null): string {
   return root;
 }
 
-const NONE = { exists: () => false };
-
 describe('findNarrationSocketPath', () => {
   const roots: string[] = [];
   const track = (r: string) => { roots.push(r); return r; };
@@ -320,53 +318,45 @@ describe('findNarrationSocketPath', () => {
     while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
   });
 
-  it('defaults to the current brand socket when nothing is installed or running', () => {
-    expect(findNarrationSocketPath(undefined, NONE)).toBe('/tmp/cairn-tts.sock');
-  });
+  // Resolution consults exactly one input — the project's installed narrate.sh —
+  // and falls back to BRAND.socket. Nothing on disk under /tmp is probed, so
+  // these cases assert the returned path, never a liveness decision.
 
-  it('returns the current brand socket when it is already live', () => {
-    expect(findNarrationSocketPath(undefined, { exists: (p) => p === BRAND.socket })).toBe('/tmp/cairn-tts.sock');
-  });
-
-  it('ignores a stale /tmp/ralph-tts.sock left by the pre-rename binary', () => {
-    const exists = (p: string) => p === '/tmp/ralph-tts.sock';
-    expect(findNarrationSocketPath(undefined, { exists })).toBe('/tmp/cairn-tts.sock');
+  it('falls back to the current brand socket when no project root is given', () => {
+    expect(findNarrationSocketPath()).toBe(BRAND.socket);
+    expect(findNarrationSocketPath()).toBe('/tmp/cairn-tts.sock');
   });
 
   it("follows the project's installed hook, which is the client that dials it", () => {
     const root = track(projectWithHook('/tmp/custom-tts.sock'));
-    expect(findNarrationSocketPath(root, NONE)).toBe('/tmp/custom-tts.sock');
+    expect(findNarrationSocketPath(root)).toBe('/tmp/custom-tts.sock');
   });
 
   it('follows a current-brand hook too', () => {
     const root = track(projectWithHook('/tmp/cairn-tts.sock'));
-    expect(findNarrationSocketPath(root, NONE)).toBe('/tmp/cairn-tts.sock');
-  });
-
-  it('the hook outranks a live socket at the other path', () => {
-    const root = track(projectWithHook('/tmp/custom-tts.sock'));
-    expect(findNarrationSocketPath(root, { exists: () => true })).toBe('/tmp/custom-tts.sock');
+    expect(findNarrationSocketPath(root)).toBe('/tmp/cairn-tts.sock');
   });
 
   it('ignores a hook with no SOCKET assignment', () => {
     const root = track(projectWithHook(null));
-    expect(findNarrationSocketPath(root, NONE)).toBe(BRAND.socket);
+    expect(findNarrationSocketPath(root)).toBe(BRAND.socket);
   });
 
   it('ignores a project with no hooks installed', () => {
     const root = track(mkdtempSync(join(tmpdir(), 'cairn-sockres-')));
-    expect(findNarrationSocketPath(root, NONE)).toBe(BRAND.socket);
+    expect(findNarrationSocketPath(root)).toBe(BRAND.socket);
   });
 
   it('emits no warnings, whatever it resolves to', () => {
     const root = track(projectWithHook('/tmp/custom-tts.sock'));
+    const noHooks = track(mkdtempSync(join(tmpdir(), 'cairn-sockres-')));
     const seen: string[] = [];
     const original = console.error;
     console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
     try {
-      findNarrationSocketPath(root, NONE);
-      findNarrationSocketPath(undefined, NONE);
-      findNarrationSocketPath(undefined, { exists: () => true });
+      findNarrationSocketPath(root);
+      findNarrationSocketPath(noHooks);
+      findNarrationSocketPath();
     } finally {
       console.error = original;
     }
@@ -375,25 +365,20 @@ describe('findNarrationSocketPath', () => {
 });
 
 describe('findNarrationPidFile', () => {
-  it('defaults to the current brand pid file', () => {
-    expect(findNarrationPidFile(NONE)).toBe('/tmp/cairn-tts.pid');
+  // An unconditional composition of BRAND.pidFile — there is no probe and no
+  // second candidate, so the only thing to assert is the path it returns.
+
+  it('returns the current brand pid file', () => {
+    expect(findNarrationPidFile()).toBe(BRAND.pidFile);
+    expect(findNarrationPidFile()).toBe('/tmp/cairn-tts.pid');
   });
 
-  it('returns the current brand pid file when it exists', () => {
-    expect(findNarrationPidFile({ exists: (p) => p === BRAND.pidFile })).toBe('/tmp/cairn-tts.pid');
-  });
-
-  it('ignores a stale /tmp/ralph-tts.pid left by the pre-rename binary', () => {
-    const exists = (p: string) => p === '/tmp/ralph-tts.pid';
-    expect(findNarrationPidFile({ exists })).toBe('/tmp/cairn-tts.pid');
-  });
-
-  it('emits no warnings when a stale legacy pid file is present', () => {
+  it('emits no warnings', () => {
     const seen: string[] = [];
     const original = console.error;
     console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
     try {
-      findNarrationPidFile({ exists: () => true });
+      findNarrationPidFile();
     } finally {
       console.error = original;
     }
