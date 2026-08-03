@@ -117,7 +117,7 @@ Each task needs:
 - **status**: `pending` for new tasks
 - **files**: array of relevant file paths RELATIVE TO THE TASK'S DIRECTORY
 - **dependencies**: array of task IDs that must complete first (empty array if none)
-- **tests**: array of test commands to verify the task (run from the task's directory)
+- **tests**: array of test commands to verify the task. Each command runs from the task's directory by default; a command runs from the project root instead only if it has a path-shaped argument (a non-flag, non-`@`-scoped token containing `/`, or a bare filename with a letter-leading extension) that doesn't resolve under the task's directory but does resolve under the project root — so file paths can be written relative to either. Manifest-driven commands (`npm test`, `bun test`, `cargo test`) carry no path argument, so they always run from the task's directory and correctly pick up the right service's manifest in a multi-service repo.
 - **model**: `opus` or `sonnet` (optional, defaults to `opus`)
 - **agent**: (optional) name of a specialist agent from `.claude/agents/`
 
