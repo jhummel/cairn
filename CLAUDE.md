@@ -90,6 +90,17 @@ Inside the data dir, runtime temp files carry their own prefix (`BRAND.tempPrefi
 
 The one deliberate exception is `.ralph_task_<id>_notes.md`: write-and-sweep scratch that is never read back, still handed to agents under the legacy name. The cleanup sweep (`NOTES_TEMPFILE_RE` in `src/commands/run.ts`) matches **both** prefixes anyway, so scratch written under either name is removed.
 
+### The narration socket — a third naming tier
+
+`BRAND.socket` / `BRAND.pidFile` (`/tmp/cairn-tts.sock`, `/tmp/cairn-tts.pid`) and their `LEGACY` counterparts follow the same standing rule, resolved by two helpers in `src/narration.ts`:
+
+- `findNarrationSocketPath(projectRoot?, {exists?})` — RESOLVE the socket.
+- `findNarrationPidFile({exists?})` — RESOLVE the pid file. Existing `/tmp/cairn-tts.pid`, else existing `/tmp/ralph-tts.pid`, else the current one.
+
+The socket resolves differently from every other tier, and the reason matters. Its authoritative value is not in `/tmp` — it is baked into the project's `.claude/hooks/{narrate,speak,notify}.sh`, which hardcode a `SOCKET="…"` line at `cairn init` time and are the socket's **only** clients. So `findNarrationSocketPath` reads `<projectRoot>/.claude/hooks/narrate.sh` first and binds wherever that dials; only if no hook is installed does it fall back to probing for a live socket (current preferred), then to `BRAND.socket`. A project whose hooks still name `/tmp/ralph-tts.sock` keeps narrating until it re-runs `cairn init` or `cairn migrate` (both of which rewrite the hooks to the current path).
+
+Binding `BRAND.socket` unconditionally would be a *silent* break: the server comes up fine, the hooks fire fine, and the events go to a socket nobody is listening on. `runRun` takes the resolver through `RunRunDeps.findNarrationSocketPath` so tests can pin it; `cairn narrate on/off/status` resolves against `findProjectRoot()`.
+
 ## Agent workflow
 
 Agents **must** use the `cairn task` subcommand group for every mutation of `.cairn/tasks.json` (`.ralph/tasks.json` on a project not yet migrated — the subcommands resolve either layout automatically):
@@ -134,7 +145,7 @@ Every intentional legacy fallback in shipped source carries the exact comment st
 
 `test/legacy-markers.test.ts` enforces this: any line in `src/**/*.ts`, `lib/*.py`, `agents/*.md`, `commands/*.md`, or `install.sh` that mentions the old name must have the marker within 20 lines above or 3 below. Add a legacy fallback without the marker and the suite fails. The marker must sit on a single line — a comment wrapped mid-phrase will not match.
 
-The one exemption is the narration socket/pid paths (`/tmp/ralph-tts.sock`, `/tmp/ralph-tts.pid`). They are *not* compatibility fallbacks — they are plain un-migrated literals that never got the dual-name treatment, tracked by task #48, and marked `TODO(#48)` instead. Note that `writeNarrationHooks` already emits `/tmp/cairn-tts.sock` while `run.ts` still starts the server on `/tmp/ralph-tts.sock`, so generated hooks and the running server currently disagree — that mismatch is #48's to resolve.
+There are no exemptions. The narration socket/pid paths used to be one (marked `TODO(#48)`); they now go through the same fallback pattern as everything else — see [The narration socket — a third naming tier](#the-narration-socket--a-third-naming-tier). Two extra assertions in the same test file lock that in: `/tmp/ralph-tts.{sock,pid}` may appear only in `src/brand.ts`, and no source file may still carry a `TODO(#48)`.
 
 ## Pin/unpin procedure for self-modifying rounds
 

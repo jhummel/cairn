@@ -49,7 +49,8 @@ every design choice below is constrained by them:
 - **Per-iteration snapshot.** Before spawning, the loop snapshots a known-good
   `tasks.json` (`src/commands/run.ts:454–463`) for corruption recovery.
 - **Single narration socket.** `src/narration.ts` talks to one Unix socket
-  (`/tmp/ralph-tts.sock`); `processStream` invokes `streamOpts.narrate` for the
+  (`/tmp/cairn-tts.sock`, resolved per project by `findNarrationSocketPath`);
+  `processStream` invokes `streamOpts.narrate` for the
   one running agent (`src/commands/run.ts:539–543`). Audio is inherently a
   single shared channel — you cannot play two narrations at once intelligibly.
 - **Single prevNotes predecessor.** `prevNotes` is one string carried from the
@@ -210,7 +211,7 @@ The serial path is unchanged — no prefix needed when there is one agent.
 
 ## 6. Narration & notifications
 
-Audio narration is a *single shared channel* (`/tmp/ralph-tts.sock`,
+Audio narration is a *single shared channel* (`/tmp/cairn-tts.sock`,
 `src/narration.ts`) and ntfy push is rate-sensitive. Streaming per-token
 narration for `N` agents at once is incoherent. Therefore:
 

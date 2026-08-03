@@ -4,15 +4,13 @@ import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from 'child_proces
 import {
   startNarrationServer,
   stopNarrationServer,
+  findNarrationSocketPath,
+  findNarrationPidFile,
   type StartNarrationOpts,
 } from '../narration';
 import { resolveAnthropicApiKeyChain, warnIfLegacyApiKey } from '../config';
+import { findProjectRoot } from '../utils';
 
-// TODO(#48): still the literal legacy /tmp paths — BRAND.socket is not wired up
-// yet, and the pid file must move with it. Not compatibility fallbacks; tracked
-// separately from the rename.
-const DEFAULT_PID_FILE = '/tmp/ralph-tts.pid';
-const DEFAULT_SOCKET_PATH = '/tmp/ralph-tts.sock';
 const DEFAULT_VOICE = 'bf_emma';
 
 export interface RunNarrateOpts {
@@ -38,8 +36,10 @@ function isProcessAlive(pid: number): boolean {
 export async function runNarrate(action: string, opts: RunNarrateOpts = {}): Promise<void> {
   const pythonPath = opts.pythonPath ?? process.env.CAIRN_NARRATE_PYTHON ?? '';
   const libDir = opts.libDir ?? process.env.CAIRN_LIB_DIR ?? '';
-  const pidFile = opts.pidFile ?? DEFAULT_PID_FILE;
-  const socketPath = opts.socketPath ?? DEFAULT_SOCKET_PATH;
+  const pidFile = opts.pidFile ?? findNarrationPidFile();
+  // Resolve against the surrounding project: its .claude/hooks are the clients
+  // that will dial whatever socket the server binds.
+  const socketPath = opts.socketPath ?? findNarrationSocketPath(findProjectRoot());
   const voice = opts.voice ?? process.env.CAIRN_NARRATION_VOICE ?? DEFAULT_VOICE;
   const startServer = opts.startServer ?? startNarrationServer;
   const stopServer = opts.stopServer ?? stopNarrationServer;

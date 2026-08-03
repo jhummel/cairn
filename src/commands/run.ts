@@ -6,7 +6,7 @@ import type { Readable, Writable } from 'stream';
 import type { CairnConfig, AgentInfo, Task } from '../types';
 import { ProcessManager, type ProcessManagerOptions } from '../process';
 import { processStream, sendToNarrate as defaultSendToNarrate, sendNtfy as defaultSendNtfy, type ProcessStreamOptions, type NtfyOpts } from '../stream-filter';
-import { startNarrationServer as defaultStartNarrationServer, stopNarrationServer as defaultStopNarrationServer, checkNarrationHealth as defaultCheckNarrationHealth, type StartNarrationOpts } from '../narration';
+import { startNarrationServer as defaultStartNarrationServer, stopNarrationServer as defaultStopNarrationServer, checkNarrationHealth as defaultCheckNarrationHealth, findNarrationSocketPath as defaultFindNarrationSocketPath, type StartNarrationOpts } from '../narration';
 import { loadCompletedIds as defaultLoadCompletedIds, selectNextTask as defaultSelectNextTask, buildIterationPrompt as defaultBuildIterationPrompt } from '../task-selector';
 import { runHealthCheck as defaultRunHealthCheck, type HealthCheckResult } from '../health-check';
 import { validateTaskTests as defaultValidateTaskTests, type ValidateTaskTestsOpts, type ValidationResult } from '../test-validator';
@@ -297,6 +297,7 @@ export interface RunRunDeps {
   stopNarrationServer: (pid: number, socketPath?: string) => Promise<void>;
   checkNarrationHealth: (socketPath?: string) => Promise<boolean>;
   sendToNarrate: (text: string, socketPath: string) => Promise<void>;
+  findNarrationSocketPath: (projectRoot: string) => string;
   sendNtfy: (message: string, topic: string, opts?: NtfyOpts) => Promise<void>;
   log: (...args: unknown[]) => void;
 }
@@ -342,6 +343,7 @@ function defaultDeps(): RunRunDeps {
     stopNarrationServer: defaultStopNarrationServer,
     checkNarrationHealth: defaultCheckNarrationHealth,
     sendToNarrate: defaultSendToNarrate,
+    findNarrationSocketPath: defaultFindNarrationSocketPath,
     sendNtfy: defaultSendNtfy,
     log: console.log,
   };
@@ -406,9 +408,9 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   // 5. Start narration server if enabled
   let narrationPid: number | null = null;
   const narrationEnabled = config.narration.enabled;
-  // TODO(#48): still the literal legacy socket path — BRAND.socket is not wired
-  // up yet. Not a compatibility fallback; tracked separately from the rename.
-  const narrationSocketPath = '/tmp/ralph-tts.sock';
+  // The server must bind wherever this project's .claude/hooks/*.sh dial, which
+  // is the legacy path on any project that has not re-run init or migrate.
+  const narrationSocketPath = deps.findNarrationSocketPath(projectRoot);
 
   if (narrationEnabled) {
     warnIfLegacyApiKey(resolveAnthropicApiKeyChain());

@@ -217,6 +217,55 @@ describe('runNarrate', () => {
     expect(output).toContain('stopped');
   });
 
+  // --- default path resolution ---
+
+  it('defaults the pid file and socket to the resolved current-brand paths', async () => {
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
+    // Point project-root discovery at a directory with no .claude/hooks, so the
+    // socket resolves from the /tmp probe rather than an installed hook.
+    const emptyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-narr-root-'));
+    process.env.CAIRN_PROJECT_ROOT = emptyRoot;
+
+    try {
+      const { runNarrate } = await import('../../src/commands/narrate');
+      // No pidFile/socketPath overrides — exercises the defaults.
+      await runNarrate('status');
+      const output = consoleLogSpy.mock.calls.map((c: any[]) => c.join(' ')).join('\n');
+      // No server running under either name in a test env, so: stopped.
+      expect(output).toContain('stopped');
+      expect(output).not.toContain('/tmp/ralph-tts');
+    } finally {
+      delete process.env.CAIRN_PROJECT_ROOT;
+      fs.rmSync(emptyRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('starts the server on the socket the project hooks dial', async () => {
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-narr-root-'));
+    fs.mkdirSync(path.join(root, '.claude', 'hooks'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.claude', 'hooks', 'narrate.sh'),
+      '#!/bin/bash\nSOCKET="/tmp/hooked-tts.sock"\n',
+    );
+    process.env.CAIRN_PROJECT_ROOT = root;
+
+    let capturedSock = '';
+    const mockStart = async (opts: narration.StartNarrationOpts) => {
+      capturedSock = opts.socketPath ?? '';
+      return 4242;
+    };
+
+    try {
+      const { runNarrate } = await import('../../src/commands/narrate');
+      await runNarrate('on', { pidFile: TEST_PID_FILE, startServer: mockStart });
+      expect(capturedSock).toBe('/tmp/hooked-tts.sock');
+    } finally {
+      delete process.env.CAIRN_PROJECT_ROOT;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   // --- one-shot TTS ---
 
   it('unknown action: spawns cairn_narrate.py with spawnSync', async () => {

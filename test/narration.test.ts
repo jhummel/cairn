@@ -1,9 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { existsSync, unlinkSync, writeFileSync } from 'fs';
+import { existsSync, unlinkSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import net from 'net';
-import { checkNarrationHealth, stopNarrationServer, startNarrationServer } from '../src/narration';
+import {
+  checkNarrationHealth,
+  stopNarrationServer,
+  startNarrationServer,
+  findNarrationSocketPath,
+  findNarrationPidFile,
+} from '../src/narration';
+import { BRAND, LEGACY, resetLegacyWarnings } from '../src/brand';
 
 function makeSockPath(): string {
   return join(tmpdir(), `cairn-narr-test-${Math.random().toString(36).slice(2)}.sock`);
@@ -76,7 +83,7 @@ describe('checkNarrationHealth', () => {
     }
   }, 5000);
 
-  it('uses /tmp/ralph-tts.sock as default socketPath', async () => {
+  it('falls back to the resolved default socketPath', async () => {
     // Just verify the function works with no argument — should return false since no server
     const result = await checkNarrationHealth();
     // Default path almost certainly doesn't have a running server in test env
@@ -143,7 +150,7 @@ describe('stopNarrationServer', () => {
     }
   });
 
-  it('uses /tmp/ralph-tts.sock as default socketPath', async () => {
+  it('falls back to the resolved default socketPath', async () => {
     const origKill = process.kill.bind(process);
     // @ts-ignore
     process.kill = () => {};
@@ -287,5 +294,114 @@ describe('startNarrationServer', () => {
     ).rejects.toThrow('Narration server failed health check after startup');
 
     expect(callCount).toBe(30);
+  });
+});
+
+// --- findNarrationSocketPath / findNarrationPidFile ---
+
+/** A project root whose installed narrate.sh hook dials `socket`. */
+function projectWithHook(socket: string | null): string {
+  const root = mkdtempSync(join(tmpdir(), 'cairn-sockres-'));
+  mkdirSync(join(root, '.claude', 'hooks'), { recursive: true });
+  const body = socket === null
+    ? '#!/bin/bash\n# no socket line here\nexit 0\n'
+    : `#!/bin/bash\n# PostToolUse hook\nSOCKET="${socket}"\n[ ! -S "$SOCKET" ] && exit 0\n`;
+  writeFileSync(join(root, '.claude', 'hooks', 'narrate.sh'), body);
+  return root;
+}
+
+const NONE = { exists: () => false };
+
+describe('findNarrationSocketPath', () => {
+  const roots: string[] = [];
+  const track = (r: string) => { roots.push(r); return r; };
+
+  beforeEach(() => resetLegacyWarnings());
+  afterEach(() => {
+    resetLegacyWarnings();
+    while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
+  });
+
+  it('defaults to the current brand socket when nothing is installed or running', () => {
+    expect(findNarrationSocketPath(undefined, NONE)).toBe('/tmp/cairn-tts.sock');
+  });
+
+  it('prefers a live current-brand socket over a live legacy one', () => {
+    expect(findNarrationSocketPath(undefined, { exists: () => true })).toBe(BRAND.socket);
+  });
+
+  it('falls back to the legacy socket when only that one is live', () => {
+    const exists = (p: string) => p === LEGACY.socket;
+    expect(findNarrationSocketPath(undefined, { exists })).toBe('/tmp/ralph-tts.sock');
+  });
+
+  it("follows the project's installed hook, which is the client that dials it", () => {
+    const root = track(projectWithHook('/tmp/ralph-tts.sock'));
+    expect(findNarrationSocketPath(root, NONE)).toBe('/tmp/ralph-tts.sock');
+  });
+
+  it('follows a current-brand hook too', () => {
+    const root = track(projectWithHook('/tmp/cairn-tts.sock'));
+    expect(findNarrationSocketPath(root, { exists: (p) => p === LEGACY.socket })).toBe('/tmp/cairn-tts.sock');
+  });
+
+  it('the hook outranks a live socket at the other path', () => {
+    const root = track(projectWithHook('/tmp/ralph-tts.sock'));
+    expect(findNarrationSocketPath(root, { exists: () => true })).toBe('/tmp/ralph-tts.sock');
+  });
+
+  it('ignores a hook with no SOCKET assignment', () => {
+    const root = track(projectWithHook(null));
+    expect(findNarrationSocketPath(root, NONE)).toBe(BRAND.socket);
+  });
+
+  it('ignores a project with no hooks installed', () => {
+    const root = track(mkdtempSync(join(tmpdir(), 'cairn-sockres-')));
+    expect(findNarrationSocketPath(root, NONE)).toBe(BRAND.socket);
+  });
+
+  it('warns once when it resolves to the legacy socket', () => {
+    const root = track(projectWithHook('/tmp/ralph-tts.sock'));
+    const seen: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
+    try {
+      findNarrationSocketPath(root, NONE);
+      findNarrationSocketPath(root, NONE);
+    } finally {
+      console.error = original;
+    }
+    expect(seen.length).toBe(1);
+    expect(seen[0]).toContain('/tmp/ralph-tts.sock');
+  });
+
+  it('does not warn when it resolves to the current brand socket', () => {
+    const seen: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
+    try {
+      findNarrationSocketPath(undefined, NONE);
+    } finally {
+      console.error = original;
+    }
+    expect(seen).toEqual([]);
+  });
+});
+
+describe('findNarrationPidFile', () => {
+  beforeEach(() => resetLegacyWarnings());
+  afterEach(() => resetLegacyWarnings());
+
+  it('defaults to the current brand pid file', () => {
+    expect(findNarrationPidFile(NONE)).toBe('/tmp/cairn-tts.pid');
+  });
+
+  it('prefers the current brand pid file when both exist', () => {
+    expect(findNarrationPidFile({ exists: () => true })).toBe('/tmp/cairn-tts.pid');
+  });
+
+  it('falls back to the legacy pid file when only that one exists', () => {
+    const exists = (p: string) => p === LEGACY.pidFile;
+    expect(findNarrationPidFile({ exists })).toBe('/tmp/ralph-tts.pid');
   });
 });

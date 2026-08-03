@@ -156,7 +156,9 @@ claude                    # Use Claude Code normally — hooks forward events
 cairn narrate off         # Stop when done
 ```
 
-Run `cairn init` with narration enabled to install Claude Code hooks (`.claude/hooks/narrate.sh`, `speak.sh`, `notify.sh`) into your project. These detect the server socket and forward events automatically. The socket path itself is still `/tmp/ralph-tts.sock` for now — `src/brand.ts` already defines the target `/tmp/cairn-tts.sock` (`BRAND.socket`), but wiring it through `narration.ts`/`run.ts`/`narrate.ts`/the hook scripts is tracked separately and hasn't landed yet.
+Run `cairn init` with narration enabled to install Claude Code hooks (`.claude/hooks/narrate.sh`, `speak.sh`, `notify.sh`) into your project. These detect the server socket and forward events automatically.
+
+The socket lives at `/tmp/cairn-tts.sock` (`BRAND.socket`). Because each project's hooks hardcode a `SOCKET="…"` line at install time, the server binds whatever the project's `.claude/hooks/narrate.sh` dials rather than a fixed path — so a project whose hooks still name the pre-rename `/tmp/ralph-tts.sock` keeps working until it re-runs `cairn init` or `cairn migrate`. Resolution lives in `findNarrationSocketPath()` / `findNarrationPidFile()` in `src/narration.ts`.
 
 **Note:** the narration server (`lib/cairn_narrate_server.py`) reads `CAIRN_NARRATE_SOCKET`, falling back to the legacy `RALPH_NARRATE_SOCKET`, as the default for its `--socket` argument — but `cairn run` and `cairn narrate on` currently always pass `--socket` explicitly, so exporting either variable has no effect until that wiring task lands. Once it does, standalone `claude` sessions will be able to export `CAIRN_NARRATE_SOCKET` to point hooks at a non-default socket.
 

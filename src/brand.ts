@@ -3,11 +3,13 @@
  *
  * BRAND is NOT user-configurable — it is a compile-time constant, not config.
  *
- * STANDING RULE: BRAND.dataDir / BRAND.configFile are for CREATING paths, never
- * for RESOLVING them. Any path that points at an existing project's data must
- * come from the value discovery actually found (`findDataDir()` in src/utils.ts,
- * `findConfigFile()` in src/config.ts) — otherwise a project still on the legacy
- * layout gets paths pointing at a directory that does not exist.
+ * STANDING RULE: BRAND.dataDir / BRAND.configFile / BRAND.socket / BRAND.pidFile
+ * are for CREATING paths, never for RESOLVING them. Any path that points at
+ * something that already exists must come from the value discovery actually
+ * found (`findDataDir()` in src/utils.ts, `findConfigFile()` in src/config.ts,
+ * `findNarrationSocketPath()` / `findNarrationPidFile()` in src/narration.ts) —
+ * otherwise a project still on the legacy layout gets paths pointing at
+ * something that does not exist.
  */
 export const BRAND = Object.freeze({
   name: 'cairn',
@@ -16,7 +18,10 @@ export const BRAND = Object.freeze({
   configFile: 'cairn.json',
   envPrefix: 'CAIRN_',
   tempPrefix: '.cairn_',
+  /** Unix socket the narration server binds and the .claude/hooks/*.sh clients dial. */
   socket: '/tmp/cairn-tts.sock',
+  /** Where `cairn narrate on` records the narration server's PID. */
+  pidFile: '/tmp/cairn-tts.pid',
 });
 
 /**
@@ -34,6 +39,8 @@ export const LEGACY = Object.freeze({
   dataDir: '.ralph',
   configFile: 'ralph.json',
   tempPrefix: '.ralph_',
+  socket: '/tmp/ralph-tts.sock',
+  pidFile: '/tmp/ralph-tts.pid',
 });
 
 const warnedKeys = new Set<string>();

@@ -13,6 +13,7 @@ describe('BRAND', () => {
     expect(BRAND.envPrefix).toBe('CAIRN_');
     expect(BRAND.tempPrefix).toBe('.cairn_');
     expect(BRAND.socket).toBe('/tmp/cairn-tts.sock');
+    expect(BRAND.pidFile).toBe('/tmp/cairn-tts.pid');
   });
 
   it('is frozen', () => {
@@ -29,6 +30,9 @@ describe('LEGACY', () => {
     expect(LEGACY.name).toBe('ralph');
     expect(LEGACY.dataDir).toBe('.ralph');
     expect(LEGACY.configFile).toBe('ralph.json');
+    expect(LEGACY.tempPrefix).toBe('.ralph_');
+    expect(LEGACY.socket).toBe('/tmp/ralph-tts.sock');
+    expect(LEGACY.pidFile).toBe('/tmp/ralph-tts.pid');
   });
 
   it('is frozen', () => {

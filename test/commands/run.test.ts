@@ -715,6 +715,7 @@ function makeRunDeps(overrides: Partial<RunRunDeps> = {}): RunRunDeps {
     stopNarrationServer: overrides.stopNarrationServer ?? mock(async () => {}),
     checkNarrationHealth: overrides.checkNarrationHealth ?? mock(async () => true),
     sendToNarrate: overrides.sendToNarrate ?? mock(async () => {}),
+    findNarrationSocketPath: overrides.findNarrationSocketPath ?? mock(() => '/tmp/cairn-tts.sock'),
     sendNtfy: overrides.sendNtfy ?? mock(async () => {}),
     log: overrides.log ?? mock(() => {}),
   };
@@ -1425,6 +1426,28 @@ describe('runRun', () => {
     await runRun(makeRunOpts({ config }), deps);
 
     expect(deps.startNarrationServer).toHaveBeenCalledTimes(1);
+  });
+
+  test('binds the narration server to the resolved socket, not a hardcoded one', async () => {
+    const config = makeTestConfig({ narration: { enabled: true, voice: 'bf_emma', ntfyTopic: '' } });
+    const deps = makeRunDeps({
+      findNarrationSocketPath: mock(() => '/tmp/resolved-tts.sock'),
+      startNarrationServer: mock(async () => 55555),
+      checkNarrationHealth: mock(async () => true),
+      selectNextTask: mock(() => null),
+    });
+
+    const opts = makeRunOpts({ config });
+    await runRun(opts, deps);
+
+    // Resolution is scoped to the project whose hooks will dial the socket.
+    expect(deps.findNarrationSocketPath).toHaveBeenCalledWith(opts.projectRoot);
+
+    const startCall = (deps.startNarrationServer as ReturnType<typeof mock>).mock.calls[0][0];
+    expect(startCall.socketPath).toBe('/tmp/resolved-tts.sock');
+
+    const stopCall = (deps.stopNarrationServer as ReturnType<typeof mock>).mock.calls[0];
+    expect(stopCall[1]).toBe('/tmp/resolved-tts.sock');
   });
 
   test('does not start narration server when disabled', async () => {

@@ -8,8 +8,8 @@ import { join, resolve, relative } from 'path';
  * the eventual removal round is mechanical rather than archaeological.
  *
  * The contract: a source line mentioning the legacy name must have
- * `remove once all projects migrated` within a few lines of it. Anything else
- * is a rename miss.
+ * `remove once all projects migrated` within a few lines of it. There are no
+ * exemptions — anything else is a rename miss.
  *
  * NOT scanned: `.cairn/`/`.ralph/` data dirs and `.claude/` (generated
  * per-project artifacts, not source), test files (fixtures legitimately create
@@ -23,16 +23,6 @@ const MARKER = 'remove once all projects migrated';
 /** Lines around a legacy hit that may carry the marker for it. */
 const LOOKBACK = 20;
 const LOOKAHEAD = 3;
-
-/**
- * Legacy mentions that are deliberately NOT compatibility fallbacks and so
- * carry a different marker. The narration socket and pid file were never given
- * the dual-name treatment — they are plain un-migrated literals tracked by
- * task #48 and marked `TODO(#48)`.
- */
-const EXEMPT: Array<{ pattern: RegExp; instead: string }> = [
-  { pattern: /ralph-tts\.(sock|pid)/, instead: 'TODO(#48)' },
-];
 
 function walk(dir: string, matches: (name: string) => boolean): string[] {
   const out: string[] = [];
@@ -72,13 +62,10 @@ function unmarkedLegacyHits(): Hit[] {
     lines.forEach((line, i) => {
       if (!/ralph/i.test(line)) return;
 
-      const exempt = EXEMPT.find((e) => e.pattern.test(line));
-      const wanted = exempt ? exempt.instead : MARKER;
-
       const from = Math.max(0, i - LOOKBACK);
       const to = Math.min(lines.length, i + LOOKAHEAD + 1);
       const window = lines.slice(from, to).join('\n');
-      if (window.includes(wanted)) return;
+      if (window.includes(MARKER)) return;
 
       hits.push({
         file: relative(REPO_ROOT, file),
@@ -103,6 +90,31 @@ describe('legacy reference markers', () => {
     // removal sweep depend on the exact wording. Changing it means changing both.
     const brand = readFileSync(join(REPO_ROOT, 'src/brand.ts'), 'utf-8');
     expect(brand).toContain(MARKER);
+  });
+
+  test('the legacy narration socket and pid paths are declared only in brand.ts', () => {
+    // They are resolved through findNarrationSocketPath/findNarrationPidFile, so
+    // a second literal anywhere else is a path that skipped the fallback.
+    const offenders: string[] = [];
+    for (const file of scannedFiles()) {
+      const rel = relative(REPO_ROOT, file);
+      if (rel === 'src/brand.ts') continue;
+      const content = readFileSync(file, 'utf-8');
+      for (const m of content.matchAll(/\/tmp\/ralph-tts\.(sock|pid)/g)) {
+        offenders.push(`${rel}: ${m[0]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('nothing in source still defers the socket rename to TODO(#48)', () => {
+    const offenders: string[] = [];
+    for (const file of scannedFiles()) {
+      if (readFileSync(file, 'utf-8').includes('TODO(#48)')) {
+        offenders.push(relative(REPO_ROOT, file));
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   test('no shipped source references a dist/ or bin/ path under the old name', () => {
