@@ -1,6 +1,6 @@
 #!/bin/bash
 # Stop hook: speaks assistant responses via narration server
-SOCKET="/tmp/ralph-tts.sock"
+SOCKET="/tmp/cairn-tts.sock"
 [ ! -S "$SOCKET" ] && exit 0
 
 INPUT=$(cat)

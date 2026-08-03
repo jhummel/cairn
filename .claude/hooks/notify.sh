@@ -1,6 +1,6 @@
 #!/bin/bash
 # Notification hook: speaks when Claude needs user attention
-SOCKET="/tmp/ralph-tts.sock"
+SOCKET="/tmp/cairn-tts.sock"
 [ ! -S "$SOCKET" ] && exit 0
 
 INPUT=$(cat)

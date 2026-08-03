@@ -1,7 +1,7 @@
 {
   "projectName": "ralph-cli-tool",
   "projectDescription": "Ralph programming ralph. Tool to launch autonomous programming mode using CC with specific steps for planning, review, execution and cleanup.",
-  "healthCheck": "bun build --target=bun src/index.ts --outfile /tmp/cairn-healthcheck",
+  "healthCheck": "bun run build",
   "defaultTestCommand": "bun test",
   "implementationFile": "IMPLEMENTATION.md",
   "truncateText": false,
