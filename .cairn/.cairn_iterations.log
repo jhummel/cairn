@@ -424,3 +424,5 @@ Iteration 12 completed: 2026-08-03T17:13:00.580Z — SUCCESS
 Iteration 13 started: 2026-08-03T17:15:26.077Z — Task #63: src/brand.ts — delete LEGACY and rehome the permanent notes prefix
 Iteration 13 completed: 2026-08-03T17:18:20.327Z — SUCCESS
 Iteration 14 started: 2026-08-03T17:20:15.131Z — Task #64: Cosmetic test-fixture sweep across remaining test files
+Iteration 14 completed: 2026-08-03T17:25:14.342Z — SUCCESS
+Iteration 15 started: 2026-08-03T17:27:14.068Z — Task #65: Docs — remove the compatibility window from CLAUDE.md and README.md

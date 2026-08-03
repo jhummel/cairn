@@ -1,6 +1,6 @@
 # Cairn — Agentic Task Orchestration for Claude Code
 
-Cairn (formerly Ralph — see [Migrating from Ralph](#migrating-from-ralph)) turns Claude Code into an autonomous development loop. You plan features in a conversation, Cairn generates a task list, then executes each task one-at-a-time with fresh Claude agents — complete with health checks, test validation, and automatic archival of completed work.
+Cairn turns Claude Code into an autonomous development loop. You plan features in a conversation, Cairn generates a task list, then executes each task one-at-a-time with fresh Claude agents — complete with health checks, test validation, and automatic archival of completed work.
 
 ## Prerequisites
 
@@ -30,7 +30,7 @@ cd ~/cairn
 ./install.sh
 ```
 
-`install.sh` runs `bun build` to compile the TypeScript source to `dist/cairn`, then symlinks it to both `~/.local/bin/cairn` and `~/.local/bin/ralph` (see [Migrating from Ralph](#migrating-from-ralph) for why both exist). Pass a custom prefix if needed:
+`install.sh` runs `bun build` to compile the TypeScript source to `dist/cairn`, then symlinks it to `~/.local/bin/cairn`. Pass a custom prefix if needed:
 
 ```bash
 ./install.sh /usr/local
@@ -63,14 +63,11 @@ cairn summarize     # Update architecture docs
 | `cairn status`         | Show current task list overview                                   |
 | `cairn edit [target]`  | Edit `tasks.json` (default), `plan` (planning notes), or `config` |
 | `cairn logs`           | Show iteration log                                                |
-| `cairn migrate`        | Migrate a project from the legacy `.ralph/` layout to `.cairn/`   |
 | `cairn narrate on`     | Start the TTS narration server as a background daemon             |
 | `cairn narrate off`    | Stop the narration server                                         |
 | `cairn narrate status` | Check if the narration server is running                          |
 | `cairn narrate "text"` | Speak text directly via Kokoro TTS                                |
 | `cairn help`           | Show usage information                                            |
-
-`ralph` is a compatibility symlink to the same binary — every command above also works as `ralph <command>`. See [Migrating from Ralph](#migrating-from-ralph).
 
 ## Workflow
 
@@ -158,9 +155,9 @@ cairn narrate off         # Stop when done
 
 Run `cairn init` with narration enabled to install Claude Code hooks (`.claude/hooks/narrate.sh`, `speak.sh`, `notify.sh`) into your project. These detect the server socket and forward events automatically.
 
-The socket lives at `/tmp/cairn-tts.sock` (`BRAND.socket`). Because each project's hooks hardcode a `SOCKET="…"` line at install time, the server binds whatever the project's `.claude/hooks/narrate.sh` dials rather than a fixed path — so a project whose hooks still name the pre-rename `/tmp/ralph-tts.sock` keeps working until it re-runs `cairn init` or `cairn migrate`. Resolution lives in `findNarrationSocketPath()` / `findNarrationPidFile()` in `src/narration.ts`.
+The socket lives at `/tmp/cairn-tts.sock` (`BRAND.socket`). Because each project's hooks hardcode a `SOCKET="…"` line at install time, the server binds whatever the project's `.claude/hooks/narrate.sh` dials rather than a fixed path. Resolution lives in `findNarrationSocketPath()` / `findNarrationPidFile()` in `src/narration.ts`.
 
-**Note:** the narration server (`lib/cairn_narrate_server.py`) reads `CAIRN_NARRATE_SOCKET`, falling back to the legacy `RALPH_NARRATE_SOCKET`, as the default for its `--socket` argument — but `cairn run` and `cairn narrate on` currently always pass `--socket` explicitly, so exporting either variable has no effect until that wiring task lands. Once it does, standalone `claude` sessions will be able to export `CAIRN_NARRATE_SOCKET` to point hooks at a non-default socket.
+**Note:** the narration server (`lib/cairn_narrate_server.py`) reads `CAIRN_NARRATE_SOCKET` as the default for its `--socket` argument — but `cairn run` and `cairn narrate on` currently always pass `--socket` explicitly, so exporting the variable has no effect until that wiring task lands. Once it does, standalone `claude` sessions will be able to export `CAIRN_NARRATE_SOCKET` to point hooks at a non-default socket.
 
 ### One-off speech
 
@@ -190,7 +187,7 @@ Notifications work independently of voice narration — you don't need `narratio
 
 ## Personal Agent Instructions
 
-`.cairn/instructions.md` (or `.ralph/instructions.md` on a project not yet migrated) is an optional file for personal prompt instructions that get injected into every execution agent's system prompt during `cairn run`. It's gitignored by default — use it for preferences that shouldn't be shared with your team, like preferred coding style, tools you like to avoid, or communication tone.
+`.cairn/instructions.md` is an optional file for personal prompt instructions that get injected into every execution agent's system prompt during `cairn run`. It's gitignored by default — use it for preferences that shouldn't be shared with your team, like preferred coding style, tools you like to avoid, or communication tone.
 
 It differs from `CLAUDE.md`:
 
@@ -209,7 +206,7 @@ touch .cairn/instructions.md
 
 ## Configuration
 
-`cairn.json` (or legacy `ralph.json`) at your project root. Every field is optional with sensible defaults.
+`cairn.json` at your project root. Every field is optional with sensible defaults.
 
 ```json
 {
@@ -257,7 +254,7 @@ Cairn finds your project root in this order:
 
 1. `--project-root` flag
 2. `CAIRN_PROJECT_ROOT` environment variable
-3. Walk upward from CWD looking for a `.cairn/` or `.ralph/` directory
+3. Walk upward from CWD looking for a `.cairn/` directory
 4. Git repository root
 5. Current working directory
 
@@ -273,14 +270,13 @@ cairn/
 │   │   ├── plan.ts              # Planning discussion + task generation
 │   │   ├── run.ts               # Core execution loop + system prompt builder
 │   │   ├── init.ts              # Project initialization
-│   │   ├── migrate.ts           # Legacy .ralph/ -> .cairn/ project migration
 │   │   ├── summarize.ts         # IMPLEMENTATION.md generator
 │   │   ├── status.ts            # Task list overview
 │   │   ├── edit.ts              # Open tasks.json / plan / config in editor
 │   │   ├── logs.ts              # Iteration log viewer
 │   │   └── narrate.ts           # TTS narration server management
-│   ├── brand.ts                 # Project name/paths (BRAND) + legacy fallbacks (LEGACY)
-│   ├── config.ts                # Config loading from cairn.json (or legacy ralph.json)
+│   ├── brand.ts                 # Project name/paths (BRAND)
+│   ├── config.ts                # Config loading from cairn.json
 │   ├── task-selector.ts         # Task selection logic
 │   ├── test-validator.ts        # Post-iteration test validation
 │   └── stream-filter.ts         # Stream-json formatter + narration forwarding
@@ -288,14 +284,14 @@ cairn/
 │   ├── cairn_narrate.py         # Standalone TTS narration utility
 │   └── cairn_narrate_server.py  # TTS server (Kokoro + Haiku summarization)
 ├── dist/cairn                   # Compiled binary (generated by bun build)
-└── install.sh                   # Builds and installs cairn (and the ralph compatibility symlink)
+└── install.sh                   # Builds and installs cairn
 ```
 
 ### Per-project data (created by `cairn init`)
 
 ```
 your-project/
-├── .cairn/                     # or .ralph/ on projects not yet migrated
+├── .cairn/
 │   ├── tasks.json              # Active task list
 │   ├── tasks.completed.json    # Archive of completed tasks
 │   ├── state.json              # Monotonic task-ID counter + planning round — never reuses IDs (committed to git)
@@ -304,7 +300,7 @@ your-project/
 │   ├── planning-notes.md       # Output from planning discussions
 │   ├── instructions.md         # Personal agent preferences (gitignored)
 │   └── .gitignore              # Ignores temp files and instructions.md
-├── cairn.json                  # Project configuration (optional; or legacy ralph.json)
+├── cairn.json                  # Project configuration (optional)
 └── IMPLEMENTATION.md           # Architecture summary
 ```
 
@@ -342,20 +338,3 @@ Each task in `tasks.json`:
 - **Cost control** — set `model: "sonnet"` on straightforward tasks. Reserve `opus` for complex work.
 - **CLAUDE.md matters** — the execution engine loads your project's `CLAUDE.md` as system prompt context. Keep it current with conventions and patterns so agents follow your standards.
 - **instructions.md for personal preferences** — add `.cairn/instructions.md` to steer agent behavior without committing personal preferences to the repo. It's gitignored and only injected during `cairn run`, not planning.
-
-## Migrating from Ralph
-
-Cairn was previously named Ralph. The rename is a gradual, opt-in rollout, not a breaking cutover:
-
-- **Both binaries are installed.** `./install.sh` symlinks `~/.local/bin/cairn` and `~/.local/bin/ralph` to the same compiled binary — every command in this README also works typed as `ralph <command>`. The `ralph` symlink stays until every project using this tool has migrated; there's no scheduled removal.
-- **Both project layouts are read.** A project can sit on `.cairn/`/`cairn.json` or the legacy `.ralph/`/`ralph.json` — Cairn checks for the current name first and falls back to the legacy one automatically. You never have to migrate to keep working.
-- **`cairn migrate` converts one project at a time.** Run it from a project's root:
-
-  ```bash
-  cd your-project
-  cairn migrate
-  ```
-
-  It renames `.ralph/` → `.cairn/` and `ralph.json` → `cairn.json` (via `git mv`, so history is preserved), carries over the live cross-run temp files, refreshes the project's `.claude/` agents, slash commands, and narration hooks to the current versions, and updates the data dir's `.gitignore`. It only touches the current working directory — no recursive scanning of subdirectories or sibling projects. It refuses to run if the two layouts coexist, if you're not in a git repo, or if a task is `in-progress`.
-
-  **Nothing is committed.** Every rename and write is staged (`git add`/`git mv`) and left for you to review with `git status` / `git diff --cached` before committing yourself. Running it again on an already-migrated project is a no-op.

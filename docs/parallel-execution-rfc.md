@@ -2,7 +2,7 @@
 
 **Status:** Draft — for discussion
 **Scope:** Design only. No code or tests are introduced by this document.
-**Author:** Cairn (iteration 6, written when the tool was still named Ralph)
+**Author:** Cairn (iteration 6)
 
 ## 1. Summary
 
