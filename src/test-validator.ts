@@ -23,11 +23,34 @@ const CANT_RUN_PATTERNS = [
   'enoent',
   'cannot find module',
   'module not found',
+  // `bun build --compile` run from the wrong cwd prints `FileNotFound opening root
+  // directory "src"` — one word, so the 'not found' entry above does not catch it.
+  'filenotfound',
+  'file not found',
+  // `bun test <path>` whose filter matches nothing prints "The following filters did
+  // not match any test files in --cwd=..." followed by a `Tests need ".test", ...` note.
+  'did not match any test files',
 ];
 
-function runCommand(cmd: string, cwd: string, timeoutMs: number): Promise<{ exitCode: number; stderr: string }> {
+// A command that collected or executed no tests is never evidence of a real failure —
+// it is evidence that the command could not find the tests. Classify as can't-run
+// regardless of exit code so a cwd or environment mistake degrades to "note it" rather
+// than reverting finished work.
+const ZERO_TESTS_PATTERNS = [
+  /\bran\s+0\s+tests?\b/,        // bun:    "Ran 0 tests across 1 file."
+  /\b0\s+tests?\s+(ran|found|executed|collected)\b/,
+  /\bno\s+tests?\s+(ran|found|were\s+found|to\s+run|were\s+run|executed|collected)\b/,
+  /\bno\s+test\s+files?\s+found\b/,
+];
+
+function runCommand(
+  cmd: string,
+  cwd: string,
+  timeoutMs: number,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn('sh', ['-c', cmd], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     let timedOut = false;
 
@@ -36,28 +59,37 @@ function runCommand(cmd: string, cwd: string, timeoutMs: number): Promise<{ exit
       child.kill('SIGKILL');
     }, timeoutMs);
 
+    child.stdout.on('data', (d: Buffer) => stdoutChunks.push(d));
     child.stderr.on('data', (d: Buffer) => stderrChunks.push(d));
 
     child.on('close', (code) => {
       clearTimeout(timer);
       if (timedOut) {
-        resolve({ exitCode: 1, stderr: `timeout after ${timeoutMs}ms` });
+        resolve({ exitCode: 1, stdout: '', stderr: `timeout after ${timeoutMs}ms` });
         return;
       }
-      resolve({ exitCode: code ?? 1, stderr: Buffer.concat(stderrChunks).toString() });
+      resolve({
+        exitCode: code ?? 1,
+        stdout: Buffer.concat(stdoutChunks).toString(),
+        stderr: Buffer.concat(stderrChunks).toString(),
+      });
     });
 
     child.on('error', (err) => {
       clearTimeout(timer);
-      resolve({ exitCode: 1, stderr: err.message });
+      resolve({ exitCode: 1, stdout: '', stderr: err.message });
     });
   });
 }
 
-function isCantRunError(stderr: string, exitCode: number): boolean {
+// `output` must carry both streams: bun writes its diagnostics to stderr, but other
+// runners report the same conditions on stdout, and a signal the classifier cannot see
+// is a signal that reverts a completed task.
+function isCantRunError(output: string, exitCode: number): boolean {
   if (exitCode === 127) return true;
-  const lower = stderr.toLowerCase();
-  return CANT_RUN_PATTERNS.some((p) => lower.includes(p));
+  const lower = output.toLowerCase();
+  if (CANT_RUN_PATTERNS.some((p) => lower.includes(p))) return true;
+  return ZERO_TESTS_PATTERNS.some((re) => re.test(lower));
 }
 
 function writeAndSnapshot(tasksFilePath: string, dataDir: string, data: TasksFile): void {
@@ -97,7 +129,8 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
   const cwd = path.resolve(projectRoot);
 
   for (const cmd of task.tests) {
-    const { exitCode, stderr } = await runCommand(cmd, cwd, timeoutMs);
+    const { exitCode, stdout, stderr } = await runCommand(cmd, cwd, timeoutMs);
+    const output = `${stdout}\n${stderr}`;
 
     if (exitCode === 0) continue;
 
@@ -108,7 +141,7 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
       return { status: 'error', message: `timeout: ${cmd}` };
     }
 
-    if (isCantRunError(stderr, exitCode)) {
+    if (isCantRunError(output, exitCode)) {
       // Infrastructure error → note but don't revert
       appendNote(data, fileTask, 'Post-iteration: test commands could not execute (missing deps/scripts).');
       writeAndSnapshot(tasksFilePath, dataDir, data);
@@ -121,7 +154,7 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
     delete fileTask.completedBy;
     appendNote(data, fileTask, 'Post-iteration test validation failed — reverted to in-progress.');
     writeAndSnapshot(tasksFilePath, dataDir, data);
-    return { status: 'failed', message: `${cmd}: ${stderr.slice(-200)}` };
+    return { status: 'failed', message: `${cmd}: ${output.trim().slice(-200)}` };
   }
 
   return { status: 'passed' };

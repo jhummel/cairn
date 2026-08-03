@@ -187,6 +187,87 @@ describe('validateTaskTests', () => {
       expect(result.status).toBe('error');
     });
 
+    // Verbatim signals captured from bun 1.3.11 run in the wrong cwd. These cost three
+    // iterations of a previous round: none matched a CANT_RUN pattern, so a finished task
+    // was reverted to in-progress and re-picked every iteration until a human intervened.
+    it('returns error for bun build FileNotFound (no space in "FileNotFound")', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        completedAt: '2025-01-01T00:00:00Z', completedBy: 'iteration-1',
+        tests: ['echo \'FileNotFound opening root directory "src"\' >&2 && exit 1'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('error');
+
+      const updated = readTasksFile(tasksFilePath).tasks.find((t) => t.id === 1)!;
+      expect(updated.status).toBe('complete');
+      expect(updated.completedAt).toBe('2025-01-01T00:00:00Z');
+    });
+
+    it('returns error for spaced "file not found"', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        tests: ['echo "error: file not found" >&2 && exit 1'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('error');
+      expect(readTasksFile(tasksFilePath).tasks.find((t) => t.id === 1)!.status).toBe('complete');
+    });
+
+    it('returns error when a bun test filter matched no test files', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        completedAt: '2025-01-01T00:00:00Z', completedBy: 'iteration-1',
+        tests: ['echo "The following filters did not match any test files in --cwd=/x" >&2 && exit 1'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('error');
+
+      const updated = readTasksFile(tasksFilePath).tasks.find((t) => t.id === 1)!;
+      expect(updated.status).toBe('complete');
+      expect(updated.completedAt).toBe('2025-01-01T00:00:00Z');
+    });
+
+    it('returns error when zero tests ran, even on a non-zero exit code', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        completedAt: '2025-01-01T00:00:00Z', completedBy: 'iteration-1',
+        tests: ['echo "Ran 0 tests across 1 file. [7.00ms]" >&2 && exit 1'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('error');
+
+      const updated = readTasksFile(tasksFilePath).tasks.find((t) => t.id === 1)!;
+      expect(updated.status).toBe('complete');
+      expect(updated.completedAt).toBe('2025-01-01T00:00:00Z');
+    });
+
+    it('classifies a can\'t-run signal written to stdout, not just stderr', async () => {
+      // Runners differ on which stream carries the diagnostic (bun uses stderr, others
+      // stdout). The classifier must see both or it silently misses the signal.
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        completedAt: '2025-01-01T00:00:00Z', completedBy: 'iteration-1',
+        tests: ['echo "no tests ran" && exit 1'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('error');
+
+      const updated = readTasksFile(tasksFilePath).tasks.find((t) => t.id === 1)!;
+      expect(updated.status).toBe('complete');
+      expect(updated.completedAt).toBe('2025-01-01T00:00:00Z');
+    });
+
     it('does not revert status on infrastructure error', async () => {
       const task: Task = {
         id: 1, priority: 1, title: 'Test', status: 'complete',
