@@ -410,3 +410,7 @@ Iteration 5 completed: 2026-08-03T16:39:21.623Z — SUCCESS
 Iteration 6 started: 2026-08-03T16:41:40.839Z — Task #56: Migrate temp-file read callers to tempFilePath (4 files)
 Iteration 6 completed: 2026-08-03T16:44:23.965Z — SUCCESS
 Iteration 7 started: 2026-08-03T16:47:54.376Z — Task #57: Comment-only legacy caveat removal (post-task-reviewer, index, edit)
+Iteration 7 completed: 2026-08-03T16:50:24.517Z — SUCCESS
+Iteration 8 started: 2026-08-03T16:53:12.778Z — Task #58: src/utils.ts — collapse data-dir tier and delete temp-file resolvers
+Iteration 8 completed: 2026-08-03T16:57:28.252Z — SUCCESS
+Iteration 9 started: 2026-08-03T17:00:22.306Z — Task #59: lib/cairn_narrate_server.py — drop RALPH_ env fallbacks

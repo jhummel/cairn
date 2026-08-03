@@ -212,8 +212,7 @@ if __name__ == "__main__":
     parser.add_argument("--voice", default=os.environ.get("CAIRN_NARRATION_VOICE", DEFAULT_VOICE))
     parser.add_argument(
         "--socket",
-        # remove once all projects migrated — drop the RALPH_NARRATE_SOCKET leg.
-        default=os.environ.get("CAIRN_NARRATE_SOCKET") or os.environ.get("RALPH_NARRATE_SOCKET", DEFAULT_SOCKET),
+        default=os.environ.get("CAIRN_NARRATE_SOCKET", DEFAULT_SOCKET),
     )
     args = parser.parse_args()
 
@@ -222,20 +221,11 @@ if __name__ == "__main__":
 
     # Initialize heavy resources
     pipeline = KPipeline(lang_code="a" if voice.startswith("a") else "b")
-    # CAIRN_ANTHROPIC_API_KEY -> legacy RALPH_ANTHROPIC_API_KEY -> plain ANTHROPIC_API_KEY.
+    # CAIRN_ANTHROPIC_API_KEY -> plain ANTHROPIC_API_KEY.
     # The main loop blanks ANTHROPIC_API_KEY before spawning `claude` to force Max-plan
-    # usage, so these prefixed names are what let this server still reach a real key.
-    # remove once all projects migrated — drop the RALPH_ leg and its warning;
-    # mirrors resolveAnthropicApiKeyChain() in src/config.ts.
+    # usage, so this prefixed name is what lets this server still reach a real key.
+    # Mirrors resolveAnthropicApiKeyChain() in src/config.ts.
     api_key = os.environ.get("CAIRN_ANTHROPIC_API_KEY")
-    if not api_key:
-        api_key = os.environ.get("RALPH_ANTHROPIC_API_KEY")
-        if api_key:
-            print(
-                "[cairn] Using legacy RALPH_ANTHROPIC_API_KEY — rename to CAIRN_ANTHROPIC_API_KEY.",
-                file=sys.stderr,
-                flush=True,
-            )
     if not api_key:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
     client = Anthropic(api_key=api_key)

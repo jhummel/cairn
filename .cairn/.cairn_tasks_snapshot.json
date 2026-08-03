@@ -3,61 +3,12 @@
   "project": "cairn-cli-tool",
   "tasks": [
     {
-      "id": 57,
-      "priority": 7,
-      "title": "Comment-only legacy caveat removal (post-task-reviewer, index, edit)",
-      "description": "Three files where the marker covers only a comment — the CODE STAYS EXACTLY AS-IS. src/post-task-reviewer.ts (~lines 126-129): drop the '(which may be the legacy .ralph/)' caveat and the marker, keeping the rule that reviewFileRule is derived from the resolved dataDir; also fix the '.ralph/reviews/**' example (~line 138) and the '.ralph/' mention (~line 147) to '.cairn/'. src/index.ts (~lines 38-40): drop the 'projects still on the legacy layout' caveat; the findDataDir(projectRoot) call stays. src/commands/edit.ts (~lines 19-21): drop the 'a project still on ralph.json' caveat; the findConfigFile(projectRoot) call stays. TDD: delete test/commands/edit.test.ts's \"target 'config' resolves an existing legacy ralph.json\" test (~line 91) and the related case (~line 105), and test/post-task-reviewer.test.ts's 'allowlist rule follows the resolved data dir (legacy .ralph/)' test (~line 284). Leave the other cosmetic .ralph fixture paths in those files — task 64 handles them. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "src/post-task-reviewer.ts",
-        "src/index.ts",
-        "src/commands/edit.ts",
-        "test/commands/edit.test.ts",
-        "test/post-task-reviewer.test.ts"
-      ],
-      "tests": [
-        "bun test test/commands/edit.test.ts test/post-task-reviewer.test.ts test/index.test.ts",
-        "bun test"
-      ],
-      "dependencies": [
-        51
-      ],
-      "model": "sonnet",
-      "completedAt": "2026-08-03T16:50:03.179Z",
-      "completedBy": "iteration-7",
-      "notes": "# Task #57 — Comment-only legacy caveat removal (post-task-reviewer, index, edit)\n\n## Outcome\n\nComment-only edits in three files — no code/behavior changed. TDD: confirmed the\nthree targeted tests were green pre-edit (behavior they cover still exists via\n`findConfigFile`/`findDataDir` legacy fallback, untouched by this task), then deleted\nthem since they specifically named the caveat now removed from the comments.\n\n`bun test test/commands/edit.test.ts test/post-task-reviewer.test.ts test/index.test.ts`\n→ **73 pass, 0 fail**.\n`bun test` → **849 pass, 0 fail, 31 files** (down from #56's baseline of 852 —\nexactly the 3 deleted tests; no other regressions).\n`bun test test/legacy-markers.test.ts` → **5 pass** (marker-proximity rules still hold\nafter removing the two markers below).\nHealth check (`bun build --target=bun src/index.ts --outfile /tmp/cairn-healthcheck`)\n→ OK. Did **not** modify `cairn.json`'s `healthCheck`; did **not** run `./install.sh`.\n\n## Source changes (comment-only, code untouched)\n\n1. **src/post-task-reviewer.ts**\n   - Dropped the \"(which may be the legacy .ralph/)\" caveat and its\n     `remove once all projects migrated` marker from the comment above\n     `absDataDir = path.resolve(...)`. The rule that `reviewFileRule` is derived\n     from the resolved `dataDir` is preserved verbatim.\n   - Fixed the `Edit(.ralph/reviews/**)` example in the permission-rule comment to\n     `Edit(.cairn/reviews/**)`.\n   - Fixed the \"a project that actually lives in .ralph/\" mention to \".cairn/\".\n2. **src/index.ts** (`setupProjectContext`) — dropped the \"projects still on the\n   legacy layout must keep resolving to .ralph/\" caveat and its marker above\n   `findDataDir(projectRoot)`. The call itself is untouched.\n3. **src/commands/edit.ts** (`case 'config'`) — dropped the \"a project still on\n   ralph.json\" caveat and its marker above `findConfigFile(projectRoot)`. The call\n   itself is untouched.\n\n## Test changes (TDD — confirmed green before deleting)\n\n1. **test/commands/edit.test.ts** — deleted:\n   - `'target \"config\" never opens a leftover ralph.json'`\n   - `'target \"config\" opens cairn.json even when a ralph.json also exists'`\n   Left the `.ralph` fixture path in `beforeEach` (`dataDir = path.join(tmpDir,\n   '.ralph')`) untouched — cosmetic, task 64 owns it.\n2. **test/post-task-reviewer.test.ts** — deleted `'allowlist rule follows the\n   resolved data dir (legacy .ralph/)'`. Left the `.ralph` fixture path in\n   `'spawns claude with correct args'` (unrelated test, not the one named in the\n   task) untouched — cosmetic, task 64 owns it.\n\n3 tests deleted total, matching the 852→849 delta in the full suite run.\n\n## Notes for future tasks\n\n- `src/index.ts:189` still references `LEGACY.dataDir` in the `migrate` command's\n  help text — that's a legitimate, still-needed legacy reference (not a caveat\n  comment) and out of scope for this task.\n- No discovered tasks this iteration — the task was self-contained and matched the\n  codebase exactly as described.\n"
-    },
-    {
-      "id": 58,
-      "priority": 8,
-      "title": "src/utils.ts — collapse data-dir tier and delete temp-file resolvers",
-      "description": "Remove all 7 markers in src/utils.ts. Delete dataDirNameAt and warnIfLegacyDataDir outright; rewrite findDataDir(projectRoot) to a plain existence check on join(projectRoot, BRAND.dataDir) — the function KEEPS its name and signature, since callers still need a resolved data dir. In findProjectRoot, the upward walk now tests BRAND.dataDir directly at each level; keep CAIRN_PROJECT_ROOT as priority #1 and the git-root/cwd fallbacks unchanged, and drop the legacy note from the doc comment. Delete findTempFilePath and allTempFilePaths ENTIRELY. This task depends on tasks 55 and 56, which migrated all five external callers (task-selector.ts, tasks-file.ts, task-archiver.ts, commands/logs.ts, commands/run.ts) — before deleting, verify with `grep -rn \"findTempFilePath\\|allTempFilePaths\" src/ test/` that nothing outside src/utils.ts and test/utils.test.ts still references them. If anything does, STOP and report rather than deleting: the health check runs before every iteration, so a broken build stalls the whole loop. Keep tempFilePath and the surrounding 'Runtime temp files' comment, minus the dual-read framing. Drop the LEGACY/warnLegacyOnce imports. TDD: update test/utils.test.ts (delete the legacy-fallback describes and the findTempFilePath/allTempFilePaths blocks) and test/index.test.ts's two behavioral tests, 'falls back to an existing legacy .ralph/ data dir' and 'points completedTasksPath at a legacy .ralph/ data dir'. Watch fail, make pass. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
-      "directory": "",
-      "status": "pending",
-      "files": [
-        "src/utils.ts",
-        "test/utils.test.ts",
-        "test/index.test.ts"
-      ],
-      "tests": [
-        "bun test test/utils.test.ts test/index.test.ts",
-        "bun test"
-      ],
-      "dependencies": [
-        55,
-        56
-      ],
-      "model": "opus",
-      "agent": "planner"
-    },
-    {
       "id": 59,
       "priority": 9,
       "title": "lib/cairn_narrate_server.py — drop RALPH_ env fallbacks",
       "description": "Remove both markers in lib/cairn_narrate_server.py. At ~line 216, simplify the --socket default to os.environ.get('CAIRN_NARRATE_SOCKET', DEFAULT_SOCKET) — drop the RALPH_NARRATE_SOCKET leg. At ~lines 228-238, drop the RALPH_ANTHROPIC_API_KEY lookup and its stderr warning, leaving the CAIRN_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY chain. KEEP the comment explaining why the prefixed name exists (the loop blanks ANTHROPIC_API_KEY to force Max-plan usage) and that it mirrors resolveAnthropicApiKeyChain() in src/config.ts. There is no dedicated test file for this script; verify with `python3 -m py_compile lib/cairn_narrate_server.py` plus the full suite. Note: this silences narration in any long-lived shell still exporting only RALPH_ANTHROPIC_API_KEY — that is expected and the user is aware. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "lib/cairn_narrate_server.py"
       ],
@@ -65,7 +16,10 @@
         "bun test"
       ],
       "dependencies": [],
-      "model": "sonnet"
+      "model": "sonnet",
+      "completedAt": "2026-08-03T17:01:23.553Z",
+      "completedBy": "iteration-9",
+      "notes": "# Task #59 — lib/cairn_narrate_server.py: drop RALPH_ env fallbacks\n\n## Outcome\n\nBoth `remove once all projects migrated` markers in `lib/cairn_narrate_server.py`\nare gone. `grep -n \"RALPH\" lib/cairn_narrate_server.py` → no matches.\n\n## Changes\n\n1. **`--socket` default (~line 216, was a two-line `default=`)** — collapsed to\n   `os.environ.get(\"CAIRN_NARRATE_SOCKET\", DEFAULT_SOCKET)`, dropping the\n   `RALPH_NARRATE_SOCKET` leg. The marker comment above it is deleted along with\n   the code it described.\n\n2. **API key resolution (~lines 225-241)** — dropped the\n   `RALPH_ANTHROPIC_API_KEY` lookup and its `[cairn] Using legacy\n   RALPH_ANTHROPIC_API_KEY...` stderr warning. Chain is now just\n   `CAIRN_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY`. Per the task instructions,\n   **kept** the explanatory comment (now trimmed to drop the \"legacy\" framing):\n   why the prefixed name exists (main loop blanks `ANTHROPIC_API_KEY` to force\n   Max-plan usage before spawning `claude`) and that it mirrors\n   `resolveAnthropicApiKeyChain()` in `src/config.ts`. Removed the\n   `remove once all projects migrated` marker line since the fallback it\n   flagged is gone.\n\n## Verification\n\n- `python3 -m py_compile lib/cairn_narrate_server.py` → OK, no syntax errors.\n- `grep -n \"RALPH\" lib/cairn_narrate_server.py` → empty.\n- `bun test` → **838 pass, 0 fail, 31 files** — same count as task #58's run\n  (this file has no dedicated test suite, as the task description noted, so no\n  count change expected).\n- Did **not** modify `cairn.json`'s `healthCheck` and did **not** run\n  `./install.sh`, per task instructions.\n- Did not touch any of the excluded paths (tasks.completed.json,\n  .cairn_iterations.log, .cairn_tasks_snapshot.json, reviews/round-*.md,\n  .ralph_task_*_notes.md, audit/).\n\n## Notes for future tasks\n\n- `test/legacy-markers.test.ts` still passed (part of the 838), confirming no\n  other line in this file references the old name without justification —\n  there was none to begin with after this change.\n- No discovered tasks this iteration — the task matched the codebase exactly,\n  no unrelated bugs or missing functionality surfaced.\n"
     },
     {
       "id": 60,
