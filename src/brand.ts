@@ -29,6 +29,7 @@ export const LEGACY = Object.freeze({
   displayName: 'Ralph',
   dataDir: '.ralph',
   configFile: 'ralph.json',
+  tempPrefix: '.ralph_',
 });
 
 const warnedKeys = new Set<string>();

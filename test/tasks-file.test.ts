@@ -114,7 +114,7 @@ describe('readTasksFile', () => {
       project: 'restored-project',
       tasks: [{ id: 99, priority: 1, title: 'Snapshot task', status: 'pending' }],
     });
-    fs.writeFileSync(path.join(tmpDir, '.ralph_tasks_snapshot.json'), snapshotContent);
+    fs.writeFileSync(path.join(tmpDir, '.cairn_tasks_snapshot.json'), snapshotContent);
     const result = readTasksFile(filePath, { dataDir: tmpDir });
     expect(result.restored).toBe(true);
     expect(result.repaired).toBe(false);
@@ -128,10 +128,41 @@ describe('readTasksFile', () => {
     expect(stages).toContain('jsonrepair');
   });
 
+  it('(7b) recovers from a legacy .ralph_tasks_snapshot.json when no .cairn_ snapshot exists', () => {
+    const filePath = path.join(tmpDir, 'tasks.json');
+    fs.writeFileSync(filePath, 'THIS IS NOT JSON AT ALL !!!');
+    fs.writeFileSync(
+      path.join(tmpDir, '.ralph_tasks_snapshot.json'),
+      JSON.stringify({
+        project: 'legacy-project',
+        tasks: [{ id: 42, priority: 1, title: 'Legacy snapshot task', status: 'pending' }],
+      })
+    );
+    const result = readTasksFile(filePath, { dataDir: tmpDir });
+    expect(result.restored).toBe(true);
+    expect(result.data.project).toBe('legacy-project');
+    expect(result.data.tasks[0].id).toBe(42);
+  });
+
+  it('(7c) prefers the .cairn_ snapshot over a legacy one when both exist', () => {
+    const filePath = path.join(tmpDir, 'tasks.json');
+    fs.writeFileSync(filePath, 'CORRUPT');
+    fs.writeFileSync(
+      path.join(tmpDir, '.cairn_tasks_snapshot.json'),
+      JSON.stringify({ project: 'current', tasks: [] })
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, '.ralph_tasks_snapshot.json'),
+      JSON.stringify({ project: 'legacy', tasks: [] })
+    );
+    const result = readTasksFile(filePath, { dataDir: tmpDir });
+    expect(result.data.project).toBe('current');
+  });
+
   it('(8) snapshot-present-and-also-corrupted throws TasksFileError', () => {
     const filePath = path.join(tmpDir, 'tasks.json');
     fs.writeFileSync(filePath, 'CORRUPT');
-    fs.writeFileSync(path.join(tmpDir, '.ralph_tasks_snapshot.json'), 'ALSO CORRUPT');
+    fs.writeFileSync(path.join(tmpDir, '.cairn_tasks_snapshot.json'), 'ALSO CORRUPT');
     expect(() => readTasksFile(filePath, { dataDir: tmpDir })).toThrow(TasksFileError);
     // corruption log has entries for parse, jsonrepair, and snapshot failures
     const log = readCorruptionLog();
@@ -270,7 +301,7 @@ describe('readTasksFile', () => {
 
     it('(m-e) writes a snapshot when opts.dataDir is provided', () => {
       const filePath = copyFixture(VALID_FIXTURE);
-      const snapPath = path.join(tmpDir, '.ralph_tasks_snapshot.json');
+      const snapPath = path.join(tmpDir, '.cairn_tasks_snapshot.json');
       expect(fs.existsSync(snapPath)).toBe(false);
 
       mutateTasksFile(
@@ -294,7 +325,7 @@ describe('readTasksFile', () => {
       });
 
       // No snapshot file anywhere in tmpDir
-      expect(fs.existsSync(path.join(tmpDir, '.ralph_tasks_snapshot.json'))).toBe(false);
+      expect(fs.existsSync(path.join(tmpDir, '.cairn_tasks_snapshot.json'))).toBe(false);
     });
 
     it('(m-f) supports in-place mutation (fn returns void)', () => {

@@ -1,8 +1,8 @@
 import * as fs from 'fs';
-import * as path from 'path';
+import { findTempFilePath } from '../utils';
 
 export function runLogs(dataDir: string): void {
-  const logFile = path.join(dataDir, '.ralph_iterations.log');
+  const logFile = findTempFilePath(dataDir, 'iterations.log');
 
   if (!fs.existsSync(logFile)) {
     console.log('No iteration log found.');

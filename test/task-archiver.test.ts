@@ -140,20 +140,20 @@ describe('archiveCompletedTasks', () => {
   });
 
   describe('completed IDs file', () => {
-    it('creates .ralph_completed_ids with completed task IDs', async () => {
+    it('creates .cairn_completed_ids with completed task IDs', async () => {
       const tasks: Task[] = [{ id: 5, priority: 1, title: 'Done', status: 'complete' }];
       writeTasks(tasksFilePath, tasks);
 
       await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
 
-      const idsFile = join(tmpDir, '.ralph_completed_ids');
+      const idsFile = join(tmpDir, '.cairn_completed_ids');
       expect(existsSync(idsFile)).toBe(true);
       const ids = readIds(idsFile);
       expect(ids).toContain(5);
     });
 
-    it('merges with existing IDs in .ralph_completed_ids', async () => {
-      const idsFile = join(tmpDir, '.ralph_completed_ids');
+    it('merges with existing IDs in .cairn_completed_ids', async () => {
+      const idsFile = join(tmpDir, '.cairn_completed_ids');
       writeFileSync(idsFile, JSON.stringify([3, 4]));
 
       const tasks: Task[] = [{ id: 5, priority: 1, title: 'Done', status: 'complete' }];
@@ -167,8 +167,21 @@ describe('archiveCompletedTasks', () => {
       expect(ids).toContain(5);
     });
 
+    it('merges IDs from a legacy .ralph_completed_ids into the new .cairn_ file', async () => {
+      writeFileSync(join(tmpDir, '.ralph_completed_ids'), JSON.stringify([3, 4]));
+
+      const tasks: Task[] = [{ id: 5, priority: 1, title: 'Done', status: 'complete' }];
+      writeTasks(tasksFilePath, tasks);
+
+      await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
+
+      // Pre-existing state must migrate forward, not be silently discarded
+      const ids = readIds(join(tmpDir, '.cairn_completed_ids'));
+      expect(ids).toEqual([3, 4, 5]);
+    });
+
     it('deduplicates IDs when merging', async () => {
-      const idsFile = join(tmpDir, '.ralph_completed_ids');
+      const idsFile = join(tmpDir, '.cairn_completed_ids');
       writeFileSync(idsFile, JSON.stringify([5]));
 
       const tasks: Task[] = [{ id: 5, priority: 1, title: 'Done', status: 'complete' }];
@@ -181,7 +194,7 @@ describe('archiveCompletedTasks', () => {
     });
 
     it('sorts IDs in the file', async () => {
-      const idsFile = join(tmpDir, '.ralph_completed_ids');
+      const idsFile = join(tmpDir, '.cairn_completed_ids');
       writeFileSync(idsFile, JSON.stringify([10, 2]));
 
       const tasks: Task[] = [{ id: 5, priority: 1, title: 'Done', status: 'complete' }];
@@ -224,7 +237,7 @@ describe('archiveCompletedTasks', () => {
       expect(result.prevNotes).toBe('Last notes');
     });
 
-    it('writes notes to .ralph_prev_notes file', async () => {
+    it('writes notes to .cairn_prev_notes file', async () => {
       const tasks: Task[] = [
         { id: 1, priority: 1, title: 'Done', status: 'complete', notes: 'Important notes' },
       ];
@@ -232,13 +245,13 @@ describe('archiveCompletedTasks', () => {
 
       await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
 
-      const prevNotesFile = join(tmpDir, '.ralph_prev_notes');
+      const prevNotesFile = join(tmpDir, '.cairn_prev_notes');
       expect(existsSync(prevNotesFile)).toBe(true);
       expect(readFileSync(prevNotesFile, 'utf-8')).toBe('Important notes');
     });
 
-    it('removes .ralph_prev_notes when last completed task has no notes', async () => {
-      const prevNotesFile = join(tmpDir, '.ralph_prev_notes');
+    it('removes .cairn_prev_notes when last completed task has no notes', async () => {
+      const prevNotesFile = join(tmpDir, '.cairn_prev_notes');
       writeFileSync(prevNotesFile, 'old notes');
 
       const tasks: Task[] = [{ id: 1, priority: 1, title: 'Done', status: 'complete' }];
@@ -249,20 +262,33 @@ describe('archiveCompletedTasks', () => {
       expect(existsSync(prevNotesFile)).toBe(false);
     });
 
-    it('does not create .ralph_prev_notes when no notes', async () => {
+    it('removes a legacy .ralph_prev_notes when last completed task has no notes', async () => {
+      const legacyPrevNotes = join(tmpDir, '.ralph_prev_notes');
+      writeFileSync(legacyPrevNotes, 'old notes');
+
       const tasks: Task[] = [{ id: 1, priority: 1, title: 'Done', status: 'complete' }];
       writeTasks(tasksFilePath, tasks);
 
       await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
 
-      const prevNotesFile = join(tmpDir, '.ralph_prev_notes');
+      // Otherwise a stale legacy file would keep answering the dual-read
+      expect(existsSync(legacyPrevNotes)).toBe(false);
+    });
+
+    it('does not create .cairn_prev_notes when no notes', async () => {
+      const tasks: Task[] = [{ id: 1, priority: 1, title: 'Done', status: 'complete' }];
+      writeTasks(tasksFilePath, tasks);
+
+      await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
+
+      const prevNotesFile = join(tmpDir, '.cairn_prev_notes');
       expect(existsSync(prevNotesFile)).toBe(false);
     });
   });
 
   describe('edge cases', () => {
-    it('handles corrupt .ralph_completed_ids gracefully', async () => {
-      const idsFile = join(tmpDir, '.ralph_completed_ids');
+    it('handles corrupt .cairn_completed_ids gracefully', async () => {
+      const idsFile = join(tmpDir, '.cairn_completed_ids');
       writeFileSync(idsFile, 'not-json');
 
       const tasks: Task[] = [{ id: 1, priority: 1, title: 'Done', status: 'complete' }];
@@ -336,13 +362,13 @@ describe('archiveCompletedTasks', () => {
       expect(after.tasks[0].id).toBe(2);
 
       // Snapshot was written (writeTasksFile + snapshotTasksFile path)
-      expect(existsSync(join(tmpDir, '.ralph_tasks_snapshot.json'))).toBe(true);
+      expect(existsSync(join(tmpDir, '.cairn_tasks_snapshot.json'))).toBe(true);
     });
 
     it('(b) returns warnings + writes corruption.log + appends iteration log when readTasksFile throws TasksFileError', async () => {
       // Garbage that jsonrepair cannot turn into a TasksFile shape, AND no snapshot.
       writeFileSync(tasksFilePath, '\x00\x01\x02 not json @#$%^&*()');
-      const iterationLogPath = join(tmpDir, '.ralph_iterations.log');
+      const iterationLogPath = join(tmpDir, '.cairn_iterations.log');
       writeFileSync(iterationLogPath, 'pre-existing line\n');
 
       const result = await archiveCompletedTasks({

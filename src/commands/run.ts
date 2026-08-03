@@ -14,6 +14,8 @@ import { archiveCompletedTasks as defaultArchiveCompletedTasks, type ArchiveResu
 import { captureGitSha as defaultCaptureGitSha, runPostTaskReview as defaultRunPostTaskReview, type RunPostTaskReviewOpts } from '../post-task-reviewer';
 import { loadPersonalInstructions } from '../personal-instructions';
 import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnapshotTasksFile, TasksFileError, type TasksFile } from '../tasks-file';
+import { tempFilePath, allTempFilePaths } from '../utils';
+import { BRAND, LEGACY } from '../brand';
 
 export interface SystemPromptInput {
   taskDir: string;
@@ -44,8 +46,10 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   const { taskDir, taskAgent, projectRoot, dataDir, config, agents, iteration, commitPrefix: commitPrefixOverride } = input;
 
   const tasksFile = path.join(dataDir, 'tasks.json');
-  const completeFlag = path.join(dataDir, '.ralph_complete');
-  const notesFile = path.join(dataDir, '.ralph_task_<id>_notes.md');
+  const completeFlag = tempFilePath(dataDir, 'complete');
+  // Notes tempfiles keep the legacy prefix: they are write-and-sweep scratch,
+  // never read back, and renaming them would only churn committed history.
+  const notesFile = path.join(dataDir, `${LEGACY.tempPrefix}task_<id>_notes.md`);
 
   // Derive commit prefix
   let commitPrefix: string;
@@ -351,14 +355,25 @@ const PATH_ADDITIONS = [
   '/usr/local/bin',
 ];
 
-const TEMP_FILES = ['.ralph_complete', '.ralph_prev_notes', '.ralph_completed_ids'];
+// Suffixes (prefix-less) of the run-scoped temp files removed at loop exit.
+// Cleanup covers BOTH prefixes — a legacy-named leftover is just as stale.
+const TEMP_FILE_SUFFIXES = ['complete', 'prev_notes', 'completed_ids'];
+
+/** `.cairn_task_<id>_notes.md` or `.ralph_task_<id>_notes.md`, nothing else. */
+const NOTES_TEMPFILE_RE = new RegExp(
+  `^(?:${[BRAND.tempPrefix, LEGACY.tempPrefix].map(escapeRegExp).join('|')})task_\\d+_notes\\.md$`
+);
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps()): Promise<void> {
   const { projectRoot, dataDir, config, agents } = opts;
   const maxIterations = opts.maxIterations ?? 30;
   const iterationTimeout = (opts.iterationTimeout ?? 900) * 1000; // convert to ms
   const tasksFilePath = path.join(dataDir, 'tasks.json');
-  const iterationLogPath = path.join(dataDir, '.ralph_iterations.log');
+  const iterationLogPath = tempFilePath(dataDir, 'iterations.log');
 
   // 1. Check for tasks.json — prompt to launch planner if missing
   if (!deps.existsSync(tasksFilePath)) {
@@ -416,9 +431,9 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   try {
     // 6. Main iteration loop
     for (let iteration = 1; iteration <= maxIterations; iteration++) {
-      // a. Check for .ralph_complete flag
-      const completeFlag = path.join(dataDir, '.ralph_complete');
-      if (deps.existsSync(completeFlag)) {
+      // a. Check for the completion flag. Both prefixes count: an agent running
+      // an older prompt may still have written .ralph_complete.
+      if (allTempFilePaths(dataDir, 'complete').some((p) => deps.existsSync(p))) {
         deps.log('Completion flag found. All tasks complete!');
         completedByFlag = true;
         deps.appendFileSync(iterationLogPath, `Iteration ${iteration}: COMPLETION FLAG FOUND\n`);
@@ -671,22 +686,25 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     processManager.dispose();
 
     // Clean up temp files
-    for (const file of TEMP_FILES) {
-      const filePath = path.join(dataDir, file);
-      if (deps.existsSync(filePath)) {
-        try {
-          deps.unlinkSync(filePath);
-        } catch {
-          // ignore cleanup errors
+    for (const suffix of TEMP_FILE_SUFFIXES) {
+      for (const filePath of allTempFilePaths(dataDir, suffix)) {
+        if (deps.existsSync(filePath)) {
+          try {
+            deps.unlinkSync(filePath);
+          } catch {
+            // ignore cleanup errors
+          }
         }
       }
     }
 
-    // Sweep per-task notes tempfiles (e.g. .ralph_task_42_notes.md) from dataDir
+    // Sweep per-task notes tempfiles (e.g. .ralph_task_42_notes.md) from dataDir.
+    // Matches both prefixes: the prompt still hands agents the legacy name, and
+    // an agent writing the current-brand one must not leave scratch behind.
     try {
       const entries = deps.readdirSync(dataDir);
       for (const name of entries) {
-        if (/^\.ralph_task_\d+_notes\.md$/.test(name)) {
+        if (NOTES_TEMPFILE_RE.test(name)) {
           try {
             deps.unlinkSync(path.join(dataDir, name));
           } catch {

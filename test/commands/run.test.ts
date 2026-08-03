@@ -170,7 +170,7 @@ You are a database expert. Focus on migrations and schema design.`);
     const prompt = buildSystemPrompt(makeInput({
       dataDir: '/projects/myapp/.ralph',
     }));
-    expect(prompt).toContain('/projects/myapp/.ralph/.ralph_complete');
+    expect(prompt).toContain('/projects/myapp/.ralph/.cairn_complete');
   });
 
   // --- COMMIT PREFIX ---
@@ -763,7 +763,22 @@ describe('runRun', () => {
 
   // --- Complete flag ---
 
-  test('breaks loop when .ralph_complete flag exists', async () => {
+  test('breaks loop when .cairn_complete flag exists', async () => {
+    const existsSync = mock((p: string) => {
+      if (typeof p === 'string' && p.endsWith('.cairn_complete')) return true;
+      if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
+      return false;
+    });
+
+    const deps = makeRunDeps({ existsSync });
+
+    await runRun(makeRunOpts(), deps);
+
+    // spawnClaude should never be called since we break on complete flag
+    expect(deps.spawnClaude).not.toHaveBeenCalled();
+  });
+
+  test('breaks loop when only the legacy .ralph_complete flag exists', async () => {
     const existsSync = mock((p: string) => {
       if (typeof p === 'string' && p.endsWith('.ralph_complete')) return true;
       if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
@@ -774,7 +789,6 @@ describe('runRun', () => {
 
     await runRun(makeRunOpts(), deps);
 
-    // spawnClaude should never be called since we break on complete flag
     expect(deps.spawnClaude).not.toHaveBeenCalled();
   });
 
@@ -1033,7 +1047,7 @@ describe('runRun', () => {
     const unlinkCalls: string[] = [];
     const existsSync = mock((p: string) => {
       if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
-      if (typeof p === 'string' && (p.endsWith('.ralph_complete') || p.endsWith('.ralph_prev_notes') || p.endsWith('.ralph_completed_ids'))) return true;
+      if (typeof p === 'string' && (p.endsWith('.cairn_complete') || p.endsWith('.cairn_prev_notes') || p.endsWith('.cairn_completed_ids'))) return true;
       return false;
     });
 
@@ -1046,6 +1060,27 @@ describe('runRun', () => {
     await runRun(makeRunOpts(), deps);
 
     // Should attempt to clean up temp files
+    expect(unlinkCalls.some(p => p.endsWith('.cairn_complete'))).toBe(true);
+    expect(unlinkCalls.some(p => p.endsWith('.cairn_prev_notes'))).toBe(true);
+    expect(unlinkCalls.some(p => p.endsWith('.cairn_completed_ids'))).toBe(true);
+  });
+
+  test('cleans up legacy-prefixed temp files on exit', async () => {
+    const unlinkCalls: string[] = [];
+    const existsSync = mock((p: string) => {
+      if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
+      if (typeof p === 'string' && (p.endsWith('.ralph_complete') || p.endsWith('.ralph_prev_notes') || p.endsWith('.ralph_completed_ids'))) return true;
+      return false;
+    });
+
+    const deps = makeRunDeps({
+      existsSync,
+      selectNextTask: mock(() => null),
+      unlinkSync: mock((p: string) => { unlinkCalls.push(p); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
     expect(unlinkCalls.some(p => p.endsWith('.ralph_complete'))).toBe(true);
     expect(unlinkCalls.some(p => p.endsWith('.ralph_prev_notes'))).toBe(true);
     expect(unlinkCalls.some(p => p.endsWith('.ralph_completed_ids'))).toBe(true);
@@ -1268,7 +1303,7 @@ describe('runRun', () => {
     // First call should be the header
     expect(calls.length).toBeGreaterThanOrEqual(1);
     const [logPath, content] = calls[0];
-    expect(logPath).toContain('.ralph_iterations.log');
+    expect(logPath).toContain('.cairn_iterations.log');
     expect(content).toContain('Ralph Execution Loop Started');
   });
 
@@ -1560,7 +1595,7 @@ describe('runRun', () => {
     const existsSync = mock((p: string) => {
       if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
       // Complete flag exists after first iteration
-      if (typeof p === 'string' && p.endsWith('.ralph_complete')) return true;
+      if (typeof p === 'string' && p.endsWith('.cairn_complete')) return true;
       return false;
     });
     const deps = makeRunDeps({
@@ -1914,6 +1949,8 @@ describe('runRun', () => {
       'other.md',
       'tasks.json',
       '.ralph_task_notes.md', // missing <id> — should NOT match
+      '.cairn_task_7_notes.md',
+      '.cairn_task_notes.md', // missing <id> — should NOT match
     ]);
     const unlinked: string[] = [];
     const deps = makeRunDeps({
@@ -1931,6 +1968,9 @@ describe('runRun', () => {
     expect(unlinked.some(p => p.endsWith('other.md'))).toBe(false);
     expect(unlinked.some(p => p === '/projects/myapp/.ralph/tasks.json')).toBe(false);
     expect(unlinked.some(p => p.endsWith('.ralph_task_notes.md') && !/_\d+_/.test(p))).toBe(false);
+    // The sweep must cover the current-brand prefix too, or new scratch files linger forever
+    expect(unlinked.some(p => p.endsWith('.cairn_task_7_notes.md'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('.cairn_task_notes.md') && !/_\d+_/.test(p))).toBe(false);
   });
 
   test('notes-tempfile sweep does not crash when readdirSync throws', async () => {

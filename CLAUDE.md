@@ -78,6 +78,18 @@ target-project/
 
 Legacy fallbacks warn via `warnLegacyOnce(key, message)` (stderr, once per key per process; `resetLegacyWarnings()` exists for tests).
 
+### The temp-file prefix — a second naming tier
+
+Inside the data dir, runtime temp files carry their own prefix (`BRAND.tempPrefix` = `.cairn_`, `LEGACY.tempPrefix` = `.ralph_`). It is **independent of the directory name**: a project can be on `.cairn/` and still hold `.ralph_`-prefixed files. Four of these hold live cross-run state — `completed_ids`, `prev_notes`, `iterations.log`, `tasks_snapshot.json` — so the same standing rule applies, via three helpers in `src/utils.ts`:
+
+- `tempFilePath(dataDir, suffix)` — CREATE. Always the current prefix.
+- `findTempFilePath(dataDir, suffix)` — RESOLVE. Existing `.cairn_`, else existing `.ralph_`, else `.cairn_`.
+- `allTempFilePaths(dataDir, suffix)` — both candidates, current first. Use for existence checks behind an injected `existsSync` (as `runRun` does for the completion flag) and for cleanup sweeps, which must remove both names.
+
+`suffix` is the name *minus* the prefix (`'completed_ids'`, not `'.cairn_completed_ids'`).
+
+The one deliberate exception is `.ralph_task_<id>_notes.md`: write-and-sweep scratch that is never read back, still handed to agents under the legacy name. The cleanup sweep (`NOTES_TEMPFILE_RE` in `src/commands/run.ts`) matches **both** prefixes anyway, so scratch written under either name is removed.
+
 ## Agent workflow
 
 Agents **must** use the `ralph task` subcommand group for every mutation of `.ralph/tasks.json`:

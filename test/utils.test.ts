@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { resolvePath, findProjectRoot, findDataDir, resolveRalphRoot } from '../src/utils';
+import { resolvePath, findProjectRoot, findDataDir, resolveRalphRoot, tempFilePath, findTempFilePath, allTempFilePaths } from '../src/utils';
 import { resetLegacyWarnings } from '../src/brand';
 import { mkdirSync, symlinkSync, writeFileSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -262,5 +262,66 @@ describe('findDataDir', () => {
 
   it('defaults to .cairn for a project with neither, so new data is created there', () => {
     expect(findDataDir(tempDir)).toBe(join(tempDir, '.cairn'));
+  });
+});
+
+describe('runtime temp file paths', () => {
+  let tempDir: string;
+  let originalError: typeof console.error;
+
+  beforeEach(() => {
+    tempDir = makeTempDir('temp-prefix');
+    resetLegacyWarnings();
+    originalError = console.error;
+    console.error = () => {};
+  });
+
+  afterEach(() => {
+    console.error = originalError;
+    resetLegacyWarnings();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  describe('tempFilePath (write side)', () => {
+    it('always builds the current-brand path, even when a legacy file exists', () => {
+      writeFileSync(join(tempDir, '.ralph_completed_ids'), '[1]');
+      expect(tempFilePath(tempDir, 'completed_ids')).toBe(join(tempDir, '.cairn_completed_ids'));
+    });
+  });
+
+  describe('findTempFilePath (read side)', () => {
+    it('prefers an existing current-brand file', () => {
+      writeFileSync(join(tempDir, '.cairn_prev_notes'), 'new');
+      writeFileSync(join(tempDir, '.ralph_prev_notes'), 'old');
+      expect(findTempFilePath(tempDir, 'prev_notes')).toBe(join(tempDir, '.cairn_prev_notes'));
+    });
+
+    it('falls back to an existing legacy file', () => {
+      writeFileSync(join(tempDir, '.ralph_prev_notes'), 'old');
+      expect(findTempFilePath(tempDir, 'prev_notes')).toBe(join(tempDir, '.ralph_prev_notes'));
+    });
+
+    it('returns the current-brand path when neither exists', () => {
+      expect(findTempFilePath(tempDir, 'prev_notes')).toBe(join(tempDir, '.cairn_prev_notes'));
+    });
+
+    it('warns once when falling back to a legacy temp file', () => {
+      const messages: string[] = [];
+      console.error = (...args: unknown[]) => { messages.push(args.join(' ')); };
+      writeFileSync(join(tempDir, '.ralph_prev_notes'), 'old');
+      findTempFilePath(tempDir, 'prev_notes');
+      findTempFilePath(tempDir, 'prev_notes');
+      expect(messages.length).toBe(1);
+      expect(messages[0]).toContain('.ralph_prev_notes');
+    });
+  });
+
+  describe('allTempFilePaths (cleanup side)', () => {
+    it('lists both the current-brand and legacy paths', () => {
+      expect(allTempFilePaths(tempDir, 'complete')).toEqual([
+        join(tempDir, '.cairn_complete'),
+        join(tempDir, '.ralph_complete'),
+      ]);
+    });
   });
 });

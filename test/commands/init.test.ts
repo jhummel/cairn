@@ -72,6 +72,13 @@ describe('initCoreFiles', () => {
     expect(content).toContain('.ralph_task_meta');
     expect(content).toContain('.ralph_completed_ids');
     expect(content).toContain('instructions.md');
+    // Runtime temp files are now written with the .cairn_ prefix — without these
+    // lines every new temp file would show up as untracked/committed noise.
+    expect(content).toContain('.cairn_complete');
+    expect(content).toContain('.cairn_iterations.log');
+    expect(content).toContain('.cairn_prev_notes');
+    expect(content).toContain('.cairn_completed_ids');
+    expect(content).toContain('.cairn_tasks_snapshot.json');
   });
 
   test('prints Created: .ralph/.gitignore', () => {

@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, unlinkSync, appendFileSync } from 'fs';
 import { join } from 'path';
+import { tempFilePath, findTempFilePath, allTempFilePaths } from './utils';
 import * as tasksFileModule from './tasks-file';
 import { TasksFileError } from './tasks-file';
 import type { Task } from './types';
@@ -59,12 +60,15 @@ export async function archiveCompletedTasks(opts: {
     return { archivedCount: 0, prevNotes: null, warnings };
   }
 
-  // Append completed IDs to .ralph_completed_ids (JSON array)
-  const idsFile = join(dataDir, '.ralph_completed_ids');
+  // Append completed IDs to .cairn_completed_ids (JSON array). The read side
+  // falls back to the legacy .ralph_ name so pre-existing IDs migrate forward
+  // into the new file instead of being silently dropped.
+  const idsFile = tempFilePath(dataDir, 'completed_ids');
+  const existingIdsFile = findTempFilePath(dataDir, 'completed_ids');
   const existingIds = new Set<number>();
-  if (existsSync(idsFile)) {
+  if (existsSync(existingIdsFile)) {
     try {
-      const parsed = JSON.parse(readFileSync(idsFile, 'utf-8'));
+      const parsed = JSON.parse(readFileSync(existingIdsFile, 'utf-8'));
       if (Array.isArray(parsed)) {
         for (const id of parsed) {
           if (typeof id === 'number') existingIds.add(id);
@@ -77,8 +81,13 @@ export async function archiveCompletedTasks(opts: {
   for (const t of completed) existingIds.add(t.id);
   writeFileSync(idsFile, JSON.stringify([...existingIds].sort((a, b) => a - b)));
 
-  // Save last completed task's notes to .ralph_prev_notes
-  const prevNotesFile = join(dataDir, '.ralph_prev_notes');
+  // Save last completed task's notes to .cairn_prev_notes. Any legacy-named
+  // copy is dropped first — otherwise a stale .ralph_prev_notes would keep
+  // answering the dual-read after the notes were cleared.
+  const prevNotesFile = tempFilePath(dataDir, 'prev_notes');
+  for (const stale of allTempFilePaths(dataDir, 'prev_notes')) {
+    if (stale !== prevNotesFile && existsSync(stale)) unlinkSync(stale);
+  }
   const lastNotes = completed[completed.length - 1].notes ?? '';
   if (lastNotes) {
     writeFileSync(prevNotesFile, lastNotes);

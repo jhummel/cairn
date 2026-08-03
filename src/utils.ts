@@ -70,6 +70,59 @@ export function findDataDir(projectRoot: string): string {
   return join(projectRoot, BRAND.dataDir);
 }
 
+// ── Runtime temp files ────────────────────────────────────────────────────────
+//
+// Inside the data directory there is a SECOND naming tier: runtime temp files
+// prefixed `.cairn_` (legacy `.ralph_`). The prefix is independent of the
+// directory name — a project can be on `.cairn/` and still hold `.ralph_`-
+// prefixed temp files, and vice versa.
+//
+// Several of these carry live cross-run state (completed IDs, prev notes, the
+// tasks snapshot, the iteration log), so the same standing rule applies as for
+// the data dir itself: build WRITE paths with `tempFilePath`, resolve READ
+// paths with `findTempFilePath`. Writing `.cairn_` without a read fallback
+// would silently discard whatever the legacy file was holding.
+
+/**
+ * Path for CREATING a runtime temp file — always the current brand's prefix.
+ * `suffix` is the name minus the prefix, e.g. `'completed_ids'`.
+ */
+export function tempFilePath(dataDir: string, suffix: string): string {
+  return join(dataDir, `${BRAND.tempPrefix}${suffix}`);
+}
+
+/**
+ * Every path a given temp file could live at, current brand first. Use when a
+ * caller needs to test or remove all candidates (existence checks behind an
+ * injected `existsSync`, cleanup sweeps) rather than resolve a single path.
+ */
+export function allTempFilePaths(dataDir: string, suffix: string): string[] {
+  return [
+    join(dataDir, `${BRAND.tempPrefix}${suffix}`),
+    join(dataDir, `${LEGACY.tempPrefix}${suffix}`),
+  ];
+}
+
+/**
+ * Path for READING a runtime temp file: an existing `.cairn_`-prefixed file,
+ * else an existing legacy `.ralph_`-prefixed one, else the current-brand path
+ * (so a missing-file caller reports the name it would create).
+ */
+export function findTempFilePath(dataDir: string, suffix: string): string {
+  const [current, legacy] = allTempFilePaths(dataDir, suffix);
+  if (existsSync(current)) return current;
+  if (existsSync(legacy)) {
+    warnLegacyOnce(
+      `temp-file:${suffix}`,
+      `Reading legacy ${LEGACY.tempPrefix}${suffix} in ${dataDir}. ` +
+        `${BRAND.displayName} now writes ${BRAND.tempPrefix}${suffix}; ` +
+        `the legacy name is still read but support will be removed in a future release.`
+    );
+    return legacy;
+  }
+  return current;
+}
+
 /**
  * Find the project root directory. Detection order:
  * 1. RALPH_PROJECT_ROOT env var

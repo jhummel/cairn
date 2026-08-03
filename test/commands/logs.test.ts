@@ -43,7 +43,7 @@ describe('runLogs', () => {
   });
 
   test('prints log file contents when file exists', () => {
-    const logFile = path.join(dataDir, '.ralph_iterations.log');
+    const logFile = path.join(dataDir, '.cairn_iterations.log');
     const logContent = '[iteration 1] done\n[iteration 2] done\n';
     fs.writeFileSync(logFile, logContent);
 
@@ -63,8 +63,47 @@ describe('runLogs', () => {
     expect(output).toContain('[iteration 2] done');
   });
 
+  test('falls back to the legacy .ralph_iterations.log when no .cairn_ log exists', () => {
+    fs.writeFileSync(path.join(dataDir, '.ralph_iterations.log'), '[legacy] iteration 1\n');
+
+    const outputLines: string[] = [];
+    const logSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
+      outputLines.push(args.join(' '));
+    });
+
+    try {
+      runLogs(dataDir);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    const output = outputLines.join('\n');
+    expect(output).toContain('[legacy] iteration 1');
+    expect(output).not.toContain('No iteration log found.');
+  });
+
+  test('prefers the .cairn_iterations.log when both exist', () => {
+    fs.writeFileSync(path.join(dataDir, '.cairn_iterations.log'), '[current] iteration 2\n');
+    fs.writeFileSync(path.join(dataDir, '.ralph_iterations.log'), '[legacy] iteration 1\n');
+
+    const outputLines: string[] = [];
+    const logSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
+      outputLines.push(args.join(' '));
+    });
+
+    try {
+      runLogs(dataDir);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    const output = outputLines.join('\n');
+    expect(output).toContain('[current] iteration 2');
+    expect(output).not.toContain('[legacy] iteration 1');
+  });
+
   test('does not print log message when file exists', () => {
-    const logFile = path.join(dataDir, '.ralph_iterations.log');
+    const logFile = path.join(dataDir, '.cairn_iterations.log');
     fs.writeFileSync(logFile, 'some log content\n');
 
     const outputLines: string[] = [];
