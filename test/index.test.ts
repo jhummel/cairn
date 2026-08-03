@@ -120,10 +120,13 @@ describe('setupProjectContext', () => {
     expect(result.projectRoot).toBeTruthy();
   });
 
-  test('sets CAIRN_DATA_DIR to <projectRoot>/.ralph', () => {
+  // Which layout this resolves to depends on the checkout, so assert only the
+  // env-var wiring here. The layout resolution itself is pinned against temp
+  // dirs in the 'data dir resolution' block below.
+  test('sets CAIRN_DATA_DIR to the resolved data dir under projectRoot', () => {
     const result = setupProjectContext();
-    expect(process.env.CAIRN_DATA_DIR).toBe(path.join(result.projectRoot, '.ralph'));
-    expect(result.dataDir).toBe(path.join(result.projectRoot, '.ralph'));
+    expect(process.env.CAIRN_DATA_DIR).toBe(result.dataDir);
+    expect(path.dirname(result.dataDir)).toBe(result.projectRoot);
   });
 
   test('sets CAIRN_LIB_DIR to <cairnRoot>/lib', () => {
