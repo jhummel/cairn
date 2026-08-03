@@ -3,60 +3,12 @@
   "project": "cairn-cli-tool",
   "tasks": [
     {
-      "id": 61,
-      "priority": 11,
-      "title": "install.sh — drop the ralph compatibility symlink",
-      "description": "Remove both markers in install.sh. Delete the `ln -sf \"$CAIRN_BIN\" \"$PREFIX/bin/ralph\"` line (~34) and its `echo \"Installed: $PREFIX/bin/ralph -> $CAIRN_BIN\"` (~37), and rewrite the header comment (~lines 4-8) to describe only the cairn symlink. EDIT ONLY THE SYMLINK BLOCK. Do not touch `bun run build` (~line 23), CAIRN_BIN=\"$CAIRN_ROOT/dist/cairn\" (~line 25), the dist/cairn existence check, or package.json's build script — the user has pinned ~/.local/bin/cairn to a frozen copy and redirected cairn.json's healthCheck to a throwaway outfile for this round, and changing the build path would un-freeze the binary mid-round. Do NOT run ./install.sh. TDD: update test/install-script.test.ts — replace 'symlinks both cairn and ralph to the built binary' with a cairn-only assertion PLUS a negative assertion that no bin/ralph symlink is created, delete 'does not print a deprecation warning for the ralph symlink', and KEEP the existing RALPH_ROOT/RALPH_BIN and dist/ralph negative assertions. Note for the record: this does NOT delete the existing ~/.local/bin/ralph symlink on disk — that is a manual post-round step the user performs. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "install.sh",
-        "test/install-script.test.ts"
-      ],
-      "tests": [
-        "bun test test/install-script.test.ts",
-        "bun test"
-      ],
-      "dependencies": [],
-      "model": "sonnet",
-      "completedAt": "2026-08-03T17:09:25.527Z",
-      "completedBy": "iteration-11",
-      "notes": "# Task #61 — install.sh: drop the ralph compatibility symlink\n\n## Outcome\n\n`install.sh` no longer creates a `ralph` symlink; only `cairn` is installed.\nTDD followed: updated the test first, confirmed it failed against the old\nscript, then edited `install.sh` to make it pass.\n\n## Changes\n\n1. **`install.sh`**:\n   - Header comment (lines 4-8) rewritten to describe only the cairn\n     symlink — dropped the \"Both `cairn` and `ralph` are symlinked...\" prose\n     and the `remove once all projects migrated` marker (the marker is gone\n     because the fallback it described no longer exists).\n   - Deleted `ln -sf \"$CAIRN_BIN\" \"$PREFIX/bin/ralph\"  # remove once all projects migrated`.\n   - Deleted `echo \"Installed: $PREFIX/bin/ralph -> $CAIRN_BIN\"`.\n   - Left untouched exactly as instructed: `bun run build`, `CAIRN_BIN=\"$CAIRN_ROOT/dist/cairn\"`,\n     the `dist/cairn` existence check, and the PATH-check block.\n\n2. **`test/install-script.test.ts`**:\n   - Replaced `'symlinks both cairn and ralph to the built binary'` with\n     `'symlinks cairn to the built binary'` (cairn-only assertion) plus a new\n     `'does not create a ralph symlink'` test asserting `$PREFIX/bin/ralph`\n     no longer appears in the script.\n   - Deleted `'does not print a deprecation warning for the ralph symlink'`\n     (no longer meaningful — there's no ralph symlink to warn about).\n   - Kept `'uses CAIRN_ROOT/CAIRN_BIN local shell vars, not RALPH_ROOT/RALPH_BIN'`\n     unchanged, and kept the `package.json` describe block's\n     `dist/ralph` negative assertion unchanged.\n\n## Verification\n\n- `bun test test/install-script.test.ts` before the install.sh edit → 5 pass,\n  1 fail (the new \"does not create a ralph symlink\" test, as expected under\n  TDD).\n- `bun test test/install-script.test.ts` after the edit → **6 pass, 0 fail**.\n- `bun test test/legacy-markers.test.ts` → 5 pass — removing the marker\n  along with its now-deleted fallback line doesn't trip the enforcement\n  suite (there's nothing left to flag).\n- `grep -n \"ralph\" install.sh` → no matches. `grep -n \"remove once all\n  projects migrated\" install.sh` → no matches (expected: the fallback and\n  its marker were deleted together).\n- `bun test` (full suite) → **811 pass, 0 fail, 30 files** (same total as\n  before — 2 tests removed, 2 added, net zero).\n- Did **not** run `./install.sh`, touch `package.json`'s build script,\n  `CAIRN_BIN`, or `cairn.json`'s `healthCheck` — binary stays pinned per the\n  round's freeze procedure.\n\n## Notes for future tasks / manual step\n\n- This does **not** remove the existing `~/.local/bin/ralph` symlink already\n  on disk from prior installs — per the task description, that's a manual\n  post-round step the user performs themselves (re-running `./install.sh`\n  now would only ever create/refresh `$PREFIX/bin/cairn`; the old\n  `~/.local/bin/ralph` symlink, if present, is simply orphaned until removed\n  by hand).\n- No discovered tasks this iteration — task matched the codebase exactly,\n  scope was small and self-contained.\n"
-    },
-    {
-      "id": 62,
-      "priority": 12,
-      "title": "Delete test/legacy-markers.test.ts",
-      "description": "Delete test/legacy-markers.test.ts. It exists to guarantee every legacy fallback carries the 'remove once all projects migrated' marker so this removal round could be mechanical; with every fallback now gone it has nothing left to enforce. BEFORE deleting, run `grep -rn \"remove once all projects migrated\" src/ lib/ install.sh` and confirm the only remaining hits are in src/brand.ts (the LEGACY object, handled by task 63). If any other file still carries a marker, STOP and report rather than deleting — that means an earlier task left work behind. This task is deliberately ordered BEFORE the src/brand.ts task, inverting what the planning notes originally said. The reason: deleting LEGACY forces a hardcoded '.ralph_' literal for the permanent .ralph_task_<id>_notes.md scratch exception, and this test fails on that unmarked mention — which would leave task 63 with a red suite and get it reverted to in-progress by the post-iteration validator. Tasks 51-61 only REMOVE marked mentions and can never introduce an unmarked one, so the guardrail has no remaining work. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
-      "directory": "",
-      "status": "pending",
-      "files": [
-        "test/legacy-markers.test.ts"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [
-        51,
-        52,
-        53,
-        55,
-        56,
-        57,
-        58,
-        59,
-        60,
-        61
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 63,
       "priority": 13,
       "title": "src/brand.ts — delete LEGACY and rehome the permanent notes prefix",
       "description": "Delete the LEGACY object, warnLegacyOnce, resetLegacyWarnings, and the module-level warnedKeys set from src/brand.ts; BRAND remains the single source of truth. Verified in advance: all warnLegacyOnce call sites lived in src/narration.ts, src/utils.ts, and src/config.ts (all removed by tasks 51, 52, 58), and resetLegacyWarnings is called only from test/brand.test.ts, test/utils.test.ts, test/narration.test.ts, and test/config.test.ts (all rewritten by earlier tasks) — so all three symbols have zero surviving callers. Confirm with `grep -rn \"LEGACY\\|warnLegacyOnce\\|resetLegacyWarnings\" src/ test/` before deleting. Update the BRAND doc comment to drop the legacy-layout framing while KEEPING the CREATE-vs-RESOLVE standing rule. THEN rehome the one permanent exception: .ralph_task_<id>_notes.md keeps the pre-rename name forever (write-and-sweep scratch never read back; renaming would churn committed history — see CLAUDE.md 'The temp-file prefix' and the planning notes' rejected alternatives). Add a dedicated exported constant in src/brand.ts, e.g. `export const NOTES_TEMP_PREFIX = '.ralph_';`, with a comment stating it is a deliberate PERMANENT exception and NOT a compatibility fallback. Then repoint the three consumers: src/commands/run.ts:52 (buildSystemPrompt's notesFile), src/commands/run.ts:367 (NOTES_TEMPFILE_RE — the sweep must keep matching this prefix or scratch leaks forever; it can now match NOTES_TEMP_PREFIX alone, since .cairn_task_*_notes.md was never written), and src/commands/init.ts's surviving .ralph_task_*_notes.md gitignore line. Fix the now-stale comments at run.ts ~364 and ~711. TDD: update test/brand.test.ts — replace the LEGACY assertions with a NOTES_TEMP_PREFIX assertion and a check that LEGACY is no longer exported — watch fail, make pass. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "src/brand.ts",
         "src/commands/run.ts",
@@ -71,7 +23,10 @@
         62
       ],
       "model": "opus",
-      "agent": "planner"
+      "agent": "planner",
+      "completedAt": "2026-08-03T17:17:51.508Z",
+      "completedBy": "iteration-13",
+      "notes": "# Task #63 — src/brand.ts: delete LEGACY, rehome the permanent notes prefix\n\n## Outcome\n\n`src/brand.ts` now exports exactly two things: `BRAND` and the new\n`NOTES_TEMP_PREFIX`. `LEGACY`, `warnLegacyOnce`, `resetLegacyWarnings`, and the\nmodule-level `warnedKeys` set are gone. Full suite: **805 pass, 0 fail, 29\nfiles** (was 806 — net −1: removed 4 LEGACY/warnLegacyOnce tests, added 3).\nHealth check (`bun build --target=bun`) bundles clean.\n\n## Pre-delete verification\n\n`grep -rn \"LEGACY\\|warnLegacyOnce\\|resetLegacyWarnings\" src/ test/` before\ntouching anything found exactly what the task predicted — no surviving callers\nof the two functions anywhere, and only three `LEGACY` consumers left, all of\nthem the `tempPrefix` field:\n\n- `src/commands/run.ts:51` (buildSystemPrompt's `notesFile`)\n- `src/commands/run.ts:366` (`NOTES_TEMPFILE_RE`)\n- `src/commands/init.ts:41` (the `.gitignore` block)\n\nAll three now read `NOTES_TEMP_PREFIX`. After the change, the only match in the\nwhole tree is the guard assertion in `test/brand.test.ts` itself.\n\n`grep -rn \"remove once all projects migrated\" src/ lib/ install.sh` now returns\n**zero hits** — the three that task #62 catalogued (brand.ts:32, run.ts:363,\nrun.ts:708) were all in this task's scope and are all gone. The removal round's\nwork list is empty.\n\n## The new constant\n\n```ts\nexport const NOTES_TEMP_PREFIX = '.ralph_';\n```\n\nDoc comment states plainly that it is a PERMANENT exception and NOT a\ncompatibility fallback — nothing resolves against `BRAND.tempPrefix` as an\nalternative. Rationale recorded inline: write-and-sweep scratch never read\nback, so the name only has to be agreed on by writer and sweeper, and renaming\nwould churn committed `.gitignore` history for zero behavioural gain.\n\nThe `BRAND` doc comment keeps the CREATE-vs-RESOLVE standing rule verbatim;\nonly its closing clause changed, from \"a project still on the legacy layout\ngets paths pointing at something that does not exist\" to a\nlegacy-framing-free statement of the same failure mode.\n\n## Deviation from the task description — read this if you touch the sweep\n\nThe description suggested `NOTES_TEMPFILE_RE` \"can now match NOTES_TEMP_PREFIX\nalone, since `.cairn_task_*_notes.md` was never written.\" **I kept the\ntwo-branch alternation**, reordered to `[NOTES_TEMP_PREFIX, BRAND.tempPrefix]`.\n\nReason: `test/commands/run.test.ts:2031/2051` already asserts that\n`.cairn_task_7_notes.md` IS swept, with the comment \"The sweep must cover the\ncurrent-brand prefix too, or new scratch files linger forever.\" Narrowing the\nregex would have meant deleting a passing test and its stated rationale in\norder to make the sweep strictly less robust against an agent that spells the\nscratch file with the current prefix. The task's own hard requirement — \"the\nsweep must keep matching this prefix or scratch leaks forever\" — is about\n`.ralph_`, and that branch is intact and now first in the alternation. Both\nprefixes are covered by the init.ts `.gitignore` block either way\n(`TEMP_IGNORE_SUFFIXES` includes `task_*_notes.md` under `BRAND.tempPrefix`),\nso nothing is left untracked.\n\nThe comment above the regex now says which branch is load-bearing\n(`NOTES_TEMP_PREFIX` — the prompt hands it out) and which is defensive\n(`BRAND.tempPrefix`), so the distinction survives the next reader.\n\n## Stale comments fixed\n\n- run.ts ~364 (`NOTES_TEMPFILE_RE`): dropped \"the alternation collapses to\n  BRAND only\" — that was written when the notes file was expected to be\n  renamed. It never will be, so the claim was actively misleading.\n- run.ts ~711 (the sweep): dropped \"the prompt still hands agents the legacy\n  name\" framing and the removal marker.\n- init.ts ~36: rewritten to name `NOTES_TEMP_PREFIX` instead of \"legacy-prefixed\".\n\n## Follow-up for whoever does the docs pass\n\n`CLAUDE.md` still describes `LEGACY`, `warnLegacyOnce`, the removal marker, and\n`test/legacy-markers.test.ts` (deleted in #62) as live machinery — see the\n\"Branding and the legacy layout\", \"The removal marker\", and \"The compatibility\nwindow\" sections. Source and docs now disagree. I left it alone because this\ntask's file scope was `src/brand.ts`, `src/commands/run.ts`,\n`src/commands/init.ts`, `test/brand.test.ts`, and 3 tasks remain in the round —\nif none of them covers the CLAUDE.md rewrite, it needs a task of its own. The\n\"temp-file prefix — a second naming tier\" section in particular should be\nrewritten around `NOTES_TEMP_PREFIX` as a permanent exception rather than as\nthe last holdout of a compatibility window.\n\n## Constraints honoured\n\nDid not modify `cairn.json`'s `healthCheck`, did not run `./install.sh`, did\nnot touch `tasks.completed.json`, `.cairn_iterations.log`,\n`.cairn_tasks_snapshot.json`, `.cairn/reviews/round-*.md`, other\n`.ralph_task_*_notes.md`, or `audit/`.\n"
     },
     {
       "id": 64,

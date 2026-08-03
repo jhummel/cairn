@@ -5,7 +5,7 @@ import type { CairnConfig } from '../types';
 import { loadConfig, autoDetectHealthCheck } from '../config';
 import { resolveCairnRoot } from '../utils';
 import { seedNextId } from '../task-counter';
-import { BRAND, LEGACY } from '../brand';
+import { BRAND, NOTES_TEMP_PREFIX } from '../brand';
 
 /**
  * Runtime temp-file names to ignore, minus the prefix. Exported because
@@ -33,12 +33,12 @@ export function ignoreBlock(prefix: string): string {
 const GITIGNORE_CONTENT =
   `${GITIGNORE_CURRENT_HEADER}\n` +
   ignoreBlock(BRAND.tempPrefix) +
-  // A permanent exception, not a compatibility leftover: buildSystemPrompt still
-  // hands every agent a legacy-prefixed `task_<id>_notes.md` as its scratch file
-  // (see CLAUDE.md, "The temp-file prefix — a second naming tier"). Drop this
-  // line and each iteration leaves a scratch file for the agent's own commit to
-  // pick up.
-  `${LEGACY.tempPrefix}task_*_notes.md\n` +
+  // A permanent exception, not a compatibility leftover: buildSystemPrompt hands
+  // every agent a NOTES_TEMP_PREFIX-spelled `task_<id>_notes.md` as its scratch
+  // file (see CLAUDE.md, "The temp-file prefix — a second naming tier"). Drop
+  // this line and each iteration leaves a scratch file for the agent's own
+  // commit to pick up.
+  `${NOTES_TEMP_PREFIX}task_*_notes.md\n` +
   'instructions.md\n';
 
 export interface PromptInterface {

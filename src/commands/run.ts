@@ -15,7 +15,7 @@ import { captureGitSha as defaultCaptureGitSha, runPostTaskReview as defaultRunP
 import { loadPersonalInstructions } from '../personal-instructions';
 import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnapshotTasksFile, TasksFileError, type TasksFile } from '../tasks-file';
 import { tempFilePath } from '../utils';
-import { BRAND, LEGACY } from '../brand';
+import { BRAND, NOTES_TEMP_PREFIX } from '../brand';
 
 export interface SystemPromptInput {
   taskDir: string;
@@ -46,9 +46,9 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
 
   const tasksFile = path.join(dataDir, 'tasks.json');
   const completeFlag = tempFilePath(dataDir, 'complete');
-  // Notes tempfiles keep the legacy prefix: they are write-and-sweep scratch,
+  // Notes tempfiles keep their own permanent prefix: write-and-sweep scratch,
   // never read back, and renaming them would only churn committed history.
-  const notesFile = path.join(dataDir, `${LEGACY.tempPrefix}task_<id>_notes.md`);
+  const notesFile = path.join(dataDir, `${NOTES_TEMP_PREFIX}task_<id>_notes.md`);
 
   // Derive commit prefix
   let commitPrefix: string;
@@ -359,11 +359,15 @@ const PATH_ADDITIONS = [
 const TEMP_FILE_SUFFIXES = ['complete', 'prev_notes', 'completed_ids'];
 
 /**
- * `.cairn_task_<id>_notes.md` or `.ralph_task_<id>_notes.md`, nothing else.
- * remove once all projects migrated — the alternation collapses to BRAND only.
+ * `.ralph_task_<id>_notes.md` or `.cairn_task_<id>_notes.md`, nothing else.
+ *
+ * NOTES_TEMP_PREFIX is the one the prompt actually hands out and is permanent,
+ * so that branch is load-bearing — drop it and every iteration's scratch leaks.
+ * BRAND.tempPrefix stays in the alternation defensively: an agent that spells
+ * the file with the current prefix instead must not leave scratch behind.
  */
 const NOTES_TEMPFILE_RE = new RegExp(
-  `^(?:${[BRAND.tempPrefix, LEGACY.tempPrefix].map(escapeRegExp).join('|')})task_\\d+_notes\\.md$`
+  `^(?:${[NOTES_TEMP_PREFIX, BRAND.tempPrefix].map(escapeRegExp).join('|')})task_\\d+_notes\\.md$`
 );
 
 function escapeRegExp(s: string): string {
@@ -703,9 +707,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     }
 
     // Sweep per-task notes tempfiles (e.g. .ralph_task_42_notes.md) from dataDir.
-    // Matches both prefixes: the prompt still hands agents the legacy name, and
-    // an agent writing the current-brand one must not leave scratch behind.
-    // remove once all projects migrated — see NOTES_TEMPFILE_RE.
+    // Matches both prefixes — see NOTES_TEMPFILE_RE.
     try {
       const entries = deps.readdirSync(dataDir);
       for (const name of entries) {

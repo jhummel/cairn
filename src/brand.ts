@@ -8,8 +8,8 @@
  * something that already exists must come from the value discovery actually
  * found (`findDataDir()` in src/utils.ts, `findConfigFile()` in src/config.ts,
  * `findNarrationSocketPath()` / `findNarrationPidFile()` in src/narration.ts) —
- * otherwise a project still on the legacy layout gets paths pointing at
- * something that does not exist.
+ * otherwise a path is built from what the name *should* be rather than from
+ * what is actually on disk, and points at something that does not exist.
  */
 export const BRAND = Object.freeze({
   name: 'cairn',
@@ -25,41 +25,17 @@ export const BRAND = Object.freeze({
 });
 
 /**
- * The pre-rename identity. Still read (never written) so that projects which
- * have not migrated keep working. Other projects on this machine still use the
- * legacy layout, so these fallbacks are load-bearing.
+ * Prefix for the per-task notes scratch files (`<prefix>task_<id>_notes.md`)
+ * that `buildSystemPrompt` hands each agent.
  *
- * remove once all projects migrated — deleting this object is the entry point
- * for the removal round; every compatibility fallback in the codebase either
- * reads from it or carries the same marker.
- */
-export const LEGACY = Object.freeze({
-  name: 'ralph',
-  displayName: 'Ralph',
-  dataDir: '.ralph',
-  configFile: 'ralph.json',
-  tempPrefix: '.ralph_',
-  socket: '/tmp/ralph-tts.sock',
-  pidFile: '/tmp/ralph-tts.pid',
-});
-
-const warnedKeys = new Set<string>();
-
-/**
- * Emit a legacy-layout warning at most once per process, per key.
+ * This is a PERMANENT exception, NOT a compatibility fallback: it keeps the
+ * pre-rename spelling forever and nothing resolves against BRAND.tempPrefix as
+ * an alternative. The files are write-and-sweep scratch that is never read
+ * back, so the name carries no meaning beyond "agent and sweep agree" — and
+ * renaming it would churn committed .gitignore history in every project for
+ * zero behavioural gain.
  *
- * Discovery helpers run on nearly every call path, so an unguarded warning
- * would print dozens of times per command. Returns true when the message was
- * actually emitted. Warnings go to stderr to keep stdout machine-readable.
+ * Consumers: `buildSystemPrompt` and `NOTES_TEMPFILE_RE` in
+ * src/commands/run.ts, and the .gitignore block in src/commands/init.ts.
  */
-export function warnLegacyOnce(key: string, message: string): boolean {
-  if (warnedKeys.has(key)) return false;
-  warnedKeys.add(key);
-  console.error(`[${BRAND.name}] ${message}`);
-  return true;
-}
-
-/** Re-arm every one-time legacy warning. Exists for tests. */
-export function resetLegacyWarnings(): void {
-  warnedKeys.clear();
-}
+export const NOTES_TEMP_PREFIX = '.ralph_';

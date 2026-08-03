@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { BRAND, LEGACY, warnLegacyOnce, resetLegacyWarnings } from '../src/brand';
+import * as brand from '../src/brand';
+import { BRAND, NOTES_TEMP_PREFIX } from '../src/brand';
 
 // These assertions deliberately use literal strings instead of deriving them
 // from BRAND: the point is to pin the output contract, so a wrong value in
@@ -25,53 +26,25 @@ describe('BRAND', () => {
   });
 });
 
-describe('LEGACY', () => {
-  it('exposes the pre-rename identifiers still supported for reading', () => {
-    expect(LEGACY.name).toBe('ralph');
-    expect(LEGACY.dataDir).toBe('.ralph');
-    expect(LEGACY.configFile).toBe('ralph.json');
-    expect(LEGACY.tempPrefix).toBe('.ralph_');
-    expect(LEGACY.socket).toBe('/tmp/ralph-tts.sock');
-    expect(LEGACY.pidFile).toBe('/tmp/ralph-tts.pid');
+describe('NOTES_TEMP_PREFIX', () => {
+  // A permanent exception, not a compatibility fallback: per-task notes scratch
+  // files keep their pre-rename name forever. Pinned as a literal so a "tidy-up"
+  // that points it at BRAND.tempPrefix fails here instead of silently orphaning
+  // every already-committed .gitignore line.
+  it('pins the permanent scratch-file prefix', () => {
+    expect(NOTES_TEMP_PREFIX).toBe('.ralph_');
   });
 
-  it('is frozen', () => {
-    expect(Object.isFrozen(LEGACY)).toBe(true);
+  it('is deliberately distinct from BRAND.tempPrefix', () => {
+    expect(NOTES_TEMP_PREFIX).not.toBe(BRAND.tempPrefix);
   });
 });
 
-describe('warnLegacyOnce', () => {
-  it('emits once per key and reports whether it emitted', () => {
-    resetLegacyWarnings();
-    const seen: string[] = [];
-    const original = console.error;
-    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
-    try {
-      expect(warnLegacyOnce('a', 'first message')).toBe(true);
-      expect(warnLegacyOnce('a', 'first message')).toBe(false);
-      expect(warnLegacyOnce('a', 'different text same key')).toBe(false);
-      expect(warnLegacyOnce('b', 'second message')).toBe(true);
-    } finally {
-      console.error = original;
-      resetLegacyWarnings();
-    }
-    expect(seen.length).toBe(2);
-    expect(seen[0]).toContain('first message');
-    expect(seen[1]).toContain('second message');
-  });
-
-  it('re-arms after resetLegacyWarnings', () => {
-    resetLegacyWarnings();
-    const original = console.error;
-    console.error = () => {};
-    try {
-      expect(warnLegacyOnce('c', 'msg')).toBe(true);
-      expect(warnLegacyOnce('c', 'msg')).toBe(false);
-      resetLegacyWarnings();
-      expect(warnLegacyOnce('c', 'msg')).toBe(true);
-    } finally {
-      console.error = original;
-      resetLegacyWarnings();
-    }
+describe('legacy surface', () => {
+  it('no longer exports LEGACY or the one-time warning helpers', () => {
+    const exported = brand as unknown as Record<string, unknown>;
+    expect(exported.LEGACY).toBeUndefined();
+    expect(exported.warnLegacyOnce).toBeUndefined();
+    expect(exported.resetLegacyWarnings).toBeUndefined();
   });
 });
