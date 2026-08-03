@@ -416,3 +416,5 @@ Iteration 8 completed: 2026-08-03T16:57:28.252Z — SUCCESS
 Iteration 9 started: 2026-08-03T17:00:22.306Z — Task #59: lib/cairn_narrate_server.py — drop RALPH_ env fallbacks
 Iteration 9 completed: 2026-08-03T17:01:43.137Z — SUCCESS
 Iteration 10 started: 2026-08-03T17:04:00.466Z — Task #60: Delete the cairn migrate command
+Iteration 10 completed: 2026-08-03T17:05:48.414Z — SUCCESS
+Iteration 11 started: 2026-08-03T17:08:19.802Z — Task #61: install.sh — drop the ralph compatibility symlink

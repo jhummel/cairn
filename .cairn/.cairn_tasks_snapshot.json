@@ -3,35 +3,12 @@
   "project": "cairn-cli-tool",
   "tasks": [
     {
-      "id": 60,
-      "priority": 10,
-      "title": "Delete the cairn migrate command",
-      "description": "Delete src/commands/migrate.ts (1 marker, ~337 lines) and test/commands/migrate.test.ts (~500 lines). Remove the Commander registration from src/index.ts: the `import { runMigrate } from './commands/migrate'` (~line 14) and the whole '--- Native migrate command ---' block (~lines 186-200), which also carries a LEGACY.dataDir reference in its description string. Verify no other file imports runMigrate or references the 'migrate' command name in a way that breaks — check test/index.test.ts's command-registration tests, which may assert 'migrate' is present. Rationale: nothing on this machine remains on the .ralph/ layout, so the command has no work to do; it stays recoverable from git history if an old clone ever surfaces. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "src/commands/migrate.ts",
-        "test/commands/migrate.test.ts",
-        "src/index.ts",
-        "test/index.test.ts"
-      ],
-      "tests": [
-        "bun test test/index.test.ts",
-        "bun test"
-      ],
-      "dependencies": [],
-      "model": "sonnet",
-      "completedAt": "2026-08-03T17:05:24.189Z",
-      "completedBy": "iteration-10",
-      "notes": "# Task #60 — Delete the cairn migrate command\n\n## Outcome\n\n`cairn migrate` is gone from the CLI. `src/commands/migrate.ts` and\n`test/commands/migrate.test.ts` are deleted; `src/index.ts` no longer imports\nor registers it. Fully recoverable from git history if an old `.ralph/`\nclone ever needs it again.\n\n## Changes\n\n1. **Deleted `src/commands/migrate.ts`** (~337 lines, carried the file's one\n   `remove once all projects migrated` marker — removed along with the code).\n2. **Deleted `test/commands/migrate.test.ts`** (~500 lines / ~27 tests).\n3. **`src/index.ts`**:\n   - Removed `import { runMigrate } from './commands/migrate'`.\n   - Removed the `LEGACY` import (was only used by the migrate command's\n     description string — `BRAND` alone is still used elsewhere in the file).\n   - Removed the whole `--- Native migrate command ---` block (the\n     `program.command('migrate')` registration, ~lines 184-197).\n\n## Verification\n\n- `grep -rn \"runMigrate\\|commands/migrate\" src test` → no matches.\n- `grep -n \"LEGACY\\|migrate\" src/index.ts` → no matches.\n- `bun build --target=bun src/index.ts --outfile /tmp/cairn-taskcheck` → builds\n  clean (did **not** touch `cairn.json`'s `healthCheck` or run `./install.sh`,\n  per task instructions).\n- `bun test test/index.test.ts` → 30 pass, 0 fail. Checked beforehand: this\n  file has **no** assertions on the `migrate` command name (only status,\n  edit, logs, run, narrate, plan, init, summarize are checked), so no edits\n  were needed there — the task description's \"may assert\" concern didn't\n  materialize.\n- `bun test` → **811 pass, 0 fail, 30 files** (down from 838/31 in the prior\n  iteration — the drop is exactly the ~27 tests in the deleted\n  `migrate.test.ts` file, as expected).\n- `bun test test/legacy-markers.test.ts` → 5 pass, still green (the deleted\n  file's marker is simply gone now, nothing left to flag).\n\n## Notes for future tasks\n\n- Left informational comments referencing `cairn migrate` untouched in\n  `src/commands/init.ts` (lines ~12, ~328), `src/commands/run.ts` (a couple of\n  comments), `src/brand.ts`, and `CLAUDE.md`'s dedicated migrate section —\n  none of these are in this task's file scope, and none are functionally\n  broken (they're prose describing behavior of a command that used to exist,\n  not code that calls it). A future cleanup task could scrub these mentions\n  if the machine-wide legacy-layout removal continues, but that's out of\n  scope here.\n- `test/config.test.ts:557` (\"ignores a ralph.json left behind by an\n  unmigrated project\") is unrelated — it tests `loadConfig`'s legacy-file\n  fallback, not the migrate command, and still passes.\n- No discovered tasks this iteration — task matched the codebase exactly.\n"
-    },
-    {
       "id": 61,
       "priority": 11,
       "title": "install.sh — drop the ralph compatibility symlink",
       "description": "Remove both markers in install.sh. Delete the `ln -sf \"$CAIRN_BIN\" \"$PREFIX/bin/ralph\"` line (~34) and its `echo \"Installed: $PREFIX/bin/ralph -> $CAIRN_BIN\"` (~37), and rewrite the header comment (~lines 4-8) to describe only the cairn symlink. EDIT ONLY THE SYMLINK BLOCK. Do not touch `bun run build` (~line 23), CAIRN_BIN=\"$CAIRN_ROOT/dist/cairn\" (~line 25), the dist/cairn existence check, or package.json's build script — the user has pinned ~/.local/bin/cairn to a frozen copy and redirected cairn.json's healthCheck to a throwaway outfile for this round, and changing the build path would un-freeze the binary mid-round. Do NOT run ./install.sh. TDD: update test/install-script.test.ts — replace 'symlinks both cairn and ralph to the built binary' with a cairn-only assertion PLUS a negative assertion that no bin/ralph symlink is created, delete 'does not print a deprecation warning for the ralph symlink', and KEEP the existing RALPH_ROOT/RALPH_BIN and dist/ralph negative assertions. Note for the record: this does NOT delete the existing ~/.local/bin/ralph symlink on disk — that is a manual post-round step the user performs. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "install.sh",
         "test/install-script.test.ts"
@@ -41,7 +18,10 @@
         "bun test"
       ],
       "dependencies": [],
-      "model": "sonnet"
+      "model": "sonnet",
+      "completedAt": "2026-08-03T17:09:25.527Z",
+      "completedBy": "iteration-11",
+      "notes": "# Task #61 — install.sh: drop the ralph compatibility symlink\n\n## Outcome\n\n`install.sh` no longer creates a `ralph` symlink; only `cairn` is installed.\nTDD followed: updated the test first, confirmed it failed against the old\nscript, then edited `install.sh` to make it pass.\n\n## Changes\n\n1. **`install.sh`**:\n   - Header comment (lines 4-8) rewritten to describe only the cairn\n     symlink — dropped the \"Both `cairn` and `ralph` are symlinked...\" prose\n     and the `remove once all projects migrated` marker (the marker is gone\n     because the fallback it described no longer exists).\n   - Deleted `ln -sf \"$CAIRN_BIN\" \"$PREFIX/bin/ralph\"  # remove once all projects migrated`.\n   - Deleted `echo \"Installed: $PREFIX/bin/ralph -> $CAIRN_BIN\"`.\n   - Left untouched exactly as instructed: `bun run build`, `CAIRN_BIN=\"$CAIRN_ROOT/dist/cairn\"`,\n     the `dist/cairn` existence check, and the PATH-check block.\n\n2. **`test/install-script.test.ts`**:\n   - Replaced `'symlinks both cairn and ralph to the built binary'` with\n     `'symlinks cairn to the built binary'` (cairn-only assertion) plus a new\n     `'does not create a ralph symlink'` test asserting `$PREFIX/bin/ralph`\n     no longer appears in the script.\n   - Deleted `'does not print a deprecation warning for the ralph symlink'`\n     (no longer meaningful — there's no ralph symlink to warn about).\n   - Kept `'uses CAIRN_ROOT/CAIRN_BIN local shell vars, not RALPH_ROOT/RALPH_BIN'`\n     unchanged, and kept the `package.json` describe block's\n     `dist/ralph` negative assertion unchanged.\n\n## Verification\n\n- `bun test test/install-script.test.ts` before the install.sh edit → 5 pass,\n  1 fail (the new \"does not create a ralph symlink\" test, as expected under\n  TDD).\n- `bun test test/install-script.test.ts` after the edit → **6 pass, 0 fail**.\n- `bun test test/legacy-markers.test.ts` → 5 pass — removing the marker\n  along with its now-deleted fallback line doesn't trip the enforcement\n  suite (there's nothing left to flag).\n- `grep -n \"ralph\" install.sh` → no matches. `grep -n \"remove once all\n  projects migrated\" install.sh` → no matches (expected: the fallback and\n  its marker were deleted together).\n- `bun test` (full suite) → **811 pass, 0 fail, 30 files** (same total as\n  before — 2 tests removed, 2 added, net zero).\n- Did **not** run `./install.sh`, touch `package.json`'s build script,\n  `CAIRN_BIN`, or `cairn.json`'s `healthCheck` — binary stays pinned per the\n  round's freeze procedure.\n\n## Notes for future tasks / manual step\n\n- This does **not** remove the existing `~/.local/bin/ralph` symlink already\n  on disk from prior installs — per the task description, that's a manual\n  post-round step the user performs themselves (re-running `./install.sh`\n  now would only ever create/refresh `$PREFIX/bin/cairn`; the old\n  `~/.local/bin/ralph` symlink, if present, is simply orphaned until removed\n  by hand).\n- No discovered tasks this iteration — task matched the codebase exactly,\n  scope was small and self-contained.\n"
     },
     {
       "id": 62,

@@ -24,9 +24,12 @@ describe('install.sh', () => {
     expect(script).toContain('dist/cairn');
   });
 
-  it('symlinks both cairn and ralph to the built binary', () => {
+  it('symlinks cairn to the built binary', () => {
     expect(script).toMatch(/ln -sf "\$CAIRN_BIN" "\$PREFIX\/bin\/cairn"/);
-    expect(script).toMatch(/ln -sf "\$CAIRN_BIN" "\$PREFIX\/bin\/ralph"/);
+  });
+
+  it('does not create a ralph symlink', () => {
+    expect(script).not.toMatch(/\$PREFIX\/bin\/ralph/);
   });
 
   it('uses CAIRN_ROOT/CAIRN_BIN local shell vars, not RALPH_ROOT/RALPH_BIN', () => {
@@ -34,9 +37,5 @@ describe('install.sh', () => {
     expect(script).toContain('CAIRN_BIN');
     expect(script).not.toContain('RALPH_ROOT');
     expect(script).not.toContain('RALPH_BIN');
-  });
-
-  it('does not print a deprecation warning for the ralph symlink', () => {
-    expect(script.toLowerCase()).not.toContain('deprecat');
   });
 });

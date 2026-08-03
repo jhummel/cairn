@@ -435,6 +435,7 @@ HAS_GAPS
 ---
 
 ## Task #59: lib/cairn_narrate_server.py — drop RALPH_ env fallbacks
+
 Reviewed: 2026-08-03T17:05:00Z
 
 ### Coverage
@@ -464,6 +465,75 @@ None detected.
 - `bun test` (full suite) → 838 pass, 0 fail, 31 files — matches the count in the task notes exactly (this file has no dedicated test suite, so no count change was expected).
 - `cairn.json`'s `healthCheck` unchanged (no diff to cairn.json in this task's changes).
 - `test/config.test.ts` still references `RALPH_ANTHROPIC_API_KEY` — that covers the independent `resolveAnthropicApiKeyChain()` in `src/config.ts` (already stripped of its own legacy leg back in task #51), unrelated to this Python script; not a regression from this task.
+
+### Verdict
+HAS_GAPS
+
+---
+
+## Task #60: Delete the cairn migrate command
+Reviewed: 2026-08-03T17:07:14.000Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Delete src/commands/migrate.ts (337 lines, 1 marker) — confirmed via `git show` diff,
+│            file no longer present on disk
+├── [DONE] Delete test/commands/migrate.test.ts (~500 lines / 27 tests) — confirmed deleted
+├── [DONE] src/index.ts: remove `import { runMigrate } from './commands/migrate'` — verified,
+│            zero references remain
+├── [DONE] src/index.ts: remove the whole '--- Native migrate command ---' block, including
+│            its LEGACY.dataDir-carrying description string — verified at src/index.ts:174-184,
+│            `program.command('migrate')` is gone, no orphaned comment or dangling code left
+│            behind; also correctly dropped the now-unused `LEGACY` import (BRAND alone still
+│            used elsewhere in the file)
+├── [DONE] Verify no other file imports runMigrate — re-ran independently:
+│            `grep -rn "runMigrate|commands/migrate" src test` → zero matches
+├── [DONE] Verify test/index.test.ts's command-registration tests don't assert 'migrate' is
+│            present — re-ran independently: `grep -n "migrate" test/index.test.ts` → zero
+│            matches; `bun test test/index.test.ts` → 30 pass, 0 fail (matches notes exactly),
+│            confirming the file never asserted on 'migrate' to begin with
+├── [DONE] Did NOT modify cairn.json's healthCheck — `git diff HEAD~1 -- cairn.json` is empty
+├── [DONE] Did NOT run ./install.sh — no dist/binary changes in the commit; build verified
+│            separately with a throwaway outfile (`bun build --target=bun src/index.ts
+│            --outfile /tmp/cairn-reviewcheck` → builds clean, 108 modules)
+├── [DONE] Did not touch tasks.completed.json / .cairn_iterations.log /
+│            .cairn_tasks_snapshot.json / reviews/round-*.md / .ralph_task_*_notes.md / audit/
+│            directly — the changes present in those files are normal `cairn task complete`
+│            archival lifecycle (task 60 moving from pending→complete plus task 59's prior
+│            archival), consistent with the pattern already accepted in the #58/#59 reviews
+│            above, not hand-edits
+└── [GAP] Stale documentation left behind describing the now-deleted command as live: two
+             comments in src/commands/init.ts (lines 12 and 328, both say "`cairn migrate`
+             reuses/appends..." in present tense) and CLAUDE.md's entire dedicated
+             "## The `cairn migrate` command" section (~lines 124-132) plus a "cairn migrate"
+             mention in the branding/legacy-window prose (~line 100, ~line 136-140) — none of
+             this was in the task's Expected Files scope, and the task notes explicitly
+             disclosed and deferred it, but it's the same class of gap flagged for task #59's
+             README staleness above and is worth a follow-up before the round closes
+```
+
+### Files Changed
+- src/commands/migrate.ts — deleted (337 lines, carried the file's one `remove once all projects migrated` marker)
+- test/commands/migrate.test.ts — deleted (~500 lines, 27 tests)
+- src/index.ts — removed the `runMigrate` import, the now-unused `LEGACY` import, and the `program.command('migrate')` registration block
+- .cairn/tasks.json, .cairn/tasks.completed.json, .cairn/.cairn_iterations.log, .cairn/.cairn_tasks_snapshot.json — normal `cairn task complete` archival side effects (task 60, plus task 59's prior archival), not direct edits
+
+### Gaps
+- `src/commands/init.ts:12` ("`cairn migrate` appends the same set to an existing data-dir .gitignore — two lists would silently drift apart.") and `src/commands/init.ts:328` ("Shared knobs for the three installers. `cairn migrate` reuses them to refresh an existing project...") both describe a command that no longer exists as if it were still calling into this code. Functionally harmless — `TEMP_IGNORE_SUFFIXES`, `GITIGNORE_CURRENT_HEADER`, `NARRATION_HOOKS`, `installAgents`, `installSlashCommands`, and `writeNarrationHooks` are all still used internally by `runInit` (verified via grep: zero *external* consumers remain now that migrate.ts is gone, but each symbol has a live internal call site in the same file) — but the comments are now incorrect and will mislead a future reader into thinking `cairn migrate` still exists.
+- `CLAUDE.md` still carries a full dedicated section ("## The `cairn migrate` command", ~lines 124-132) documenting `migrate`'s refusal conditions, staging behavior, and idempotency as current, live behavior, plus supporting mentions in the "narration socket" and "compatibility window" sections that say `cairn migrate` "rewrites the hooks to the current path" / is one of the two ways a project's hooks get refreshed. All of this is now false — the command doesn't exist. Out of this task's Expected Files (CLAUDE.md wasn't listed), so not a missed instruction, but a real doc/behavior mismatch nothing in the round currently owns, in the same vein as the README gap already flagged for task #59.
+
+### Regression Risks
+None detected. Verified independently rather than trusting the task notes:
+- `grep -rn "runMigrate\|commands/migrate" src test` → zero matches.
+- `grep -n "LEGACY\|migrate" src/index.ts` → zero matches; the command list (`grep -n ".command("`) shows exactly the 8 remaining commands (status, edit, logs, init, summarize, plan, run, narrate) with no orphaned `migrate` entry or dangling comment block.
+- `bun test test/index.test.ts` → 30 pass, 0 fail — matches notes exactly.
+- `bun test` (full suite) → 811 pass, 0 fail, 30 files — matches notes exactly, consistent with the 838→811 delta (exactly the ~27 tests in the deleted `migrate.test.ts`, no other regressions).
+- `bun test test/legacy-markers.test.ts` → 5 pass — the deleted file's marker is simply gone, nothing left to flag; no new unmarked legacy references introduced.
+- `bun build --target=bun src/index.ts --outfile /tmp/cairn-reviewcheck` → builds clean (108 modules), independent of the pinned `cairn.json` healthCheck path.
+- `git diff HEAD~1 -- cairn.json` → empty; `healthCheck` unchanged.
+- `git status --short` → only `.cairn/.cairn_iterations.log` modified (a subsequent iteration-start line from the next task), nothing else outstanding.
+- No forbidden paths (tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, reviews/round-*.md, .ralph_task_*_notes.md, audit/) were hand-edited — all changes to them are the normal task-lifecycle archival already accepted as non-violations in the #58/#59 reviews above.
 
 ### Verdict
 HAS_GAPS

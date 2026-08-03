@@ -2,10 +2,6 @@
 set -euo pipefail
 
 # Installs cairn by building the Bun binary and symlinking it to a location on PATH.
-# Both `cairn` and `ralph` are symlinked to the same binary — `ralph` is a
-# long-lived compatibility name, kept working indefinitely.
-# remove once all projects migrated — other projects have `ralph task ...` frozen
-# into their installed .claude/agents/*.md, so the symlink outlives the layout.
 # Usage: ./install.sh [prefix]
 #   Default prefix: ~/.local
 
@@ -31,10 +27,8 @@ fi
 
 mkdir -p "$PREFIX/bin"
 ln -sf "$CAIRN_BIN" "$PREFIX/bin/cairn"
-ln -sf "$CAIRN_BIN" "$PREFIX/bin/ralph"  # remove once all projects migrated
 
 echo "Installed: $PREFIX/bin/cairn -> $CAIRN_BIN"
-echo "Installed: $PREFIX/bin/ralph -> $CAIRN_BIN"
 echo ""
 
 # Check if the prefix bin is on PATH
