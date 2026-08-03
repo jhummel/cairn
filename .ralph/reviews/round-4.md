@@ -385,3 +385,43 @@ None detected. Independently verified:
 
 ### Verdict
 HAS_GAPS
+
+---
+
+## Task #41: Python narration rename and socket
+Reviewed: 2026-08-03T02:05:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] `git mv lib/ralph_narrate.py lib/cairn_narrate.py` — verified via `git show --stat` (rename, similarity 94%) and `git log --follow` walks through pre-rename history (Task #35, "rewrite", "Fix narration server dying after macOS sleep", etc.) — history genuinely preserved, not delete+add
+├── [DONE] `git mv lib/ralph_narrate_server.py lib/cairn_narrate_server.py` — same verification, similarity 96%
+├── [DONE] Default socket path `/tmp/ralph-tts.sock` → `/tmp/cairn-tts.sock` in both Python files — verified `DEFAULT_SOCKET = "/tmp/cairn-tts.sock"` at `lib/cairn_narrate_server.py:24`; independently confirmed `cairn_narrate.py` has no socket logic at all (standalone one-shot speaker), so "both files" correctly resolves to one code change
+├── [DONE] `--socket` argparse default: `CAIRN_NARRATE_SOCKET` with `RALPH_NARRATE_SOCKET` fallback — verified at `lib/cairn_narrate_server.py:215`: `os.environ.get("CAIRN_NARRATE_SOCKET") or os.environ.get("RALPH_NARRATE_SOCKET", DEFAULT_SOCKET)`, exactly as required
+├── [DONE] Delete stale `lib/__pycache__/` — verified directory no longer exists (`ls lib/`); confirmed via `.gitignore:3` (`lib/__pycache__/`) that it was never tracked, so its absence from the diff is correct, not a missed deletion
+├── [DONE] Update script paths in `src/narration.ts` and `RALPH_LIB_DIR`/`RALPH_NARRATE_PYTHON` usage — independently read `src/narration.ts` in full: it holds no script-path literals at all (`scriptPath` is a caller-supplied parameter), so there was nothing to change there for this sub-item; `src/commands/narrate.ts` and `src/commands/run.ts` (the actual callers holding `'ralph_narrate_server.py'`/`'ralph_narrate.py'` literals) were correctly updated in all 3 call sites
+└── [PARTIAL] Socket-path *value* consistency — `src/brand.ts:19` already defines `BRAND.socket = '/tmp/cairn-tts.sock'` (from an earlier task), but `src/narration.ts:5`, `src/commands/narrate.ts:11-12`, and `src/commands/run.ts:406` all still hardcode `/tmp/ralph-tts.sock`, and `run.ts` unconditionally passes this literal as the `--socket` flag to the newly-renamed Python server — meaning the Python server's new `DEFAULT_SOCKET` is currently unreachable dead code in normal operation (the caller always overrides it). This is a knowing, documented deferral to task #48 ("Wire BRAND.socket into the narration socket path"), not a silent miss — the task's own item 2 wording ("in both files") grammatically scopes to the two Python files named in item 1, and item 5 only mentions script paths, not the socket value. Marked PARTIAL rather than GAP because the letter of the task description is satisfied; flagged because the net runtime effect of "change the socket path" is currently zero until #48 lands.
+
+### Files Changed
+- lib/ralph_narrate.py → lib/cairn_narrate.py (git mv + docstring updates)
+- lib/ralph_narrate_server.py → lib/cairn_narrate_server.py (git mv + socket/branding updates)
+- src/commands/narrate.ts (2 script-path literals)
+- src/commands/run.ts (2 script-path literals, both narration-server start call sites)
+- test/commands/narrate.test.ts (2 assertion updates)
+- .ralph/tasks.json, .ralph/tasks.completed.json, .ralph/.ralph_iterations.log, .ralph/.ralph_tasks_snapshot.json (tool-managed bookkeeping)
+
+### Gaps
+- `test/narration.test.ts` was explicitly named in the task's TDD instruction ("update test/narration.test.ts and test/commands/narrate.test.ts") but received zero changes. It still contains two tests literally titled `'uses /tmp/ralph-tts.sock as default socketPath'` that pin the legacy value. The notes' claim that "it has no reference to the Python filenames" is true and explains why no *rename* edit was needed, but doesn't address that the file was called out by name for TDD attention specifically because of the socket-path change — which was deferred whole-cloth to #48. Not a code defect, but the task's own TDD instruction for this file was effectively a no-op.
+- No test (Python or TS) exercises the new `CAIRN_NARRATE_SOCKET`/`RALPH_NARRATE_SOCKET` fallback logic in `cairn_narrate_server.py:215`, or the new `DEFAULT_SOCKET` value. This repo has no Python test infrastructure at all, so this is consistent with the rest of the codebase rather than a task-specific shortfall — noting for completeness only.
+- Three-way socket-path inconsistency now exists across the repo (`BRAND.socket` = cairn-tts.sock, Python `DEFAULT_SOCKET` = cairn-tts.sock, but every actual TS call site still hard-codes and passes ralph-tts.sock). Tracked correctly via the existing note on task #48; no new task needed.
+
+### Regression Risks
+None detected. Independently verified:
+- `git log --follow` on both renamed files walks cleanly through pre-rename commits — history genuinely preserved.
+- Full suite: `bun test` → 814 pass, 0 fail, 1603 expect() calls (matches notes exactly; unchanged from task #40's count, consistent with a pure rename + inert default-value change).
+- Health check: `bun build --target=bun src/index.ts --outfile ...` → succeeds, 108 modules, 0.43 MB.
+- Runtime behavior is unchanged from pre-task state: since `run.ts`/`narrate.ts` still explicitly pass `/tmp/ralph-tts.sock` as `--socket`, the narration server (when enabled) continues listening on the same path it always did — the deferred socket-value work carries no behavioral regression risk, just an unrealized rename.
+- No exports removed, no test coverage reduction (test count unchanged: the 2 touched assertions in `narrate.test.ts` are like-for-like literal swaps, not new coverage, but nothing was deleted either).
+- Exclusion-list / legacy-fallback conventions from CLAUDE.md respected throughout.
+
+### Verdict
+HAS_GAPS
