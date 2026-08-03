@@ -5,26 +5,39 @@ import type { CairnConfig } from '../types';
 import { loadConfig, autoDetectHealthCheck } from '../config';
 import { resolveCairnRoot } from '../utils';
 import { seedNextId } from '../task-counter';
-import { BRAND } from '../brand';
+import { BRAND, LEGACY } from '../brand';
 
-const GITIGNORE_CONTENT = `# Runtime temp files (tasks.json and planning-notes.md are tracked)
-.cairn_complete
-.cairn_iterations.log
-.cairn_prev_notes
-.cairn_task_meta
-.cairn_completed_ids
-.cairn_tasks_snapshot.json
-.cairn_task_*_notes.md
-# Legacy names — still written by older runs and read as a fallback
-.ralph_complete
-.ralph_iterations.log
-.ralph_prev_notes
-.ralph_task_meta
-.ralph_completed_ids
-.ralph_tasks_snapshot.json
-.ralph_task_*_notes.md
-instructions.md
-`;
+/**
+ * Runtime temp-file names to ignore, minus the prefix. Exported because
+ * `cairn migrate` appends the same set to an existing data-dir .gitignore —
+ * two lists would silently drift apart.
+ */
+export const TEMP_IGNORE_SUFFIXES = [
+  'complete',
+  'iterations.log',
+  'prev_notes',
+  'task_meta',
+  'completed_ids',
+  'tasks_snapshot.json',
+  'task_*_notes.md',
+] as const;
+
+export const GITIGNORE_CURRENT_HEADER =
+  '# Runtime temp files (tasks.json and planning-notes.md are tracked)';
+export const GITIGNORE_LEGACY_HEADER =
+  '# Legacy names — still written by older runs and read as a fallback';
+
+/** `prefix` + each suffix, one per line, newline-terminated. */
+export function ignoreBlock(prefix: string): string {
+  return TEMP_IGNORE_SUFFIXES.map((s) => `${prefix}${s}\n`).join('');
+}
+
+const GITIGNORE_CONTENT =
+  `${GITIGNORE_CURRENT_HEADER}\n` +
+  ignoreBlock(BRAND.tempPrefix) +
+  `${GITIGNORE_LEGACY_HEADER}\n` +
+  ignoreBlock(LEGACY.tempPrefix) +
+  'instructions.md\n';
 
 export interface PromptInterface {
   question(query: string): Promise<string>;

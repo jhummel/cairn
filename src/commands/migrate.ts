@@ -2,6 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { BRAND, LEGACY } from '../brand';
+import {
+  TEMP_IGNORE_SUFFIXES,
+  GITIGNORE_CURRENT_HEADER,
+  GITIGNORE_LEGACY_HEADER,
+} from './init';
 
 /**
  * Convert a single project from the legacy `.ralph/` layout to `.cairn/`.
@@ -18,6 +23,42 @@ const STATEFUL_TEMP_SUFFIXES = [
   'iterations.log',
   'tasks_snapshot.json',
 ] as const;
+
+/**
+ * Bring the .gitignore *inside* the data dir up to date with the current temp
+ * prefix. The file moves across with the directory unmodified, so it still lists
+ * only the legacy names — every `.cairn_*` file a later run writes would show up
+ * as untracked noise.
+ *
+ * Append-only and idempotent: existing lines (legacy ones included — they are
+ * still read as a fallback) are never touched, and a name already listed is
+ * never added twice. Missing file means a partial install: do nothing.
+ *
+ * Returns the names appended, empty when the file was already current or absent.
+ */
+export function refreshDataDirGitignore(dataDir: string): string[] {
+  const gitignorePath = path.join(dataDir, '.gitignore');
+  if (!isFile(gitignorePath)) return [];
+
+  const content = fs.readFileSync(gitignorePath, 'utf-8');
+  const listed = new Set(content.split('\n').map((l) => l.trim()));
+
+  const missing = (prefix: string) =>
+    TEMP_IGNORE_SUFFIXES.map((s) => `${prefix}${s}`).filter((name) => !listed.has(name));
+
+  const current = missing(BRAND.tempPrefix);
+  const legacy = missing(LEGACY.tempPrefix);
+  if (current.length === 0 && legacy.length === 0) return [];
+
+  // Same two-block layout `cairn init` writes: current names, then legacy ones.
+  let addition = '';
+  if (current.length > 0) addition += `${GITIGNORE_CURRENT_HEADER}\n${current.join('\n')}\n`;
+  if (legacy.length > 0) addition += `${GITIGNORE_LEGACY_HEADER}\n${legacy.join('\n')}\n`;
+
+  const separator = content === '' || content.endsWith('\n') ? '' : '\n';
+  fs.appendFileSync(gitignorePath, separator + addition);
+  return [...current, ...legacy];
+}
 
 export interface MigrateIo {
   log?: (message: string) => void;
@@ -187,13 +228,31 @@ export function runMigrate(cwd: string, io: MigrateIo = {}): number {
     }
   }
 
-  if (moved === 0) {
+  // The data dir's own .gitignore came across unmodified — teach it the current
+  // temp names, or every later run leaves untracked noise behind.
+  let ignoreUpdated = false;
+  if (dataDir) {
+    const added = refreshDataDirGitignore(dataDir);
+    if (added.length > 0) {
+      ignoreUpdated = true;
+      const rel = path.relative(cwd, path.join(dataDir, '.gitignore'));
+      // Untracked .gitignore: nothing to stage, but the edit still stands.
+      const stagedNote = git(['add', rel], cwd).status === 0 ? '(staged)' : '(untracked)';
+      log(`  ${rel}: added ${added.length} ignore line(s) ${stagedNote}`);
+    }
+  }
+
+  if (moved === 0 && !ignoreUpdated) {
     log(`Already on the ${BRAND.dataDir}/ layout — nothing to do.`);
     return 0;
   }
 
   log('');
-  log(`Migrated ${cwd} to the ${BRAND.dataDir}/ layout (${moved} path(s) moved).`);
+  if (moved === 0) {
+    log(`Refreshed ${path.basename(dataDir!)}/.gitignore in ${cwd}.`);
+  } else {
+    log(`Migrated ${cwd} to the ${BRAND.dataDir}/ layout (${moved} path(s) moved).`);
+  }
   log(`Changes are STAGED, not committed. Review with 'git status' / 'git diff --cached', then commit.`);
   return 0;
 }

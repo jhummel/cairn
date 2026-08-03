@@ -425,3 +425,76 @@ None detected. Independently verified:
 
 ### Verdict
 HAS_GAPS
+
+---
+
+## Task #42: Agent and slash-command source files
+Reviewed: 2026-08-03T02:10:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] `agents/planner.md` — "Ralph agentic loop system" → "Cairn agentic loop system"; verified via grep, zero `ralph` hits (case-insensitive) remain in the file
+├── [DONE] `agents/post-task-reviewer.md` — `.ralph/tasks.json` → `.cairn/tasks.json` in the write-restriction sentence; verified this is the only line in the file that referenced `.ralph/` or "Ralph"
+├── [DONE] `agents/summarizer.md` — independently re-read the full file end to end; confirmed zero references to "ralph"/"Ralph"/`.ralph/` exist, so no-op was correct, not a missed file
+├── [DONE] `agents/audit-planner.md` — independently re-read the full file end to end; confirmed zero references, same as above
+├── [DONE] `commands/generate-tasks.md` — all `.ralph/{planning-notes.md,tasks.json,instructions.md}` path references → `.cairn/`; both `ralph task next-id --count <n>` examples → `cairn task next-id --count <n>`; "Ralph agentic loop system" → "Cairn agentic loop system"; grep confirms zero remaining hits
+├── [DONE] `commands/review-tasks.md` — same treatment, all four `.ralph/` path references and the "Ralph agentic loop system" line updated; zero remaining hits
+└── [DONE] `commands/codebase-audit.md` — the one `.ralph/planning-notes.md` write-instruction reference → `.cairn/planning-notes.md`; zero remaining hits
+
+### Files Changed
+- agents/planner.md
+- agents/post-task-reviewer.md
+- commands/codebase-audit.md
+- commands/generate-tasks.md
+- commands/review-tasks.md
+- .ralph/tasks.json, .ralph/tasks.completed.json, .ralph/.ralph_iterations.log, .ralph/.ralph_tasks_snapshot.json, .ralph/reviews/round-4.md (tool-managed bookkeeping)
+
+### Gaps
+None detected. Independently verified via `grep -rni "ralph" agents/ commands/` that no repo-root file under either directory retains a "ralph"/"Ralph"/`.ralph/` reference, and `ls agents/ commands/` shows exactly the 7 files named in the task description exist — nothing in scope was missed, and nothing out of scope needed touching.
+
+### Regression Risks
+None detected. Independently verified:
+- `git show --stat` on the task's commit confirms zero `.claude/` files appear in the diff — the CRITICAL instruction to leave installed artifacts untouched was honored exactly.
+- `bun test` → 814 pass, 0 fail, 1603 expect() calls, 29 files — unchanged from the pre-task baseline, consistent with a markdown-only change with no unit tests targeting these files (as the task description itself notes).
+- These are static prompt files read by agents at spawn time, not code — no exports, no runtime call sites, no risk of breaking a TypeScript consumer.
+- The rationale given in the task notes (agent-facing prompt text uses the literal new brand/paths rather than a dynamic lookup, consistent with tasks #38/#39's precedent) is sound and consistently applied across all five edited files.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #43: cairn migrate command - core moves
+Reviewed: 2026-08-03T02:11:40Z
+
+### Coverage
+Task Requirements
+├── [DONE] New `migrate` command: `src/commands/migrate.ts` (exports `runMigrate(cwd, io?)`) + registration in `src/index.ts`
+├── [PARTIAL] Operates on CWD only, "resolve the root via the same dual-read discovery as everything else" — operates on cwd only (correct, no upward walk), but does NOT call the canonical `findDataDir()`/`findConfigFile()` (src/utils.ts, src/config.ts); instead hand-rolls `path.join(cwd, BRAND.dataDir)` / `path.join(cwd, LEGACY.dataDir)` existence probes — see Gaps
+├── [DONE] Exits with a clear error if cwd is neither a Cairn nor a Ralph project — verified by test `errors when the cwd is neither a Cairn nor a Ralph project`
+├── [DONE] Non-interactive, idempotent — verified by test `is idempotent — a second run changes nothing and exits 0`
+├── [DONE] PREFLIGHT: refuse on any `in-progress` task — verified by test `refuses when a task is in-progress and changes nothing`
+├── [DONE] PREFLIGHT: warn (not refuse) on dirty tree — verified by test `warns but proceeds when the working tree is dirty`
+├── [DONE] `git mv` data dir (.ralph→.cairn) and config file (ralph.json→cairn.json), untracked/gitignored contents carried along — verified by tests `renames the data dir and the config file`, `stages the renames but never commits`
+├── [DONE] Rename the four stateful temp files (.ralph_completed_ids, .ralph_prev_notes, .ralph_iterations.log, .ralph_tasks_snapshot.json → .cairn_*) — verified by test `renames the four stateful temp files, preserving content` (content-preservation asserted, not just existence)
+├── [DONE] Leave `.ralph_task_*_notes.md` and all archive files (tasks.completed.json, reviews/round-*.md, audit/) untouched — verified by test `leaves task-notes scratch and all archive files untouched`
+├── [DONE] Tolerate partial installs (no state.json, no reviews/, no config file) — verified by test `tolerates a partial install`
+└── [DONE] Stages changes, never commits — verified by test `stages the renames but never commits` (commit count asserted unchanged)
+
+### Files Changed
+- src/commands/migrate.ts (new)
+- src/index.ts (registers `migrate` command)
+- test/commands/migrate.test.ts (new, 12 tests)
+- .ralph/tasks.json, .ralph/tasks.completed.json, .ralph/state.json (tool-managed bookkeeping)
+
+### Gaps
+- **Discovery logic duplicates rather than reuses the canonical resolvers.** The task description explicitly says "Resolve the root via the same dual-read discovery as everything else," and CLAUDE.md states a standing rule verbatim in `src/brand.ts:6-10`: *"BRAND.dataDir / BRAND.configFile are for CREATING paths, never for RESOLVING them. Any path that points at an existing project's data must come from the value discovery actually found (`findDataDir()` in src/utils.ts, `findConfigFile()` in src/config.ts) — otherwise a project still on the legacy layout gets paths pointing at a directory that does not exist."* `migrate.ts` does exactly the pattern this rule warns against: `const currentDir = path.join(cwd, BRAND.dataDir)` / `const legacyDir = path.join(cwd, LEGACY.dataDir)`, then existence-probes both directly, rather than calling `findDataDir(cwd)` / `findConfigFile(cwd)`.
+  - This is not a functional bug in the tested scenarios (both candidate paths are still checked, and `isDir`/`isFile` are used only for existence, never assumed-exists reads), and a literal call to `findDataDir()` couldn't fully satisfy migrate's needs unmodified — it silently resolves to one winner (preferring `.cairn` if both exist, defaulting to `.cairn` if neither exists) rather than surfacing the ambiguous/absent cases migrate needs to refuse on. Some custom logic was arguably unavoidable.
+  - However, the task notes never acknowledge this tension or explain the deviation from the explicit instruction and the standing rule — there's no mention of why `findDataDir`/`findConfigFile` weren't reused or extended. That's a documentation/design gap on top of the literal instruction not being followed: the duplicated candidate-list logic (`[BRAND.dataDir, LEGACY.dataDir]` order, etc.) can silently drift from `dataDirNameAt()` in src/utils.ts if that function's resolution order or `CAIRN_PROJECT_ROOT` handling ever changes.
+
+### Regression Risks
+- **Likely spurious "dirty working tree" warning on the idempotent second run.** After a first successful migrate, changes are staged but not committed (by design). The dirty-tree check (`git status --porcelain` non-empty → warn) runs before any moves, and staged-but-uncommitted renames from the first run make `git status --porcelain` non-empty on a second invocation. So re-running `migrate` before committing would likely print "the git working tree is not clean" even though nothing the user did caused it — purely an artifact of the tool's own prior staged output. This isn't covered by the `is idempotent` test (which only asserts exit code, staged-diff stability, and the "nothing to do" message, not the absence/presence of the dirty warning). Low severity (cosmetic — still exits 0, still a correct no-op) but could confuse a user running migrate twice before committing. I could not empirically confirm this in this review session — the reviewer's sandbox restricts Bash/Write to `.ralph/reviews/**`, blocking the temp-directory repro I attempted — so this is reasoned from `move()`'s ordering and git semantics, not directly observed.
+- No removed exports, no deleted/weakened tests, no reduction in existing coverage. `bun test` → 12/12 pass in the new file (confirmed independently in this review).
+
+### Verdict
+HAS_GAPS

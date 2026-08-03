@@ -51,6 +51,8 @@ const LEGACY_GITIGNORE = [
 interface FixtureOptions {
   /** Task statuses written into .ralph/tasks.json. */
   statuses?: string[];
+  /** Content for .ralph/.gitignore; null writes no .gitignore at all. */
+  gitignore?: string | null;
   /** Skip state.json, reviews/, audit/ and the config file (partial install). */
   partial?: boolean;
   /** Create a .cairn/ directory too (ambiguous layout). */
@@ -92,7 +94,8 @@ function makeFixture(opts: FixtureOptions = {}): string {
     );
     write(path.join(d, 'tasks.completed.json'), '{"tasks":[{"id":99,"title":"old"}]}');
     write(path.join(d, 'planning-notes.md'), 'notes\n');
-    write(path.join(d, '.gitignore'), LEGACY_GITIGNORE);
+    const gitignore = opts.gitignore === undefined ? LEGACY_GITIGNORE : opts.gitignore;
+    if (gitignore !== null) write(path.join(d, '.gitignore'), gitignore);
 
     // Stateful temp files (gitignored by the legacy .gitignore above).
     write(path.join(d, '.ralph_completed_ids'), '1\n2\n');
@@ -213,6 +216,99 @@ describe('migrate core moves', () => {
     expect(second.output.toLowerCase()).toContain('nothing to do');
     expect(staged(dir)).toBe(stagedAfterFirst);
     expect(fs.existsSync(path.join(dir, '.cairn'))).toBe(true);
+  });
+});
+
+describe('migrate .gitignore refresh', () => {
+  const CURRENT_NAMES = [
+    '.cairn_complete',
+    '.cairn_iterations.log',
+    '.cairn_prev_notes',
+    '.cairn_task_meta',
+    '.cairn_completed_ids',
+    '.cairn_tasks_snapshot.json',
+    '.cairn_task_*_notes.md',
+  ];
+
+  const readIgnore = (dir: string) =>
+    fs.readFileSync(path.join(dir, '.cairn', '.gitignore'), 'utf-8');
+
+  test('appends every missing .cairn_* name, keeping the legacy lines', () => {
+    const dir = makeFixture();
+    expect(runCli(dir).status).toBe(0);
+
+    const lines = readIgnore(dir).split('\n');
+    for (const name of CURRENT_NAMES) expect(lines).toContain(name);
+    // Legacy names are still read as a fallback, so they must survive.
+    for (const name of LEGACY_GITIGNORE.split('\n').filter(Boolean)) {
+      expect(lines).toContain(name);
+    }
+    expect(lines).toContain('instructions.md');
+  });
+
+  test('is idempotent — a second run leaves the file byte-identical', () => {
+    const dir = makeFixture();
+    expect(runCli(dir).status).toBe(0);
+    const afterFirst = readIgnore(dir);
+
+    expect(runCli(dir).status).toBe(0);
+    expect(readIgnore(dir)).toBe(afterFirst);
+  });
+
+  test('never duplicates a .cairn_* name that is already listed', () => {
+    const dir = makeFixture({
+      gitignore: `${LEGACY_GITIGNORE}.cairn_prev_notes\n.cairn_iterations.log\n`,
+    });
+    expect(runCli(dir).status).toBe(0);
+
+    const lines = readIgnore(dir).split('\n');
+    for (const name of CURRENT_NAMES) {
+      expect(lines.filter((l) => l === name)).toHaveLength(1);
+    }
+  });
+
+  test("appends a '# Legacy names' block when the legacy names are absent", () => {
+    const dir = makeFixture({ gitignore: 'instructions.md\n' });
+    expect(runCli(dir).status).toBe(0);
+
+    const content = readIgnore(dir);
+    const lines = content.split('\n');
+    for (const name of CURRENT_NAMES) expect(lines).toContain(name);
+    for (const name of CURRENT_NAMES) {
+      expect(lines).toContain(name.replace('.cairn_', '.ralph_'));
+    }
+    expect(content).toContain('# Legacy names');
+    // Current block first, legacy block after it.
+    expect(content.indexOf('.cairn_complete')).toBeLessThan(content.indexOf('.ralph_complete'));
+  });
+
+  test('creates no .gitignore when the data dir has none', () => {
+    const dir = makeFixture({ gitignore: null });
+    expect(runCli(dir).status).toBe(0);
+
+    expect(fs.existsSync(path.join(dir, '.cairn', '.gitignore'))).toBe(false);
+  });
+
+  test('stages the .gitignore edit without committing', () => {
+    const dir = makeFixture();
+    const before = commitCount(dir);
+    expect(runCli(dir).status).toBe(0);
+
+    expect(commitCount(dir)).toBe(before);
+    expect(staged(dir)).toContain('.cairn/.gitignore');
+    // The appended lines must be in the index, not just the worktree.
+    const indexed = sh(['git', 'show', ':.cairn/.gitignore'], dir).stdout ?? '';
+    expect(indexed).toContain('.cairn_complete');
+    expect(indexed).toContain('.cairn_task_*_notes.md');
+  });
+
+  test('tolerates a fresh .cairn/ project whose .gitignore is already current', () => {
+    const dir = makeFixture();
+    expect(runCli(dir).status).toBe(0);
+    const second = runCli(dir);
+
+    expect(second.status).toBe(0);
+    expect(second.output.toLowerCase()).toContain('nothing to do');
   });
 });
 
