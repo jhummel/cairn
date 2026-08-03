@@ -39,29 +39,29 @@ describe('initCoreFiles', () => {
     fs.rmSync(tmpDir, { recursive: true });
   });
 
-  test('creates .ralph/ directory when it does not exist', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+  test('creates .cairn/ directory when it does not exist', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);
     expect(fs.existsSync(dataDir)).toBe(true);
     expect(fs.statSync(dataDir).isDirectory()).toBe(true);
   });
 
-  test('prints Created: .ralph/ when directory is new', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+  test('prints Created: .cairn/ when directory is new', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);
-    expect(stdoutLines.join('\n')).toContain('Created: .ralph/');
+    expect(stdoutLines.join('\n')).toContain('Created: .cairn/');
   });
 
-  test('prints .ralph/ directory already exists when it exists', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+  test('prints .cairn/ directory already exists when it exists', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     initCoreFiles(tmpDir, dataDir);
-    expect(stdoutLines.join('\n')).toContain('.ralph/ directory already exists.');
-    expect(stdoutLines).not.toContain('  Created: .ralph/');
+    expect(stdoutLines.join('\n')).toContain('.cairn/ directory already exists.');
+    expect(stdoutLines).not.toContain('  Created: .cairn/');
   });
 
-  test('creates .ralph/.gitignore with correct content', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+  test('creates .cairn/.gitignore with correct content', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);
     const gitignorePath = path.join(dataDir, '.gitignore');
     expect(fs.existsSync(gitignorePath)).toBe(true);
@@ -87,7 +87,7 @@ describe('initCoreFiles', () => {
     // Not a compatibility leftover: buildSystemPrompt still tells every agent to
     // write .ralph_task_<id>_notes.md. Un-ignore it and each iteration leaves a
     // scratch file for the agent's own commit to sweep up.
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);
     const content = fs.readFileSync(path.join(dataDir, '.gitignore'), 'utf8');
     expect(content).toContain('.ralph_task_*_notes.md');
@@ -98,25 +98,25 @@ describe('initCoreFiles', () => {
     expect(legacyLines).toEqual([]);
   });
 
-  test('prints Created: .ralph/.gitignore', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+  test('prints Created: .cairn/.gitignore', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);
-    expect(stdoutLines.join('\n')).toContain('Created: .ralph/.gitignore');
+    expect(stdoutLines.join('\n')).toContain('Created: .cairn/.gitignore');
   });
 
   test('does not overwrite existing .gitignore', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     const gitignorePath = path.join(dataDir, '.gitignore');
     const originalContent = '# custom\n';
     fs.writeFileSync(gitignorePath, originalContent);
     initCoreFiles(tmpDir, dataDir);
     expect(fs.readFileSync(gitignorePath, 'utf8')).toBe(originalContent);
-    expect(stdoutLines.join('\n')).not.toContain('Created: .ralph/.gitignore');
+    expect(stdoutLines.join('\n')).not.toContain('Created: .cairn/.gitignore');
   });
 
-  test('creates .ralph/tasks.json with project name and empty tasks', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+  test('creates .cairn/tasks.json with project name and empty tasks', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);
     const tasksPath = path.join(dataDir, 'tasks.json');
     expect(fs.existsSync(tasksPath)).toBe(true);
@@ -125,24 +125,24 @@ describe('initCoreFiles', () => {
     expect(data.tasks).toEqual([]);
   });
 
-  test('prints Created: .ralph/tasks.json', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+  test('prints Created: .cairn/tasks.json', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);
-    expect(stdoutLines.join('\n')).toContain('Created: .ralph/tasks.json');
+    expect(stdoutLines.join('\n')).toContain('Created: .cairn/tasks.json');
   });
 
   test('prints tasks.json already exists when it exists', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     const tasksPath = path.join(dataDir, 'tasks.json');
     fs.writeFileSync(tasksPath, JSON.stringify({ project: 'old', tasks: [{ id: 1 }] }));
     initCoreFiles(tmpDir, dataDir);
     expect(stdoutLines.join('\n')).toContain('tasks.json already exists.');
-    expect(stdoutLines.join('\n')).not.toContain('Created: .ralph/tasks.json');
+    expect(stdoutLines.join('\n')).not.toContain('Created: .cairn/tasks.json');
   });
 
   test('does not overwrite existing tasks.json', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     const tasksPath = path.join(dataDir, 'tasks.json');
     const original = { project: 'myproject', tasks: [{ id: 99 }] };
@@ -153,7 +153,7 @@ describe('initCoreFiles', () => {
   });
 
   test('is idempotent — running twice produces same files', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);
     const gitignoreAfterFirst = fs.readFileSync(path.join(dataDir, '.gitignore'), 'utf8');
     const tasksAfterFirst = fs.readFileSync(path.join(dataDir, 'tasks.json'), 'utf8');
@@ -166,22 +166,22 @@ describe('initCoreFiles', () => {
   });
 
   test('second run prints already-exists messages', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);
     consoleSpy.mockClear();
     stdoutLines = [];
     initCoreFiles(tmpDir, dataDir);
     const output = stdoutLines.join('\n');
-    expect(output).toContain('.ralph/ directory already exists.');
+    expect(output).toContain('.cairn/ directory already exists.');
     expect(output).toContain('tasks.json already exists.');
-    expect(stdoutLines).not.toContain('  Created: .ralph/');
-    expect(output).not.toContain('Created: .ralph/tasks.json');
+    expect(stdoutLines).not.toContain('  Created: .cairn/');
+    expect(output).not.toContain('Created: .cairn/tasks.json');
   });
 
   test('tasks.json project name matches directory basename', () => {
     const projectDir = path.join(tmpDir, 'my-project');
     fs.mkdirSync(projectDir);
-    const dataDir = path.join(projectDir, '.ralph');
+    const dataDir = path.join(projectDir, '.cairn');
     initCoreFiles(projectDir, dataDir);
     const data = JSON.parse(fs.readFileSync(path.join(dataDir, 'tasks.json'), 'utf8'));
     expect(data.project).toBe('my-project');
@@ -190,7 +190,7 @@ describe('initCoreFiles', () => {
   // --- state.json tests ---
 
   test('creates state.json with { nextTaskId: 1 } on fresh init', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);
     const statePath = path.join(dataDir, 'state.json');
     expect(fs.existsSync(statePath)).toBe(true);
@@ -198,14 +198,14 @@ describe('initCoreFiles', () => {
     expect(state).toEqual({ nextTaskId: 1 });
   });
 
-  test('prints Created: .ralph/state.json on fresh init', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+  test('prints Created: .cairn/state.json on fresh init', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);
-    expect(stdoutLines.join('\n')).toContain('Created: .ralph/state.json');
+    expect(stdoutLines.join('\n')).toContain('Created: .cairn/state.json');
   });
 
   test('re-init with archive max id 15 seeds state.json with nextTaskId: 16', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     const archive = { tasks: [{ id: 10 }, { id: 15 }, { id: 3 }] };
     fs.writeFileSync(path.join(dataDir, 'tasks.completed.json'), JSON.stringify(archive));
@@ -217,7 +217,7 @@ describe('initCoreFiles', () => {
   });
 
   test('leaves existing state.json untouched', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     const statePath = path.join(dataDir, 'state.json');
     fs.writeFileSync(statePath, JSON.stringify({ nextTaskId: 99 }));
@@ -227,12 +227,12 @@ describe('initCoreFiles', () => {
   });
 
   test('prints state.json already exists. when state.json is present', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 5 }));
     initCoreFiles(tmpDir, dataDir);
     expect(stdoutLines.join('\n')).toContain('state.json already exists.');
-    expect(stdoutLines.join('\n')).not.toContain('Created: .ralph/state.json');
+    expect(stdoutLines.join('\n')).not.toContain('Created: .cairn/state.json');
   });
 
   // --- .cairn/ layout (current brand) ---
@@ -1322,8 +1322,8 @@ describe('runInit', () => {
     return ['', '', '', '', '', '', '', '', 'n'];
   }
 
-  test('creates .ralph/ dir, tasks.json, and cairn.json', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+  test('creates .cairn/ dir, tasks.json, and cairn.json', async () => {
+    const dataDir = path.join(tmpDir, '.cairn');
     const rl = createMockPrompt(allDefaultAnswers());
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(dataDir)).toBe(true);
@@ -1342,7 +1342,7 @@ describe('runInit', () => {
   });
 
   test('prints initializing banner with project root', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     const rl = createMockPrompt(allDefaultAnswers());
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(stdoutLines.join('\n')).toContain('Initializing Cairn in:');
@@ -1350,21 +1350,21 @@ describe('runInit', () => {
   });
 
   test('prints Wrote: cairn.json', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     const rl = createMockPrompt(allDefaultAnswers());
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(stdoutLines.join('\n')).toContain('Wrote: cairn.json');
   });
 
   test('prints Next steps at end', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     const rl = createMockPrompt(allDefaultAnswers());
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(stdoutLines.join('\n')).toContain('Next steps');
   });
 
   test('installs hooks when narration enabled and user accepts', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     // 10 config prompts (narration='y', voice='', ntfy='', reviewMaxIter='', reviewPostTask='') + instructions='n' + install hooks='y'
     const rl = createMockPrompt(['', '', '', '', '', '', '', 'y', '', '', '', '', 'n', 'y']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
@@ -1373,7 +1373,7 @@ describe('runInit', () => {
   });
 
   test('skips hooks when narration disabled', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     const rl = createMockPrompt(allDefaultAnswers());
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     // .claude/commands/ exists (slash commands are always installed),
@@ -1382,7 +1382,7 @@ describe('runInit', () => {
   });
 
   test('installs slash commands unconditionally', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     const rl = createMockPrompt(allDefaultAnswers());
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(path.join(tmpDir, '.claude', 'commands', 'generate-tasks.md'))).toBe(true);
