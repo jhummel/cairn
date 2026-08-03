@@ -221,10 +221,13 @@ if __name__ == "__main__":
 
     # Initialize heavy resources
     pipeline = KPipeline(lang_code="a" if voice.startswith("a") else "b")
-    # CAIRN_ANTHROPIC_API_KEY -> plain ANTHROPIC_API_KEY.
+    # CAIRN_ANTHROPIC_API_KEY -> plain ANTHROPIC_API_KEY. This is the only
+    # implementation of the chain; the TypeScript side deliberately has none.
     # The main loop blanks ANTHROPIC_API_KEY before spawning `claude` to force Max-plan
-    # usage, so this prefixed name is what lets this server still reach a real key.
-    # Mirrors resolveAnthropicApiKeyChain() in src/config.ts.
+    # usage, so this prefixed name is what lets this server still reach a real key when
+    # it is launched from a context where the plain name has been cleared. Never
+    # normalize the resolved value back onto ANTHROPIC_API_KEY — that would defeat the
+    # blanking.
     api_key = os.environ.get("CAIRN_ANTHROPIC_API_KEY")
     if not api_key:
         api_key = os.environ.get("ANTHROPIC_API_KEY")

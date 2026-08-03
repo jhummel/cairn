@@ -151,29 +151,3 @@ export function setConfigEnvVars(config: CairnConfig): void {
   process.env.CAIRN_NARRATION_VOICE = config.narration.voice;
   process.env.CAIRN_NTFY_TOPIC = config.narration.ntfyTopic;
 }
-
-export interface AnthropicApiKeyResolution {
-  key: string | undefined;
-  source: 'cairn' | 'plain' | 'none';
-}
-
-/**
- * Resolve the Anthropic API key the narration server should use.
- *
- * CAIRN_ANTHROPIC_API_KEY -> plain ANTHROPIC_API_KEY.
- * The main loop blanks ANTHROPIC_API_KEY before spawning `claude` (run.ts, plan.ts,
- * summarize.ts, post-task-reviewer.ts) to force Max-plan usage, so the prefixed names
- * are what still let the narration server reach a real key. Never normalize the
- * resolved value onto plain ANTHROPIC_API_KEY — that would defeat the blanking above.
- */
-export function resolveAnthropicApiKeyChain(
-  env: Record<string, string | undefined> = process.env
-): AnthropicApiKeyResolution {
-  if (env.CAIRN_ANTHROPIC_API_KEY) {
-    return { key: env.CAIRN_ANTHROPIC_API_KEY, source: 'cairn' };
-  }
-  if (env.ANTHROPIC_API_KEY) {
-    return { key: env.ANTHROPIC_API_KEY, source: 'plain' };
-  }
-  return { key: undefined, source: 'none' };
-}

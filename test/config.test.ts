@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { loadConfig, findConfigFile, autoDetectHealthCheck, discoverAgents, setConfigEnvVars, resolveAnthropicApiKeyChain } from '../src/config';
+import { loadConfig, findConfigFile, autoDetectHealthCheck, discoverAgents, setConfigEnvVars } from '../src/config';
 import { isValidConfig } from '../src/types';
 import type { CairnConfig } from '../src/types';
 
@@ -596,41 +596,5 @@ describe('findConfigFile', () => {
 
   it('defaults to cairn.json when neither exists, so new config is created there', () => {
     expect(findConfigFile(tmpDir)).toBe(path.join(tmpDir, 'cairn.json'));
-  });
-});
-
-describe('resolveAnthropicApiKeyChain', () => {
-  it('prefers CAIRN_ANTHROPIC_API_KEY over plain ANTHROPIC_API_KEY', () => {
-    const env = {
-      CAIRN_ANTHROPIC_API_KEY: 'cairn-key',
-      ANTHROPIC_API_KEY: 'plain-key',
-    };
-    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'cairn-key', source: 'cairn' });
-  });
-
-  it('falls back to plain ANTHROPIC_API_KEY when CAIRN_ANTHROPIC_API_KEY is unset', () => {
-    const env = { ANTHROPIC_API_KEY: 'plain-key' };
-    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'plain-key', source: 'plain' });
-  });
-
-  it('returns no key when neither name is set', () => {
-    expect(resolveAnthropicApiKeyChain({})).toEqual({ key: undefined, source: 'none' });
-  });
-
-  it('ignores a RALPH_ANTHROPIC_API_KEY still exported by an old shell profile', () => {
-    const env = { RALPH_ANTHROPIC_API_KEY: 'legacy-key' };
-    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: undefined, source: 'none' });
-  });
-
-  it('never normalizes the resolved key onto plain ANTHROPIC_API_KEY', () => {
-    const env: Record<string, string | undefined> = { CAIRN_ANTHROPIC_API_KEY: 'cairn-key' };
-    const result = resolveAnthropicApiKeyChain(env);
-    expect(result.key).toBe('cairn-key');
-    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
-  });
-
-  it('ignores an empty-string CAIRN_ANTHROPIC_API_KEY and falls through to plain', () => {
-    const env = { CAIRN_ANTHROPIC_API_KEY: '', ANTHROPIC_API_KEY: 'plain-key' };
-    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'plain-key', source: 'plain' });
   });
 });

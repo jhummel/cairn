@@ -471,6 +471,68 @@ HAS_GAPS
 
 ---
 
+## Task #61: install.sh — drop the ralph compatibility symlink
+Reviewed: 2026-08-03T17:12:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Delete `ln -sf "$CAIRN_BIN" "$PREFIX/bin/ralph"  # remove once all projects
+│            migrated` — verified: line gone from install.sh, grep for "ralph" over the
+│            file returns zero matches
+├── [DONE] Delete `echo "Installed: $PREFIX/bin/ralph -> $CAIRN_BIN"` — verified gone
+├── [DONE] Rewrite header comment (~lines 4-8) to describe only the cairn symlink — the
+│            three ralph-describing lines (the "Both `cairn` and `ralph`..." prose plus
+│            its marker) were deleted outright rather than reworded in place; the one
+│            surviving line ("Installs cairn by building the Bun binary and symlinking it
+│            to a location on PATH.") already describes only the cairn symlink, so intent
+│            is satisfied even though the mechanism was deletion, not a rewrite
+├── [DONE] EDIT ONLY THE SYMLINK BLOCK — `bun run build` (line 19), `CAIRN_BIN="$CAIRN_
+│            ROOT/dist/cairn"` (line 21), the `dist/cairn` existence check (lines 23-26),
+│            and the PATH-check block (lines 34-41) are all byte-identical to before,
+│            confirmed by reading the full current file, not just the diff
+├── [DONE] Did NOT run ./install.sh — no dist/binary changes in the commit
+├── [DONE] TDD: replaced 'symlinks both cairn and ralph to the built binary' with a
+│            cairn-only assertion — verified at test/install-script.test.ts:27
+├── [DONE] TDD: added a negative assertion that no bin/ralph symlink is created —
+│            verified at test/install-script.test.ts:31-33
+├── [DONE] TDD: deleted 'does not print a deprecation warning for the ralph symlink' —
+│            confirmed gone from the test file
+├── [DONE] TDD: kept the RALPH_ROOT/RALPH_BIN negative assertion — verified at
+│            test/install-script.test.ts:35-40 (unchanged)
+├── [DONE] TDD: kept the dist/ralph negative assertion — verified at
+│            test/install-script.test.ts:16 (`package.json` describe block, unchanged)
+├── [DONE] Note for the record only (no code obligation): does not delete the existing
+│            ~/.local/bin/ralph symlink on disk — correctly left as a manual step, nothing
+│            in the diff attempts to touch it
+└── [DONE] Did not touch tasks.completed.json / .cairn_iterations.log /
+             .cairn_tasks_snapshot.json / reviews/round-*.md / .ralph_task_*_notes.md /
+             audit/ directly — changes present are normal `cairn task complete` archival
+             lifecycle, not hand-edits
+```
+
+### Files Changed
+- `install.sh` — header comment trimmed to the cairn-only line (ralph prose + marker deleted); `ln -sf ... "$PREFIX/bin/ralph"` line deleted; its `echo "Installed: ... ralph ..."` deleted. Everything else in the file (build, `CAIRN_BIN`, existence check, PATH-check block) untouched.
+- `test/install-script.test.ts` — `'symlinks both cairn and ralph to the built binary'` split into `'symlinks cairn to the built binary'` + a new `'does not create a ralph symlink'`; `'does not print a deprecation warning for the ralph symlink'` deleted; `RALPH_ROOT`/`RALPH_BIN` negative assertion and the `package.json` describe block's `dist/ralph` negative assertion both left unchanged.
+- `.cairn/tasks.json`, `.cairn/tasks.completed.json`, `.cairn/.cairn_iterations.log`, `.cairn/.cairn_tasks_snapshot.json` — task 61 archived/marked complete via `cairn task complete`; not a direct edit of a forbidden path.
+
+### Gaps
+None detected in this task's own scope. `CLAUDE.md` (line 139: "The `ralph` symlink is a long-lived compatibility commitment... Do not add a deprecation warning...") and `README.md` (lines 33, 350) still describe the now-removed symlink as current, live behavior — but unlike the undocumented doc-drift flagged for tasks #59/#60 above, this one is already explicitly owned: task #65 in the current round ("Docs — remove the compatibility window from CLAUDE.md and README.md") is pending and scoped exactly to this cleanup. Consistent with the precedent set in round-4's review of the equivalent situation — correctly out of this task's file scope, not a gap.
+
+### Regression Risks
+None detected. Verified independently rather than trusting the task notes:
+- `bun test test/install-script.test.ts test/legacy-markers.test.ts` → 11 pass, 0 fail.
+- `bun test` (full suite) → 811 pass, 0 fail, 30 files — matches the task notes exactly, identical to the #60 baseline (2 tests removed, 2 added, net zero).
+- `grep -n "ralph" install.sh` → zero matches. `grep -n "remove once all projects migrated" install.sh` → zero matches (expected: the fallback and its marker were deleted together, nothing left to flag).
+- `git diff HEAD~1 HEAD -- cairn.json package.json` → empty; `healthCheck` and the build script both unchanged, confirming the round's binary-freeze/health-check pin stayed intact.
+- `grep -rn "bin/ralph\|dist/ralph"` across the repo (excluding `.cairn/` bookkeeping) → only the intentionally-kept `test/install-script.test.ts:16` negative assertion, `test/legacy-markers.test.ts`'s own reference to install.sh's (now-removed) symlink pattern, and the known, already-owned `README.md`/`CLAUDE.md` staleness — no unmarked or unexpected hits.
+- No forbidden paths (tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, reviews/round-*.md, .ralph_task_*_notes.md, audit/) were hand-edited — all changes to them are the normal task-lifecycle archival already accepted as non-violations in prior reviews above.
+
+### Verdict
+CLEAN
+
+---
+
 ## Task #60: Delete the cairn migrate command
 Reviewed: 2026-08-03T17:07:14.000Z
 
@@ -534,6 +596,272 @@ None detected. Verified independently rather than trusting the task notes:
 - `git diff HEAD~1 -- cairn.json` → empty; `healthCheck` unchanged.
 - `git status --short` → only `.cairn/.cairn_iterations.log` modified (a subsequent iteration-start line from the next task), nothing else outstanding.
 - No forbidden paths (tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, reviews/round-*.md, .ralph_task_*_notes.md, audit/) were hand-edited — all changes to them are the normal task-lifecycle archival already accepted as non-violations in the #58/#59 reviews above.
+
+### Verdict
+HAS_GAPS
+
+---
+
+## Task #62: Delete test/legacy-markers.test.ts
+Reviewed: 2026-08-03T17:14:55Z
+
+### Coverage
+```
+Task Requirements
+├── [PARTIAL] Run precondition grep BEFORE deleting and honor its STOP clause
+│   ├── [DONE] Grep was actually run and its results reasoned about (commit body
+│   │           names both src/brand.ts and the two src/commands/run.ts hits)
+│   └── [GAP]  Hits existed outside src/brand.ts (src/commands/run.ts:363,708 —
+│               the NOTES_TEMPFILE_RE marker and its cleanup-sweep comment) and
+│               the task said to STOP and report in that case; the agent instead
+│               judged them safe and proceeded to delete
+└── [DONE] Delete test/legacy-markers.test.ts (only that file touched, clean diff)
+```
+
+### Files Changed
+- `test/legacy-markers.test.ts` (deleted, 132 lines)
+
+### Gaps
+- The task's precondition, read literally, was **not** satisfied: `grep -rn "remove once all projects migrated" src/ lib/ install.sh` currently returns hits in three places, not one file — `src/brand.ts:32` (expected, task 63's LEGACY object) plus `src/commands/run.ts:363` and `src/commands/run.ts:708` (the `NOTES_TEMPFILE_RE` doc comment and its cleanup-sweep comment, both describing the permanent `.ralph_task_<id>_notes.md` exception). The task description was explicit: *"If any other file still carries a marker, STOP and report rather than deleting — that means an earlier task left work behind."* Those hits exist outside `src/brand.ts`, so the letter of the stop condition was triggered.
+- The agent did not stop. Its commit message shows it noticed both `run.ts` hits and reasoned through them ("two comments in src/commands/run.ts describing the permanent .ralph_ notes exception... already carr[y] the marker"), concluding they're fine because they're properly marked and tasks 51-61 never introduce unmarked mentions. Substantively this reasoning checks out — verified independently below — but it's a judgment call made in place of the explicit stop-and-report instruction, not a case where the precondition was actually clean.
+
+### Regression Risks
+None detected — verified independently, not merely trusting the commit message:
+- `bun test` (full suite): 806 pass, 0 fail across 29 files. No coverage lost elsewhere.
+- No other source, test, or non-generated-JSON file references `test/legacy-markers.test.ts`; only the three `.cairn/*.json` task-tracking files mention it (task metadata, expected).
+- Re-ran the precondition grep independently: confirms the same 3 hits (`src/brand.ts`, `src/commands/run.ts` x2) the agent's commit message describes. Both `run.ts` hits do carry the marker within the test's own lookback/lookahead window, so had the now-deleted test still been run against current `HEAD`, it would have passed — the guardrail's *actual* contract (every legacy mention is marked) holds, even though the task's simplified paraphrase of that check ("only src/brand.ts") does not.
+- Working tree shows only routine task-lifecycle files modified (`.cairn_iterations.log`, `.cairn_tasks_snapshot.json`, `tasks.completed.json`, `tasks.json`, this review) — no forbidden-path edits by the agent itself.
+- No new unmarked legacy mention was introduced by this deletion (it only removes a file; it can't create one).
+
+### Verdict
+HAS_GAPS
+
+---
+
+## Task #63: src/brand.ts — delete LEGACY and rehome the permanent notes prefix
+Reviewed: 2026-08-03T17:19:14Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Delete LEGACY, warnLegacyOnce, resetLegacyWarnings, warnedKeys from src/brand.ts
+│   └── Verified: grep -rn "LEGACY|warnLegacyOnce|resetLegacyWarnings" src/ test/
+│       returns zero hits outside test/brand.test.ts's own negative assertion.
+├── [DONE] Run the pre-delete confirm grep before deleting
+│   └── Notes describe running it; matches independent re-verification above.
+├── [DONE] Update BRAND doc comment — drop legacy-layout framing, keep
+│   │       CREATE-vs-RESOLVE standing rule
+│   └── Rule text is intact verbatim ("for CREATING paths, never for
+│       RESOLVING them... must come from the value discovery actually found");
+│       only the closing clause was reworded to drop "legacy layout" framing.
+├── [DONE] Add NOTES_TEMP_PREFIX = '.ralph_' with PERMANENT-exception comment
+├── [DONE] Repoint 3 consumers: run.ts notesFile, NOTES_TEMPFILE_RE, init.ts
+│   │       gitignore line
+│   └── All three now read NOTES_TEMP_PREFIX; confirmed via grep on
+│       src/commands/run.ts and src/commands/init.ts.
+├── [DONE] Fix stale comments at run.ts ~364 and ~711
+│   └── Both reworded; no remaining "collapses to BRAND only" or "legacy
+│       name" framing.
+├── [DONE] TDD on test/brand.test.ts — NOTES_TEMP_PREFIX assertion + LEGACY
+│           no-longer-exported check
+│   └── Old LEGACY/warnLegacyOnce/resetLegacyWarnings describe blocks
+│       replaced; new "legacy surface" block asserts all three are
+│       `undefined` on the module namespace.
+├── [DONE] Do not modify cairn.json healthCheck / do not run ./install.sh
+│   └── cairn.json still reads `bun build --compile ... --outfile
+│       /tmp/cairn-healthcheck` (throwaway, untouched); no dist/ or
+│       ~/.local/bin changes in the diff.
+└── [GAP]  CLAUDE.md still documents LEGACY, warnLegacyOnce, the removal
+            marker, and test/legacy-markers.test.ts as live machinery —
+            now factually wrong, but outside this task's file scope
+```
+
+### Files Changed
+- `src/brand.ts`
+- `src/commands/run.ts`
+- `src/commands/init.ts`
+- `test/brand.test.ts`
+- `.cairn/tasks.json`, `.cairn/tasks.completed.json`, `.cairn/.cairn_tasks_snapshot.json`, `.cairn/.cairn_iterations.log` (routine task-lifecycle bookkeeping, not agent-authored content)
+
+### Gaps
+- **CLAUDE.md is now stale**, not touched by this task (correctly out of its file scope: `src/brand.ts`, `src/commands/run.ts`, `src/commands/init.ts`, `test/brand.test.ts`). Independently confirmed still-present passages that contradict the current source:
+  - "Branding and the legacy layout" section still describes `LEGACY`, `warnLegacyOnce`, `resetLegacyWarnings` as live.
+  - "The removal marker" section still tells readers to `grep -rn "remove once all projects migrated"` and points at `test/legacy-markers.test.ts` (deleted in task #62) and `LEGACY` in `src/brand.ts` (deleted here) as the starting points.
+  - "The compatibility window" section still asserts both data layouts / binaries / the `ralph` symlink are live — also stale from tasks #60/#61 in this same round.
+  The task's own completion notes flag this explicitly and recommend a dedicated follow-up task if none of the round's 3 remaining tasks covers it — worth confirming that happens before the round closes, otherwise the round ends with docs actively describing deleted machinery as current.
+- **Deliberate deviation from the task's suggested implementation**, flagged transparently in the notes: the task description suggested `NOTES_TEMPFILE_RE` "can now match NOTES_TEMP_PREFIX alone." The agent kept both `NOTES_TEMP_PREFIX` and `BRAND.tempPrefix` in the alternation instead. Verified this is the right call, not a shortcut: `test/commands/run.test.ts:2031/2051` asserts `.cairn_task_7_notes.md` is swept, with an explicit comment that the sweep must cover the current-brand prefix too. Narrowing the regex as literally suggested would have silently broken that existing, still-passing test's intent. Not counted as a gap — the task's hard requirement ("must keep matching this prefix or scratch leaks forever") is satisfied and the comment above the regex now explains which branch is load-bearing vs. defensive.
+
+### Regression Risks
+None detected — verified independently:
+- `grep -rn "LEGACY\|warnLegacyOnce\|resetLegacyWarnings" src/ test/` → only the intentional negative-assertion lines in `test/brand.test.ts`. No missed call site, confirming the task's advance verification (call sites in narration.ts/utils.ts/config.ts already removed by tasks 51/52/58) held.
+- `bun test` (full suite): **805 pass, 0 fail, 29 files** — consistent with the notes' claimed count.
+- `bun build --target=bun src/index.ts --outfile /tmp/cairn-review-check` → bundles clean, no missing-export errors from the deleted symbols.
+- `grep -n "healthCheck" cairn.json` → unchanged throwaway outfile, confirming the pin/unpin procedure was honored.
+- No exports other than `LEGACY`/`warnLegacyOnce`/`resetLegacyWarnings` were removed; `BRAND` and the new `NOTES_TEMP_PREFIX` are both still exported and consumed correctly by `run.ts` and `init.ts`.
+- Working tree shows no edits outside the task's declared file scope plus routine `.cairn/*` task-lifecycle bookkeeping — no forbidden-path edits (`tasks.completed.json` content itself unchanged except archival, `.cairn/reviews/round-*.md` untouched by the agent, `audit/` untouched).
+
+### Verdict
+HAS_GAPS
+
+---
+
+## Task #64: Cosmetic test-fixture sweep across remaining test files
+Reviewed: 2026-08-03T17:25:40Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] test/commands/summarize.test.ts — all 21 incidental '.ralph' fixture
+│           occurrences renamed to '.cairn'; independent grep confirms zero
+│           remaining "ralph" hits (case-insensitive) in this file
+├── [DONE] test/commands/status.test.ts — 15/17 renamed; 2 left, both brand-leak
+│           negative assertions (not.toContain('ralph init'/'ralph plan')),
+│           confirmed by reading the surrounding context — not fixture strings
+├── [DONE] test/commands/plan.test.ts — all 10 occurrences renamed; zero
+│           remaining "ralph" hits confirmed independently
+├── [DONE] test/post-task-reviewer.test.ts — all 25 occurrences renamed; zero
+│           remaining "ralph" hits confirmed independently
+├── [DONE] test/commands/run.test.ts — 15 fixture occurrences renamed
+│           (dataDir/tasksFilePath/corruption-log/snapshot literals); 18 left,
+│           independently re-verified as: the permanent NOTES_TEMP_PREFIX
+│           literal (`.ralph_task_<id>_notes.md`, one test + the sweep-test
+│           block of ~11 lines), 3 legacy-flag-fallback behavioral tests
+│           (`.ralph_complete`/`.ralph_prev_notes`/`.ralph_completed_ids`),
+│           one brand-leak check, and one dataDir-vs-hardcoded-literal guard —
+│           none are incidental fixture names
+├── [DONE] test/commands/edit.test.ts — its one occurrence (dataDir fixture)
+│           renamed; zero remaining "ralph" hits
+├── [DONE] test/index.test.ts, test/config.test.ts, test/utils.test.ts left
+│           byte-identical (not in the diff) — independently spot-checked one
+│           claim from each file's notes rather than trusting them at face
+│           value: utils.test.ts's "does not treat a legacy .ralph/ directory
+│           as a project root" test targets exactly the coexistence behavior
+│           the rename would invert; config.test.ts's two ralph.json tests
+│           assert the file is correctly *ignored*, so renaming the fixture
+│           would flip the assertion's meaning; index.test.ts's two tests are
+│           explicitly titled around a leftover .ralph/ coexisting with .cairn/
+├── [DONE] test/commands/init.test.ts correctly NOT re-touched (task #54's
+│           scope, explicitly excluded by this task's own description)
+├── [DONE] Assertions stay literal ('.cairn', 'cairn.json') — no
+│           BRAND.dataDir/BRAND.configFile substitutions introduced anywhere
+│           in the diff
+├── [DONE] Final `grep -rni ralph test/` sweep run and reported, with every
+│           remaining hit classified — independently re-ran the same grep and
+│           got the same set of files/line counts as the task notes claim
+├── [DONE] cairn.json's healthCheck untouched, ./install.sh not run
+└── [DONE] Historical/forbidden paths not hand-edited — .cairn/tasks.json,
+             .cairn/tasks.completed.json, .cairn/.cairn_iterations.log,
+             .cairn/.cairn_tasks_snapshot.json changes are all normal
+             `cairn task complete` archival lifecycle, consistent with every
+             prior task in this round
+```
+
+### Files Changed
+- test/commands/summarize.test.ts — 21 fixture-path renames (`.ralph` → `.cairn`), no assertion-semantics changes
+- test/commands/status.test.ts — 15 fixture-path/test-title renames; 2 brand-leak assertions correctly left alone
+- test/commands/plan.test.ts — 10 renames across `makeTempDir`'s comment/variable usage and `buildDynamicContext` fixture literals
+- test/post-task-reviewer.test.ts — 25 renames across `reviewFilePath`, `dataDir`, `--allowedTools` assertion, and test titles (e.g. `'creates .cairn/reviews/ directory when missing'`)
+- test/commands/run.test.ts — 15 renames (`makeInput`/`makeRunOpts` default `dataDir`, `tasksFilePath`, corruption-log line, snapshot call, readdirSync/unlink assertions); the 18 remaining occurrences are all legacy-behavior or permanent-exception literals, not misses
+- test/commands/edit.test.ts — 1 rename (`beforeEach`'s `dataDir`)
+- .cairn/tasks.json, .cairn/tasks.completed.json, .cairn/.cairn_iterations.log, .cairn/.cairn_tasks_snapshot.json — task 64 archived/marked complete via `cairn task complete`; not a direct edit of a forbidden path
+
+### Gaps
+None detected. Every file in the Expected Files list was either updated or correctly left alone with a verifiable, non-cosmetic reason; the notes' claims about which occurrences are behavioral were independently spot-checked (not just read) and held up.
+
+### Regression Risks
+None detected. Verified independently rather than trusting the task notes:
+- `bun test` (full suite) → **805 pass, 0 fail, 29 files** — identical to the pre-task baseline reported for task #63's review; zero test-count change, consistent with a purely cosmetic rename.
+- `grep -rni ralph test/commands/summarize.test.ts test/commands/plan.test.ts test/post-task-reviewer.test.ts test/commands/edit.test.ts` → zero matches in all four — fully clean.
+- `grep -cni ralph test/commands/run.test.ts` → 18, matching the notes' tally exactly; manually read each hit and confirmed none are incidental fixture strings (permanent `.ralph_task_<id>_notes.md` literal ×2 blocks, 3 legacy-flag-fallback tests, 1 brand-leak check, 1 dataDir-vs-literal regression guard at line 315).
+- `grep -ni ralph test/commands/status.test.ts` → exactly the 2 brand-leak lines (`not.toContain('ralph init')` / `not.toContain('ralph plan')`), confirmed by reading surrounding context — not fixture paths.
+- Confirmed test/config.test.ts, test/utils.test.ts, test/index.test.ts carry zero diff (git diff empty for all three) and that their remaining "ralph" mentions are load-bearing behavioral fixtures, not overlooked renames — matches the notes' per-file justification.
+- No BRAND.dataDir/BRAND.configFile substitution appears anywhere in the diff — every renamed literal is still a plain string.
+- `cairn.json`'s `healthCheck` unchanged (no diff to cairn.json in this task's changes); no evidence `./install.sh` was run.
+- No forbidden paths (tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, reviews/round-*.md, .ralph_task_*_notes.md, audit/) were hand-edited — all changes to them are the normal task-lifecycle archival already accepted as non-violations throughout this round's reviews.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #65: Docs — remove the compatibility window from CLAUDE.md and README.md
+Reviewed: 2026-08-03T17:35:00Z
+
+### Coverage
+```
+Task Requirements (CLAUDE.md)
+├── [DONE]    Delete 'Branding and the legacy layout' section (+ temp-file-prefix,
+│             narration-socket subsections)
+├── [DONE]    Delete 'The compatibility window' section
+├── [DONE]    Delete 'The removal marker' subsection
+├── [DONE]    Delete 'The cairn migrate command' section
+├── [DONE]    Keep 'Pin/unpin procedure for self-modifying rounds' (scrubbed live
+│             ralph.json / ~/.local/bin/ralph references, kept historical mention)
+├── [PARTIAL] Fold what survives into a short src/brand.ts note in Architecture —
+│             new "Branding" bullet lists BRAND fields + NOTES_TEMP_PREFIX, but
+│             drops the CREATE-vs-RESOLVE "STANDING RULE" and the
+│             findDataDir()/findConfigFile() function references entirely
+├── [DONE]    Add Conventions note for .ralph_task_<id>_notes.md / NOTES_TEMP_PREFIX
+├── [DONE]    Update 'What is Cairn' opener
+├── [DONE]    .cairn/ layout diagram — dropped 'or .ralph/ on projects not yet migrated'
+├── [GAP]     Update the findDataDir/findConfigFile descriptions — these were deleted
+│             outright (with the whole legacy section) rather than updated; CLAUDE.md
+│             now never mentions either function
+├── [DONE]    Agent workflow section — dropped the 'ralph task ...' equivalence note
+├── [DONE]    README: delete 'Migrating from Ralph' section + all links to it
+├── [DONE]    README: drop 'cairn migrate' from command table (+ compatibility-symlink
+│             note beneath it)
+├── [DONE]    README: fix install section — only ~/.local/bin/cairn is symlinked
+├── [DONE]    README: remove legacy-layout notes (discovery/config/project-structure)
+├── [DONE]    README: remove migrate.ts from source tree diagram
+├── [DONE]    README: fix narration paragraphs — no legacy socket fallback, reads only
+│             CAIRN_NARRATE_SOCKET
+└── [DONE]    docs/parallel-execution-rfc.md — fixed its single 'ralph' reference
+```
+
+### Files Changed
+- `CLAUDE.md` — deleted 4 sections/subsections as specified, kept and scrubbed the
+  pin/unpin section, added a "Branding" Architecture bullet and a Conventions bullet,
+  updated opener/diagram/agent-workflow text
+- `README.md` — deleted "Migrating from Ralph" section + links, fixed install/command
+  table/discovery/config/project-structure/source-tree/narration text
+- `docs/parallel-execution-rfc.md` — one-line author-line fix
+
+### Gaps
+- **findDataDir/findConfigFile descriptions not updated, just removed.** The task
+  description explicitly lists "the findDataDir/findConfigFile descriptions" alongside
+  the opener, layout diagram, and Agent-workflow section as things to *update* — the
+  same treatment given to those other three items, all of which survived in edited
+  form. Instead, the two function descriptions were deleted wholesale along with the
+  rest of the "Branding and the legacy layout" section. Both functions are still live
+  and in active use (`src/utils.ts:36` `findDataDir`, `src/config.ts:12`
+  `findConfigFile`, called from `src/index.ts:38` and `src/commands/edit.ts:20`), and
+  `src/brand.ts`'s own doc comment (lines 6–13) still states the "STANDING RULE" that
+  `BRAND.dataDir`/`BRAND.configFile` must never be used to resolve an existing path —
+  only `findDataDir()`/`findConfigFile()` should — and explicitly names both functions
+  by file location as the enforcement mechanism. CLAUDE.md no longer explains this rule
+  or these functions anywhere, so a reader following brand.ts's own comment back to
+  CLAUDE.md for context finds nothing. This is a real (if narrow) documentation-source
+  drift, not just cosmetic: the standing rule is still architecturally load-bearing
+  (narration socket resolution in particular depends on the same RESOLVE-vs-CREATE
+  distinction per task #65's own notes), and it went from documented to undocumented
+  during a change whose whole point was rewriting these descriptions, not deleting them.
+
+### Regression Risks
+- None found in code — this task touched only `CLAUDE.md`, `README.md`, and
+  `docs/parallel-execution-rfc.md`; no `src/`, `test/`, or `lib/` files changed.
+- Verified `src/commands/migrate.ts` no longer exists and is not registered in
+  `src/index.ts`, and `install.sh` no longer symlinks a `ralph` binary — so the
+  README/CLAUDE.md deletions of the migrate command and the ralph symlink note
+  correctly track source, not ahead of it.
+- No broken internal markdown links found (`[Conventions](#conventions)` anchor
+  resolves; no dangling references to the deleted "Migrating from Ralph" or
+  "Branding and the legacy layout" sections remain in any of the three files).
+- `cairn.json`'s `healthCheck` unchanged; no evidence `./install.sh` was run.
+- No forbidden paths (tasks.completed.json, .cairn_iterations.log,
+  .cairn_tasks_snapshot.json, reviews/round-*.md, .ralph_task_*_notes.md, audit/) were
+  hand-edited — changes to tasks.json/tasks.completed.json/the snapshot/the iteration
+  log are the normal task-lifecycle archival, consistent with prior reviews this round.
 
 ### Verdict
 HAS_GAPS
