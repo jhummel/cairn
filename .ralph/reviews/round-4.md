@@ -600,3 +600,39 @@ None detected. This is a docs-only change:
 
 ### Verdict
 HAS_GAPS
+
+---
+
+## Task #46: Verification sweep
+Reviewed: 2026-08-03T02:53:42Z
+
+### Coverage
+Task Requirements
+├── [DONE] Run `grep -rni ralph` sweep and fix misses from earlier tasks — found and fixed: stale `.claude/agents/*.md` + `.claude/commands/*.md` (independently reverified: `grep -rni ralph .claude/agents/ .claude/commands/` now returns nothing), `bun.lock`'s workspace `"name"` field (`"cairn"` confirmed by direct read), two dead `bin/ralph` provenance comments in `src/utils.ts`, and a stale `dist/ralph`/`bin/ralph` comment (confirmed no `dist/ralph` string remains anywhere under `src/`)
+├── [DONE] Mark every category-1 fallback with `remove once all projects migrated` (or `TODO(#48)` for the two non-fallback socket/pid literals) — enforced by new `test/legacy-markers.test.ts`, which scans `src/**/*.ts`, `lib/*.py`, `agents/*.md`, `commands/*.md`, `install.sh` for exactly this; independently re-ran the full suite (not just trusting the task notes) and confirmed `844 pass, 0 fail, 31 files` — identical to the notes' claimed numbers
+├── [DONE] `bun test` must pass — independently re-ran `bun test`: 844 pass, 0 fail, matches notes exactly. Also independently re-ran `bun build --target=bun src/index.ts --outfile /tmp/task46-review-healthcheck`: clean, 0.44 MB, 109 modules
+└── [PARTIAL] Report the final tally (how many references remain + category breakdown) — the notes report **987** matching lines with a 7-bucket table that sums to 987. Independently re-running the exact command described (`grep -rni ralph`, excluding only `.git/`, `node_modules/`, `dist/`, `.venv/`) against the current tree returns **1305** matching lines, not 987 — a ~318-line discrepancy. Traced the gap: four sets of files that exist on disk today and match the grep are absent from every bucket in the reported table — `.ralph/.ralph_task_*_notes.md` (17 files, 264 lines — explicitly named as historical-record in the task's own category-2 list), `.ralph/.ralph_iterations.log` (31 lines — also explicitly named in category-2), `.ralph/.ralph_prev_notes` (16 lines), and `.ralph/.ralph_tasks_snapshot.json` (6 lines, at its state during this review). By contrast, the *other* three category-2 files (`tasks.completed.json`, `reviews/round-4.md`, `planning-notes.md`) *are* individually itemized in the table's "Historical record" bucket. So the omission isn't a deliberate, disclosed exclusion (like the `.claude/settings.local.json` row, which is explicitly called out as excluded and why) — these four just aren't accounted for anywhere, which means the categorization pass wasn't actually exhaustive over its own stated category-2 list, even though the underlying judgment (leave historical/scratch files alone) is correct
+
+### Files Changed
+- `.claude/agents/planner.md`, `.claude/agents/post-task-reviewer.md`, `.claude/commands/codebase-audit.md`, `.claude/commands/generate-tasks.md`, `.claude/commands/review-tasks.md` — stale installed copies refreshed to current templates
+- `CLAUDE.md` — new "The removal marker" subsection
+- `bun.lock` — workspace name `ralph` → `cairn`
+- `install.sh`, `lib/cairn_narrate_server.py`, `src/brand.ts`, `src/commands/edit.ts`, `src/commands/init.ts`, `src/commands/migrate.ts`, `src/commands/narrate.ts`, `src/commands/run.ts`, `src/config.ts`, `src/index.ts`, `src/narration.ts`, `src/post-task-reviewer.ts`, `src/task-archiver.ts`, `src/task-selector.ts`, `src/tasks-file.ts`, `src/utils.ts` — `remove once all projects migrated` / `TODO(#48)` markers added at every fallback site, plus the `utils.ts` dead-comment fixes
+- `test/legacy-markers.test.ts` — new, 3 tests
+- ~25 other `test/**/*.ts` files — cosmetic `ralph-` → `cairn-` renames of temp-dir prefixes, local identifiers, and test titles (legacy-layout fixtures deliberately left alone, confirmed by spot-checking `test/commands/plan.test.ts` and `test/commands/migrate.test.ts`)
+- `.ralph/.gitignore`, `.ralph/tasks.json`, `.ralph/tasks.completed.json`, `.ralph/reviews/round-4.md`, `.ralph/.ralph_iterations.log` — standard tool-managed task lifecycle files (archival, review log, iteration log), not direct edits
+
+### Gaps
+The final-tally partial item above: the reported 987-line tally and its category breakdown do not reconcile with an actual re-run of the described grep command against the current tree (1305 lines). The gap is entirely attributable to legitimately-excludable files (gitignored per-task scratch notes and the iterations log, both of which the task description itself names as category-2 historical record), so no remediation is needed — but the report's own internal checksum ("516 + 345 + 47 + 54 + 8 + 7 + 10 = 987 ✓") gives false confidence that the accounting is complete when it silently drops ~318 lines' worth of real, on-disk, still-matching content. Worth a corrective note if this round's numbers are ever cited again, but not worth reopening the task for.
+
+### Regression Risks
+None detected. Independently re-verified in this review session, not just trusting the task notes:
+- `bun test` → 844 pass, 0 fail, 31 files (re-ran fresh).
+- `bun build --target=bun src/index.ts --outfile ...` → clean, 0.44 MB, 109 modules (re-ran fresh).
+- `healthCheck` in `ralph.json` remains pinned to the throwaway outfile (`/tmp/cairn-healthcheck`) per the pin/unpin procedure — confirmed untouched, as the notes claim.
+- No exports removed; `test/legacy-markers.test.ts` is a net-new, purely additive test file (+3 tests), and no existing test was deleted or weakened.
+- `.claude/agents/*.md` / `.claude/commands/*.md` overwrites were re-verified to be genuinely stale-content replacements — a direct grep confirms zero `ralph` references remain in either installed directory.
+- Working tree is otherwise clean (`git status --short` shows only the expected `.ralph/.ralph_iterations.log` churn from this review's own `bun test` run).
+
+### Verdict
+HAS_GAPS
