@@ -90,8 +90,11 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
   if (!fileTask || fileTask.status !== 'complete') {
     return { status: 'skipped' };
   }
-  const taskDir = task.directory && task.directory !== '/' ? task.directory : '.';
-  const cwd = path.resolve(projectRoot, taskDir);
+  // Task `tests` entries are written relative to the project root, so they must run
+  // there — not from `task.directory`. Running them from the task directory made them
+  // fail spuriously, and the failure was then misclassified as a real one and reverted
+  // an already-complete task to in-progress.
+  const cwd = path.resolve(projectRoot);
 
   for (const cmd of task.tests) {
     const { exitCode, stderr } = await runCommand(cmd, cwd, timeoutMs);

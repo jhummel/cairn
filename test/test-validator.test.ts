@@ -225,7 +225,7 @@ describe('validateTaskTests', () => {
     });
   });
 
-  describe('directory resolution', () => {
+  describe('cwd resolution', () => {
     it('runs tests in projectRoot when task has no directory', async () => {
       writeFileSync(join(tmpDir, 'sentinel.txt'), 'hello');
       const task: Task = {
@@ -238,19 +238,24 @@ describe('validateTaskTests', () => {
       expect(result.status).toBe('passed');
     });
 
-    it('resolves task.directory relative to projectRoot when set', async () => {
-      const subDir = join(tmpDir, 'sub');
-      mkdirSync(subDir);
-      writeFileSync(join(subDir, 'sub-sentinel.txt'), 'hello');
+    it('runs root-relative test commands from projectRoot even when task.directory is a subdir', async () => {
+      // Regression: task `tests` entries are written relative to the project root (e.g.
+      // `bun test test/foo.test.ts`). Running them from <root>/<task.directory> made them
+      // match nothing, and the resulting failure was misclassified as a real test failure,
+      // reverting an already-complete task to in-progress.
+      mkdirSync(join(tmpDir, 'sub'));
+      writeFileSync(join(tmpDir, 'root-sentinel.txt'), 'hello');
       const task: Task = {
         id: 1, priority: 1, title: 'Test', status: 'complete',
         directory: 'sub',
-        tests: ['test -f sub-sentinel.txt'],
+        tests: ['test -f root-sentinel.txt'],
       };
       writeTasksFile(tasksFilePath, [task]);
 
       const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
       expect(result.status).toBe('passed');
+      const data = readTasksFile(tasksFilePath);
+      expect(data.tasks.find((t) => t.id === 1)!.status).toBe('complete');
     });
 
     it('treats directory "/" as projectRoot (not filesystem root)', async () => {
@@ -266,14 +271,14 @@ describe('validateTaskTests', () => {
       expect(result.status).toBe('passed');
     });
 
-    it('does not match files at projectRoot when task.directory points elsewhere', async () => {
+    it('does not resolve test commands against task.directory', async () => {
       const subDir = join(tmpDir, 'sub');
       mkdirSync(subDir);
-      writeFileSync(join(tmpDir, 'root-only.txt'), 'hello');
+      writeFileSync(join(subDir, 'sub-only.txt'), 'hello');
       const task: Task = {
         id: 1, priority: 1, title: 'Test', status: 'complete',
         directory: 'sub',
-        tests: ['test -f root-only.txt'],
+        tests: ['test -f sub-only.txt'],
       };
       writeTasksFile(tasksFilePath, [task]);
 

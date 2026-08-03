@@ -4,7 +4,6 @@ import { spawn } from 'child_process';
 
 export interface HealthCheckOpts {
   healthCheck: string;
-  taskDir: string;
   projectRoot: string;
 }
 
@@ -46,13 +45,15 @@ function runCommand(cmd: string, cwd: string): Promise<{ exitCode: number; outpu
 }
 
 export async function runHealthCheck(opts: HealthCheckOpts): Promise<HealthCheckResult> {
-  const { healthCheck, taskDir, projectRoot } = opts;
+  const { healthCheck, projectRoot } = opts;
 
   if (!healthCheck) {
     return { status: 'skipped' };
   }
 
-  const cwd = taskDir ? join(projectRoot, taskDir) : projectRoot;
+  // `healthCheck` is a single project-wide command written relative to the project root,
+  // so it always runs there — never from the current task's directory.
+  const cwd = projectRoot;
 
   if (!shouldRunHealthCheck(healthCheck, cwd)) {
     return { status: 'skipped' };

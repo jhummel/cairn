@@ -276,7 +276,7 @@ export interface RunRunDeps {
   selectNextTask: (tasks: Task[], completedIds: Set<number>) => Task | null;
   buildIterationPrompt: (task: Task, iteration: number, maxIterations: number, prevNotes: string | null, totalRemaining: number) => string;
   buildSystemPrompt: (input: SystemPromptInput) => string;
-  runHealthCheck: (opts: { healthCheck: string; taskDir: string; projectRoot: string }) => Promise<HealthCheckResult>;
+  runHealthCheck: (opts: { healthCheck: string; projectRoot: string }) => Promise<HealthCheckResult>;
   spawnClaude: (opts: SpawnClaudeOpts) => Promise<{ exitCode: number }>;
   validateTaskTests: (opts: ValidateTaskTestsOpts) => Promise<ValidationResult>;
   archiveCompletedTasks: (opts: { tasksFilePath: string; dataDir: string; iterationLogPath?: string }) => Promise<ArchiveResult>;
@@ -528,7 +528,6 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       // e. Run health check
       const healthResult = await deps.runHealthCheck({
         healthCheck: config.healthCheck,
-        taskDir,
         projectRoot,
       });
 
