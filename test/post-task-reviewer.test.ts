@@ -14,6 +14,7 @@ import {
 } from "../src/post-task-reviewer";
 import type { Task } from "../src/types";
 import type { CairnConfig } from "../src/types";
+import { BRAND } from "../src/brand";
 
 let tmpDir: string;
 
@@ -343,6 +344,48 @@ describe("spawnPostTaskReviewer", () => {
       .replace(/^\//, "");
     expect(stdinData).toContain(join(dataDir, "reviews", "round-7.md"));
     expect(join(dataDir, "reviews", "round-7.md").startsWith(rulePrefix)).toBe(true);
+  });
+
+  test("allowlist rule follows the actual dataDir even when it diverges from projectRoot/BRAND.dataDir", async () => {
+    // Simulates a nested project (findProjectRoot walked upward to an ancestor)
+    // or a CAIRN_PROJECT_ROOT override: the resolved dataDir does NOT live at
+    // `${projectRoot}/${BRAND.dataDir}`. If the allowlist rule were ever built
+    // from a hardcoded `${projectRoot}/${BRAND.dataDir}` guess instead of the
+    // caller's resolved dataDir, it would name a different directory than the
+    // one the prompt tells the reviewer to write to — every Edit/Write would
+    // then be silently denied.
+    const child = createMockChild();
+    let spawnArgs: string[] = [];
+    let stdinData = "";
+    const mockSpawn = (_cmd: string, args: string[]) => {
+      spawnArgs = args;
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+    child.stdin.on("data", (chunk: Buffer) => {
+      stdinData += chunk.toString();
+    });
+
+    const dataDir = join(spawnTmpDir, "nested", "actual-project", BRAND.dataDir);
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(join(dataDir, "state.json"), JSON.stringify({ round: 3 }));
+
+    await spawnPostTaskReviewer({
+      projectRoot: spawnTmpDir,
+      dataDir,
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    const wrongHardcodedRule = `/${join(spawnTmpDir, BRAND.dataDir)}/reviews/**`;
+    const allowed = spawnArgs[spawnArgs.indexOf("--allowedTools") + 1];
+
+    expect(allowed).not.toContain(wrongHardcodedRule);
+    expect(allowed).toContain(`/${join(dataDir, "reviews")}/**`);
+    expect(stdinData).toContain(join(dataDir, "reviews", "round-3.md"));
   });
 
   test("unsets ANTHROPIC_API_KEY in env", async () => {

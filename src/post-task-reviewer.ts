@@ -141,8 +141,12 @@ export async function spawnPostTaskReviewer(
   //
   // The rule is derived from reviewsDir — the same path the prompt tells the
   // reviewer to write — so the two can never diverge. Hardcoding a directory
-  // name here would grant an allowlist for e.g. .cairn/reviews/** on a project
-  // that actually lives in .cairn/, and every reviewer write would be silently
+  // name here instead (e.g. building the rule from `${projectRoot}/${BRAND.dataDir}`)
+  // would silently break whenever the caller's actual dataDir isn't at that
+  // guessed location — a nested project whose data dir was found by walking
+  // upward from cwd, or a CAIRN_PROJECT_ROOT override pointing elsewhere. In
+  // that case the granted glob and the path in the prompt would name genuinely
+  // different directories, and every reviewer Edit/Write would be silently
   // denied with no error and no review output.
   const reviewFileRule = `/${reviewsDir}/**`;
 
