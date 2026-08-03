@@ -10,7 +10,7 @@ import {
   findNarrationSocketPath,
   findNarrationPidFile,
 } from '../src/narration';
-import { BRAND, LEGACY, resetLegacyWarnings } from '../src/brand';
+import { BRAND } from '../src/brand';
 
 function makeSockPath(): string {
   return join(tmpdir(), `cairn-narr-test-${Math.random().toString(36).slice(2)}.sock`);
@@ -316,9 +316,7 @@ describe('findNarrationSocketPath', () => {
   const roots: string[] = [];
   const track = (r: string) => { roots.push(r); return r; };
 
-  beforeEach(() => resetLegacyWarnings());
   afterEach(() => {
-    resetLegacyWarnings();
     while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
   });
 
@@ -326,28 +324,28 @@ describe('findNarrationSocketPath', () => {
     expect(findNarrationSocketPath(undefined, NONE)).toBe('/tmp/cairn-tts.sock');
   });
 
-  it('prefers a live current-brand socket over a live legacy one', () => {
-    expect(findNarrationSocketPath(undefined, { exists: () => true })).toBe(BRAND.socket);
+  it('returns the current brand socket when it is already live', () => {
+    expect(findNarrationSocketPath(undefined, { exists: (p) => p === BRAND.socket })).toBe('/tmp/cairn-tts.sock');
   });
 
-  it('falls back to the legacy socket when only that one is live', () => {
-    const exists = (p: string) => p === LEGACY.socket;
-    expect(findNarrationSocketPath(undefined, { exists })).toBe('/tmp/ralph-tts.sock');
+  it('ignores a stale /tmp/ralph-tts.sock left by the pre-rename binary', () => {
+    const exists = (p: string) => p === '/tmp/ralph-tts.sock';
+    expect(findNarrationSocketPath(undefined, { exists })).toBe('/tmp/cairn-tts.sock');
   });
 
   it("follows the project's installed hook, which is the client that dials it", () => {
-    const root = track(projectWithHook('/tmp/ralph-tts.sock'));
-    expect(findNarrationSocketPath(root, NONE)).toBe('/tmp/ralph-tts.sock');
+    const root = track(projectWithHook('/tmp/custom-tts.sock'));
+    expect(findNarrationSocketPath(root, NONE)).toBe('/tmp/custom-tts.sock');
   });
 
   it('follows a current-brand hook too', () => {
     const root = track(projectWithHook('/tmp/cairn-tts.sock'));
-    expect(findNarrationSocketPath(root, { exists: (p) => p === LEGACY.socket })).toBe('/tmp/cairn-tts.sock');
+    expect(findNarrationSocketPath(root, NONE)).toBe('/tmp/cairn-tts.sock');
   });
 
   it('the hook outranks a live socket at the other path', () => {
-    const root = track(projectWithHook('/tmp/ralph-tts.sock'));
-    expect(findNarrationSocketPath(root, { exists: () => true })).toBe('/tmp/ralph-tts.sock');
+    const root = track(projectWithHook('/tmp/custom-tts.sock'));
+    expect(findNarrationSocketPath(root, { exists: () => true })).toBe('/tmp/custom-tts.sock');
   });
 
   it('ignores a hook with no SOCKET assignment', () => {
@@ -360,27 +358,15 @@ describe('findNarrationSocketPath', () => {
     expect(findNarrationSocketPath(root, NONE)).toBe(BRAND.socket);
   });
 
-  it('warns once when it resolves to the legacy socket', () => {
-    const root = track(projectWithHook('/tmp/ralph-tts.sock'));
+  it('emits no warnings, whatever it resolves to', () => {
+    const root = track(projectWithHook('/tmp/custom-tts.sock'));
     const seen: string[] = [];
     const original = console.error;
     console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
     try {
       findNarrationSocketPath(root, NONE);
-      findNarrationSocketPath(root, NONE);
-    } finally {
-      console.error = original;
-    }
-    expect(seen.length).toBe(1);
-    expect(seen[0]).toContain('/tmp/ralph-tts.sock');
-  });
-
-  it('does not warn when it resolves to the current brand socket', () => {
-    const seen: string[] = [];
-    const original = console.error;
-    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
-    try {
       findNarrationSocketPath(undefined, NONE);
+      findNarrationSocketPath(undefined, { exists: () => true });
     } finally {
       console.error = original;
     }
@@ -389,19 +375,28 @@ describe('findNarrationSocketPath', () => {
 });
 
 describe('findNarrationPidFile', () => {
-  beforeEach(() => resetLegacyWarnings());
-  afterEach(() => resetLegacyWarnings());
-
   it('defaults to the current brand pid file', () => {
     expect(findNarrationPidFile(NONE)).toBe('/tmp/cairn-tts.pid');
   });
 
-  it('prefers the current brand pid file when both exist', () => {
-    expect(findNarrationPidFile({ exists: () => true })).toBe('/tmp/cairn-tts.pid');
+  it('returns the current brand pid file when it exists', () => {
+    expect(findNarrationPidFile({ exists: (p) => p === BRAND.pidFile })).toBe('/tmp/cairn-tts.pid');
   });
 
-  it('falls back to the legacy pid file when only that one exists', () => {
-    const exists = (p: string) => p === LEGACY.pidFile;
-    expect(findNarrationPidFile({ exists })).toBe('/tmp/ralph-tts.pid');
+  it('ignores a stale /tmp/ralph-tts.pid left by the pre-rename binary', () => {
+    const exists = (p: string) => p === '/tmp/ralph-tts.pid';
+    expect(findNarrationPidFile({ exists })).toBe('/tmp/cairn-tts.pid');
+  });
+
+  it('emits no warnings when a stale legacy pid file is present', () => {
+    const seen: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
+    try {
+      findNarrationPidFile({ exists: () => true });
+    } finally {
+      console.error = original;
+    }
+    expect(seen).toEqual([]);
   });
 });

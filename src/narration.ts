@@ -2,52 +2,29 @@ import { spawn } from 'child_process';
 import { existsSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import net from 'net';
-import { BRAND, LEGACY, warnLegacyOnce } from './brand';
+import { BRAND } from './brand';
 
 // ── Resolving the narration socket ────────────────────────────────────────────
 //
-// The socket is a third naming tier, alongside the data directory and the
-// runtime temp-file prefix, and the same standing rule applies: BRAND.socket is
-// for CREATING, these helpers are for RESOLVING.
-//
-// What makes the socket different is that its authoritative value does not live
-// in /tmp — it lives in the project's `.claude/hooks/*.sh`, which are generated
-// once at `cairn init` time and hardcode a `SOCKET="..."` line. Those hooks are
-// the only clients; the server must bind wherever they dial. A project that has
-// not re-run init or `cairn migrate` still has hooks pointing at the legacy
-// path, so binding BRAND.socket unconditionally would leave narration silently
-// dead there.
-//
-// remove once all projects migrated — both helpers collapse to BRAND.socket /
-// BRAND.pidFile once no installed hook still names the legacy socket.
+// The socket's authoritative value does not live in /tmp — it lives in the
+// project's `.claude/hooks/*.sh`, which are generated once at `cairn init` time
+// and hardcode a `SOCKET="..."` line. Those hooks are the only clients; the
+// server must bind wherever they dial, so the hook file is read first and wins
+// over anything found in /tmp. Binding BRAND.socket unconditionally would leave
+// narration silently dead in any project whose hooks name a different path: the
+// server comes up fine, the hooks fire fine, and the events go nowhere.
 
 /** `SOCKET="/tmp/..."` as written by the hook templates in src/commands/init.ts. */
 const HOOK_SOCKET_RE = /^\s*SOCKET="([^"]+)"/m;
 
-/** Injection seam so tests can pin the /tmp probe instead of the real filesystem. */
+/**
+ * Injection seam so tests can pin a /tmp probe instead of the real filesystem.
+ * With a single candidate per path there is nothing left to probe for, so both
+ * resolvers currently ignore it; it stays on the signatures because these are
+ * the resolution entry points and a future candidate would need it back.
+ */
 export interface PathProbeDeps {
   exists?: (path: string) => boolean;
-}
-
-/** remove once all projects migrated — goes away with LEGACY.socket/pidFile. */
-function warnIfLegacySocket(resolved: string): void {
-  if (resolved !== LEGACY.socket) return;
-  warnLegacyOnce(
-    'narration-socket',
-    `Using legacy narration socket ${LEGACY.socket}. ${BRAND.displayName} now uses ` +
-      `${BRAND.socket}; re-run \`${BRAND.name} init\` or \`${BRAND.name} migrate\` ` +
-      `to repoint this project's narration hooks.`
-  );
-}
-
-/** remove once all projects migrated — goes away with LEGACY.pidFile. */
-function warnIfLegacyPidFile(resolved: string): void {
-  if (resolved !== LEGACY.pidFile) return;
-  warnLegacyOnce(
-    'narration-pidfile',
-    `Tracking a narration server started by the pre-rename binary via ${LEGACY.pidFile}. ` +
-      `Run \`${BRAND.name} narrate off\` and start it again to move to ${BRAND.pidFile}.`
-  );
 }
 
 /**
@@ -55,48 +32,24 @@ function warnIfLegacyPidFile(resolved: string): void {
  *
  * 1. Whatever `<projectRoot>/.claude/hooks/narrate.sh` dials, when installed —
  *    the hooks are the clients, so they decide.
- * 2. Otherwise an already-live socket, current brand preferred over legacy.
- * 3. Otherwise BRAND.socket, so a fresh server comes up under the current name.
+ * 2. Otherwise BRAND.socket, live or not, so a fresh server comes up there.
  */
-export function findNarrationSocketPath(projectRoot?: string, deps: PathProbeDeps = {}): string {
+export function findNarrationSocketPath(projectRoot?: string, _deps: PathProbeDeps = {}): string {
   if (projectRoot) {
     try {
       const hook = readFileSync(join(projectRoot, '.claude', 'hooks', 'narrate.sh'), 'utf8');
       const match = hook.match(HOOK_SOCKET_RE);
-      if (match) {
-        warnIfLegacySocket(match[1]);
-        return match[1];
-      }
+      if (match) return match[1];
     } catch {
-      // No hooks installed (or unreadable) — fall through to the /tmp probe.
+      // No hooks installed (or unreadable) — fall through to the default path.
     }
   }
 
-  const exists = deps.exists ?? existsSync;
-  // remove once all projects migrated — drop the LEGACY.socket candidate.
-  for (const candidate of [BRAND.socket, LEGACY.socket]) {
-    if (exists(candidate)) {
-      warnIfLegacySocket(candidate);
-      return candidate;
-    }
-  }
   return BRAND.socket;
 }
 
-/**
- * Resolve the narration server's PID file: an existing current-brand file, else
- * an existing legacy one (a server started by the pre-rename binary), else the
- * current-brand path.
- */
-export function findNarrationPidFile(deps: PathProbeDeps = {}): string {
-  const exists = deps.exists ?? existsSync;
-  // remove once all projects migrated — drop the LEGACY.pidFile candidate.
-  for (const candidate of [BRAND.pidFile, LEGACY.pidFile]) {
-    if (exists(candidate)) {
-      warnIfLegacyPidFile(candidate);
-      return candidate;
-    }
-  }
+/** Resolve the narration server's PID file. */
+export function findNarrationPidFile(_deps: PathProbeDeps = {}): string {
   return BRAND.pidFile;
 }
 
