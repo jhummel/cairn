@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import Ajv, { type ErrorObject } from 'ajv';
 import { mutateTasksFile, type TasksFile } from '../tasks-file';
 import { reserveTaskIds } from '../task-counter';
+import { BRAND } from '../brand';
 import type { Task } from '../types';
 import schema from '../tasks-schema.json' with { type: 'json' };
 
@@ -47,12 +48,12 @@ export function taskStart(opts: TaskStartOpts): number {
       { dataDir: opts.dataDir }
     );
     if (!found) {
-      stderr.write(`ralph task start: task ${opts.id} not found\n`);
+      stderr.write(`cairn task start: task ${opts.id} not found\n`);
       return 1;
     }
     return 0;
   } catch (err) {
-    stderr.write(`ralph task start: ${err instanceof Error ? err.message : String(err)}\n`);
+    stderr.write(`cairn task start: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
 }
@@ -79,7 +80,7 @@ export function taskComplete(opts: TaskCompleteOpts): number {
     try {
       notesValue = opts.notesFile === '-' ? readStdin() : fs.readFileSync(opts.notesFile, 'utf-8');
     } catch (err) {
-      stderr.write(`ralph task complete: failed to read notes: ${err instanceof Error ? err.message : String(err)}\n`);
+      stderr.write(`cairn task complete: failed to read notes: ${err instanceof Error ? err.message : String(err)}\n`);
       return 1;
     }
   }
@@ -104,12 +105,12 @@ export function taskComplete(opts: TaskCompleteOpts): number {
       { dataDir: opts.dataDir }
     );
     if (!found) {
-      stderr.write(`ralph task complete: task ${opts.id} not found\n`);
+      stderr.write(`cairn task complete: task ${opts.id} not found\n`);
       return 1;
     }
     return 0;
   } catch (err) {
-    stderr.write(`ralph task complete: ${err instanceof Error ? err.message : String(err)}\n`);
+    stderr.write(`cairn task complete: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
 }
@@ -144,12 +145,12 @@ export function taskNote(opts: TaskNoteOpts): number {
       { dataDir: opts.dataDir }
     );
     if (!found) {
-      stderr.write(`ralph task note: task ${opts.id} not found\n`);
+      stderr.write(`cairn task note: task ${opts.id} not found\n`);
       return 1;
     }
     return 0;
   } catch (err) {
-    stderr.write(`ralph task note: ${err instanceof Error ? err.message : String(err)}\n`);
+    stderr.write(`cairn task note: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
 }
@@ -166,7 +167,7 @@ export function taskSetStatus(opts: TaskSetStatusOpts): number {
   const stderr = opts.stderr ?? defaultStderr();
   if (!VALID_STATUSES.includes(opts.status as typeof VALID_STATUSES[number])) {
     stderr.write(
-      `ralph task set-status: invalid status '${opts.status}' (must be one of: ${VALID_STATUSES.join(', ')})\n`
+      `cairn task set-status: invalid status '${opts.status}' (must be one of: ${VALID_STATUSES.join(', ')})\n`
     );
     return 1;
   }
@@ -185,12 +186,12 @@ export function taskSetStatus(opts: TaskSetStatusOpts): number {
       { dataDir: opts.dataDir }
     );
     if (!found) {
-      stderr.write(`ralph task set-status: task ${opts.id} not found\n`);
+      stderr.write(`cairn task set-status: task ${opts.id} not found\n`);
       return 1;
     }
     return 0;
   } catch (err) {
-    stderr.write(`ralph task set-status: ${err instanceof Error ? err.message : String(err)}\n`);
+    stderr.write(`cairn task set-status: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
 }
@@ -227,7 +228,7 @@ export function taskAdd(opts: TaskAddOpts): number {
     payload = JSON.parse(raw);
   } catch (err) {
     stderr.write(
-      `ralph task add: validation failed — file: ${err instanceof Error ? err.message : String(err)}\n`
+      `cairn task add: validation failed — file: ${err instanceof Error ? err.message : String(err)}\n`
     );
     return 1;
   }
@@ -241,7 +242,7 @@ export function taskAdd(opts: TaskAddOpts): number {
   try {
     [assignedId] = reserveTaskIds(opts.dataDir, 1);
   } catch (err) {
-    stderr.write(`ralph task add: ${err instanceof Error ? err.message : String(err)}\n`);
+    stderr.write(`cairn task add: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
   if (payload && typeof payload === 'object') {
@@ -254,9 +255,9 @@ export function taskAdd(opts: TaskAddOpts): number {
     const first = (validate.errors ?? [])[0];
     if (first) {
       const { field, reason } = formatAjvError(first);
-      stderr.write(`ralph task add: validation failed — ${field}: ${reason}\n`);
+      stderr.write(`cairn task add: validation failed — ${field}: ${reason}\n`);
     } else {
-      stderr.write('ralph task add: validation failed — unknown: invalid payload\n');
+      stderr.write('cairn task add: validation failed — unknown: invalid payload\n');
     }
     return 1;
   }
@@ -272,7 +273,7 @@ export function taskAdd(opts: TaskAddOpts): number {
     stdout.write(`assigned id: ${assignedId}\n`);
     return 0;
   } catch (err) {
-    stderr.write(`ralph task add: ${err instanceof Error ? err.message : String(err)}\n`);
+    stderr.write(`cairn task add: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
 }
@@ -292,13 +293,13 @@ export function taskShow(opts: TaskShowOpts): number {
     const data = JSON.parse(raw) as TasksFile;
     const t = findTask(data, opts.id);
     if (!t) {
-      stderr.write(`ralph task show: task ${opts.id} not found\n`);
+      stderr.write(`cairn task show: task ${opts.id} not found\n`);
       return 1;
     }
     stdout.write(JSON.stringify(t, null, 2) + '\n');
     return 0;
   } catch (err) {
-    stderr.write(`ralph task show: ${err instanceof Error ? err.message : String(err)}\n`);
+    stderr.write(`cairn task show: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
 }
@@ -315,7 +316,7 @@ export function taskNextId(opts: TaskNextIdOpts): number {
   const stderr = opts.stderr ?? defaultStderr();
   const count = opts.count ?? 1;
   if (!Number.isInteger(count) || count < 1) {
-    stderr.write(`ralph task next-id: --count must be a positive integer, got ${count}\n`);
+    stderr.write(`cairn task next-id: --count must be a positive integer, got ${count}\n`);
     return 1;
   }
   try {
@@ -323,7 +324,7 @@ export function taskNextId(opts: TaskNextIdOpts): number {
     stdout.write(ids.join('\n') + '\n');
     return 0;
   } catch (err) {
-    stderr.write(`ralph task next-id: ${err instanceof Error ? err.message : String(err)}\n`);
+    stderr.write(`cairn task next-id: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
 }
@@ -337,7 +338,7 @@ export function registerTaskCommands(program: Command): void {
 
   const task = program
     .command('task')
-    .description('Manage tasks in .ralph/tasks.json');
+    .description(`Manage tasks in ${BRAND.dataDir}/tasks.json`);
 
   task
     .command('start <id>')

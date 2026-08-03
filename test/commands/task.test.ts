@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { Command } from 'commander';
 import {
   taskStart,
   taskComplete,
@@ -10,6 +11,7 @@ import {
   taskAdd,
   taskShow,
   taskNextId,
+  registerTaskCommands,
 } from '../../src/commands/task';
 import type { TasksFile } from '../../src/tasks-file';
 
@@ -282,9 +284,9 @@ describe('task add', () => {
       stderr: { write: (s) => stderr.push(s) },
     });
     expect(exitCode).toBe(1);
-    expect(stderr.join('')).toContain('ralph task add: validation failed');
-    // Exact contract: 'ralph task add: validation failed — <field>: <reason>'
-    expect(stderr.join('')).toMatch(/ralph task add: validation failed — .+: .+/);
+    expect(stderr.join('')).toContain('cairn task add: validation failed');
+    // Exact contract: 'cairn task add: validation failed — <field>: <reason>'
+    expect(stderr.join('')).toMatch(/cairn task add: validation failed — .+: .+/);
     const after = fs.readFileSync(tasksPath, 'utf-8');
     expect(after).toBe(before);
   });
@@ -303,7 +305,7 @@ describe('task add', () => {
       stderr: { write: (s) => stderr.push(s) },
     });
     expect(exitCode).toBe(1);
-    expect(stderr.join('')).toContain('ralph task add: validation failed');
+    expect(stderr.join('')).toContain('cairn task add: validation failed');
     const after = fs.readFileSync(tasksPath, 'utf-8');
     expect(after).toBe(before);
   });
@@ -427,7 +429,7 @@ describe('task next-id', () => {
         stderr: { write: (s) => stderr.push(s) },
       });
       expect(exitCode).toBe(1);
-      expect(stderr.join('')).toMatch(/ralph task next-id/);
+      expect(stderr.join('')).toMatch(/cairn task next-id/);
       // No state.json should have been written on rejection.
       expect(fs.existsSync(path.join(tmpDir, 'state.json'))).toBe(false);
     });
@@ -476,5 +478,14 @@ describe('task show', () => {
     });
     expect(exitCode).not.toBe(0);
     expect(stderr.join('')).toMatch(/999/);
+  });
+});
+
+describe('registerTaskCommands', () => {
+  it('(10a) describes the task subcommand group with the .cairn data dir', () => {
+    const program = new Command();
+    registerTaskCommands(program);
+    const task = program.commands.find((c) => c.name() === 'task');
+    expect(task?.description()).toBe('Manage tasks in .cairn/tasks.json');
   });
 });

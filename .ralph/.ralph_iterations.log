@@ -366,3 +366,5 @@ Iteration 5 completed: 2026-08-03T01:23:22.279Z — SUCCESS
 Iteration 6 started: 2026-08-03T01:25:59.754Z — Task #36: Internal identifiers to Cairn
 Iteration 6 completed: 2026-08-03T01:27:44.121Z — SUCCESS
 Iteration 7 started: 2026-08-03T01:28:58.508Z — Task #37: Rename sweep: src/commands/init.ts
+Iteration 7 completed: 2026-08-03T01:34:33.956Z — SUCCESS
+Iteration 8 started: 2026-08-03T01:35:56.507Z — Task #38: src/commands/task.ts agent-facing usage strings
