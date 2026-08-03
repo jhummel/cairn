@@ -428,3 +428,5 @@ Iteration 14 completed: 2026-08-03T17:25:14.342Z — SUCCESS
 Iteration 15 started: 2026-08-03T17:27:14.068Z — Task #65: Docs — remove the compatibility window from CLAUDE.md and README.md
 Iteration 15 completed: 2026-08-03T17:31:13.339Z — SUCCESS
 Iteration 16 started: 2026-08-03T17:33:07.435Z — Task #66: Decide the fate of resolveAnthropicApiKeyChain — no production callers remain
+Iteration 16 completed: 2026-08-03T17:36:10.945Z — SUCCESS
+Iteration 17 started: 2026-08-03T17:36:11.035Z — Task #66: Decide the fate of resolveAnthropicApiKeyChain — no production callers remain
