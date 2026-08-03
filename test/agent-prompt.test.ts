@@ -4,7 +4,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { buildAgentArgs } from "../src/agent-prompt";
 import { buildSystemPrompt, type SystemPromptInput } from "../src/commands/run";
-import type { AgentInfo, RalphConfig } from "../src/types";
+import type { AgentInfo, CairnConfig } from "../src/types";
 
 let tmpDir: string;
 
@@ -54,7 +54,7 @@ describe("buildAgentArgs", () => {
 });
 
 describe("buildSystemPrompt", () => {
-  const baseConfig: RalphConfig = {
+  const baseConfig: CairnConfig = {
     projectName: "test-project",
     projectDescription: "",
     healthCheck: "",

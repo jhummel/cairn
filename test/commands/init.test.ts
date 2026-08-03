@@ -7,7 +7,7 @@ import {
   parseBooleanInput,
   getConfigDefaults,
   promptForConfig,
-  writeRalphJson,
+  writeCairnJson,
   createInstructionsFile,
   installNarrationHooks,
   installSlashCommands,
@@ -641,9 +641,9 @@ describe('promptForConfig', () => {
   });
 });
 
-// --- writeRalphJson tests ---
+// --- writeCairnJson tests ---
 
-describe('writeRalphJson', () => {
+describe('writeCairnJson', () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -665,7 +665,7 @@ describe('writeRalphJson', () => {
       summarize: { claudeMdPattern: '' },
       narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
-    writeRalphJson(tmpDir, config);
+    writeCairnJson(tmpDir, config);
     const written = JSON.parse(fs.readFileSync(path.join(tmpDir, 'ralph.json'), 'utf8'));
     expect(written.projectName).toBe('my-app');
     expect(written.projectDescription).toBe('A test app');
@@ -690,7 +690,7 @@ describe('writeRalphJson', () => {
       summarize: { claudeMdPattern: '' },
       narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
-    writeRalphJson(tmpDir, config);
+    writeCairnJson(tmpDir, config);
     const raw = fs.readFileSync(path.join(tmpDir, 'ralph.json'), 'utf8');
     expect(raw.endsWith('\n')).toBe(true);
   });
@@ -707,7 +707,7 @@ describe('writeRalphJson', () => {
       summarize: { claudeMdPattern: '' },
       narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
-    writeRalphJson(tmpDir, config);
+    writeCairnJson(tmpDir, config);
     const written = JSON.parse(fs.readFileSync(path.join(tmpDir, 'ralph.json'), 'utf8'));
     expect(written.projectName).toBe('new-app');
     expect(written.old).toBeUndefined();
@@ -724,7 +724,7 @@ describe('writeRalphJson', () => {
       summarize: { claudeMdPattern: '' },
       narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
-    writeRalphJson(tmpDir, config);
+    writeCairnJson(tmpDir, config);
     const raw = fs.readFileSync(path.join(tmpDir, 'ralph.json'), 'utf8');
     // Should match JSON.stringify with 2-space indent
     expect(raw).toBe(JSON.stringify(config, null, 2) + '\n');
@@ -968,9 +968,9 @@ describe('installSlashCommands', () => {
 
   test('copied files have the same content as source', () => {
     installSlashCommands(tmpDir);
-    const { resolveRalphRoot } = require('../../src/utils');
-    const ralphRoot = resolveRalphRoot();
-    const srcDir = path.join(ralphRoot, 'commands');
+    const { resolveCairnRoot } = require('../../src/utils');
+    const cairnRoot = resolveCairnRoot();
+    const srcDir = path.join(cairnRoot, 'commands');
     const destDir = path.join(tmpDir, '.claude', 'commands');
 
     for (const file of fs.readdirSync(srcDir).filter((f: string) => f.endsWith('.md'))) {
@@ -1001,7 +1001,7 @@ describe('installSlashCommands', () => {
 
   test('handles missing commands/ dir gracefully', () => {
     // We can't easily remove the real commands/ dir, so we test by passing
-    // a custom ralphRoot that doesn't have a commands/ directory
+    // a custom cairnRoot that doesn't have a commands/ directory
     const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-no-cmds-'));
     try {
       installSlashCommands(tmpDir, fakeRalphRoot);
@@ -1026,7 +1026,7 @@ describe('installSlashCommands', () => {
     }
   });
 
-  test('copies codebase-audit.md from mock ralphRoot to .claude/commands/ with correct content', () => {
+  test('copies codebase-audit.md from mock cairnRoot to .claude/commands/ with correct content', () => {
     const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-audit-cmds-'));
     fs.mkdirSync(path.join(fakeRalphRoot, 'commands'));
     const auditContent = '# codebase-audit\nThis is the audit slash command.';
@@ -1149,7 +1149,7 @@ describe('installAgents', () => {
     expect(fs.existsSync(path.join(destDir, 'audit-planner.md'))).toBe(true);
   });
 
-  test('copies audit-planner.md from mock ralphRoot to .claude/agents/ with correct content', () => {
+  test('copies audit-planner.md from mock cairnRoot to .claude/agents/ with correct content', () => {
     const fakeRalphRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-audit-agents-'));
     fs.mkdirSync(path.join(fakeRalphRoot, 'agents'));
     const agentContent = '# audit-planner\nThis is the audit planner agent.';

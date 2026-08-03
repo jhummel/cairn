@@ -151,3 +151,42 @@ None detected.
 
 ### Verdict
 CLEAN
+
+---
+
+## Task #35: Env vars to CAIRN_* plus three-way API-key chain
+Reviewed: 2026-08-03T01:30:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] setConfigEnvVars() (src/config.ts:159-170) — all 10 vars renamed to CAIRN_*
+├── [DONE] Every other reader across src/ renamed: index.ts (PROJECT_ROOT, DATA_DIR, LIB_DIR, NARRATE_PYTHON, AGENTS_DIR, AGENTS_JSON), run.ts (TASK_CONTEXT, plus NARRATE_PYTHON/LIB_DIR call sites), task.ts (DATA_DIR), narrate.ts (NARRATE_PYTHON, LIB_DIR, NARRATION_VOICE), stream-filter.ts (TRUNCATE_TEXT), utils.ts (PROJECT_ROOT) — independently enumerated all 22 pre-existing `RALPH_[A-Z_]+` tokens via `git grep` diff (before vs. after) and confirmed only the two intentional exceptions plus the unrelated `RALPH_VERSION` local const remain in `src/`/`lib/`
+├── [DONE] Stale `ralph_config.sh` comment at old src/config.ts:130 deleted — confirmed gone, replaced with an accurate one-liner
+├── [DONE] Exception 1 (API key): `resolveAnthropicApiKeyChain()` implements CAIRN → legacy RALPH → plain ANTHROPIC_API_KEY, never normalizes onto plain `ANTHROPIC_API_KEY` (test explicitly asserts the input env object is untouched); `warnIfLegacyApiKey()` warns once via `warnLegacyOnce`; `lib/ralph_narrate_server.py` independently reimplements the same chain (correct — it's a subprocess reading its own inherited `os.environ`, not something the TS side can set for it) with a matching stderr message
+├── [DONE] Exception 2 (`RALPH_NARRATE_SOCKET`): `ralph_narrate_server.py --socket` now checks `CAIRN_NARRATE_SOCKET` → `RALPH_NARRATE_SOCKET` → `DEFAULT_SOCKET`; README:158-161 updated to document the new primary name with the legacy fallback called out
+├── [PARTIAL] `RALPH_FORCE_SHELL` deletion — verified independently (both pre- and post-diff `git grep` across src/lib find zero references) that it was already fully dead; nothing to delete in source. Correct call, but the task also names a stale `.claude/settings.local.json` permission entry as the var's only surviving trace — that file is confirmed untracked (`git ls-files` has no hit), so it's a local dev artifact outside the repo's scope, not something this task's diff could plausibly touch. Flagging only because the task description explicitly called it out as something to be aware of, not because it was missed.
+└── [PARTIAL] TDD scope — `resolveAnthropicApiKeyChain`/`warnIfLegacyApiKey` are well covered as pure functions in test/config.test.ts (8 new tests: precedence order, empty-string CAIRN value falls through, never-normalizes assertion, warn-once, no-warn-on-cairn/plain/none). However, neither test/commands/narrate.test.ts nor test/commands/run.test.ts has any assertion that these two functions are actually *called* at the new call sites (narrate.ts:71, run.ts pre-`startNarrationServer`). Confirmed by grep — zero matches for `warnIfLegacyApiKey`/`resolveAnthropicApiKeyChain`/`ANTHROPIC_API_KEY` in either test file. The wiring only "proved itself" incidentally: running the suite on this machine (which has `RALPH_ANTHROPIC_API_KEY` set per the task's own description of the user's `~/.zshrc`) printed the legacy-warning line during `test/commands/run.test.ts`, but no test asserts on it — a CI environment without that var set would exercise this integration point in zero tests.
+
+### Files Changed
+- src/config.ts (setConfigEnvVars rename, new resolveAnthropicApiKeyChain/warnIfLegacyApiKey exports, stale comment removed)
+- src/index.ts, src/utils.ts, src/commands/task.ts, src/commands/run.ts, src/commands/narrate.ts, src/stream-filter.ts (mechanical RALPH_* → CAIRN_* renames + two new call sites)
+- lib/ralph_narrate.py, lib/ralph_narrate_server.py (env var renames; server implements its own 3-way key chain and 2-way socket fallback)
+- README.md (CAIRN_NARRATE_SOCKET / CAIRN_PROJECT_ROOT documentation)
+- test/config.test.ts (8 new tests), test/index.test.ts, test/utils.test.ts, test/stream-filter.test.ts, test/commands/run.test.ts, test/commands/narrate.test.ts (mechanical renames of existing assertions)
+- .ralph/tasks.json, .ralph/tasks.completed.json, .ralph/.ralph_iterations.log, .ralph/.ralph_tasks_snapshot.json, .ralph/state.json (tool-managed bookkeeping); .ralph/reviews/round-4.md (this file)
+
+### Gaps
+- No test exercises the actual call sites of `warnIfLegacyApiKey`/`resolveAnthropicApiKeyChain` in `narrate.ts` or `run.ts` — only the underlying pure functions are unit-tested. A regression that removed either call (e.g. accidentally deleting line 71 in narrate.ts) would not be caught by `bun test`.
+- Everything else in the task description is fully addressed; see Coverage tree above for the two flagged PARTIALs, both minor.
+
+### Regression Risks
+None detected beyond the test-coverage gap above.
+- Independently re-ran `bun test` → **795 pass, 0 fail** (matches notes exactly).
+- Read full post-diff contents of `src/config.ts`, `src/commands/run.ts`, `src/commands/narrate.ts`, `lib/ralph_narrate_server.py` (not just diff hunks) — no leftover unconverted `RALPH_*` reads outside the two intentional exceptions, no broken imports, `BRAND.displayName` (used in the new warning message) exists and resolves correctly for both brand states.
+- No exports removed; two new exports added (`resolveAnthropicApiKeyChain`, `warnIfLegacyApiKey`) are pure additions.
+- Confirmed the `ANTHROPIC_API_KEY` blanking lines this task's description calls "load-bearing" (run.ts:208, plan.ts:170, summarize.ts:111, post-task-reviewer.ts:119) are all still present and untouched.
+- Confirmed via `git grep` diff (before vs. after) that the full set of pre-existing `RALPH_[A-Z_]+` tokens is accounted for: renamed, deliberately kept as a fallback, or (for `RALPH_VERSION`) correctly identified as a non-env-var local const.
+- One pre-existing (not introduced by this task) inaccuracy noted for visibility only: README:158 has always claimed "`ralph run` sets [the narrate socket var] automatically," but neither before nor after this diff does `run.ts` (or any hook script) actually set that env var — the hook scripts hardcode the socket path as a literal. Not a regression; the same gap existed with the `RALPH_` name pre-task, this diff only changed the var name in the sentence. Likely related to task #48 (already filed) about wiring `BRAND.socket` in properly.
+
+### Verdict
+HAS_GAPS

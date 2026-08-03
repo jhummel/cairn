@@ -169,14 +169,14 @@ export function findProjectRoot(cwd?: string): string {
 }
 
 /**
- * Find the ralph repo root from the running script/binary.
+ * Find the cairn repo root from the running script/binary.
  *
  * In dev mode (bun run src/index.ts): use import.meta to locate src/ → repo root.
  * In compiled binary: follow symlink back to repo.
  *
  * Falls back to walking up from this file's directory looking for package.json.
  */
-export function resolveRalphRoot(): string {
+export function resolveCairnRoot(): string {
   // In dev/bun mode, __dirname or import.meta.dir points into src/
   // This file is src/utils.ts, so repo root is one level up
   const thisDir = __dirname;
@@ -208,5 +208,5 @@ export function resolveRalphRoot(): string {
     dir = dirname(dir);
   }
 
-  throw new Error('Could not determine ralph repo root');
+  throw new Error('Could not determine cairn repo root');
 }

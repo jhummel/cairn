@@ -9,7 +9,7 @@ import {
 import { buildAgentArgs } from "./agent-prompt";
 import { getRound } from "./task-counter";
 import type { Task } from "./types";
-import type { RalphConfig } from "./types";
+import type { CairnConfig } from "./types";
 import { loadPersonalInstructions } from "./personal-instructions";
 
 export function buildPostTaskReviewUserPrompt(opts: {
@@ -205,7 +205,7 @@ export interface RunPostTaskReviewOpts {
   task: Task;
   taskStatus: string;
   beforeSha: string | null;
-  config: RalphConfig;
+  config: CairnConfig;
   streamOpts?: ProcessStreamOptions;
   deps?: {
     captureGitSha?: typeof captureGitSha;

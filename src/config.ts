@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { RalphConfig, AgentInfo } from './types';
+import type { CairnConfig, AgentInfo } from './types';
 import { BRAND, LEGACY, warnLegacyOnce } from './brand';
 
 /**
@@ -34,7 +34,7 @@ export function findConfigFile(projectRoot: string): string {
  * applying defaults for missing fields.
  * Returns all defaults if no config file exists.
  */
-export function loadConfig(projectRoot: string): RalphConfig {
+export function loadConfig(projectRoot: string): CairnConfig {
   const configPath = findConfigFile(projectRoot);
 
   let raw: Record<string, unknown> = {};
@@ -156,7 +156,7 @@ export function discoverAgents(projectRoot: string): AgentInfo[] {
 /**
  * Set CAIRN_* environment variables from a config object, for subcommands to read.
  */
-export function setConfigEnvVars(config: RalphConfig): void {
+export function setConfigEnvVars(config: CairnConfig): void {
   process.env.CAIRN_PROJECT_NAME = config.projectName;
   process.env.CAIRN_PROJECT_DESC = config.projectDescription;
   process.env.CAIRN_HEALTH_CHECK = config.healthCheck;

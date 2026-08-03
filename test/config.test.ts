@@ -5,7 +5,7 @@ import * as os from 'os';
 import { loadConfig, findConfigFile, autoDetectHealthCheck, discoverAgents, setConfigEnvVars, resolveAnthropicApiKeyChain, warnIfLegacyApiKey } from '../src/config';
 import { resetLegacyWarnings } from '../src/brand';
 import { isValidConfig } from '../src/types';
-import type { RalphConfig } from '../src/types';
+import type { CairnConfig } from '../src/types';
 
 function makeTempDir(): string {
   const dir = path.join(os.tmpdir(), `ralph-config-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -412,7 +412,7 @@ describe('setConfigEnvVars', () => {
   });
 
   it('sets all RALPH_* env vars from config', () => {
-    const config: RalphConfig = {
+    const config: CairnConfig = {
       projectName: 'test-proj',
       projectDescription: 'A desc',
       healthCheck: 'npm run check',
@@ -438,7 +438,7 @@ describe('setConfigEnvVars', () => {
   });
 
   it('converts booleans to lowercase strings', () => {
-    const config: RalphConfig = {
+    const config: CairnConfig = {
       projectName: 'proj',
       projectDescription: '',
       healthCheck: '',

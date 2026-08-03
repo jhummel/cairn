@@ -6,9 +6,9 @@ import { EventEmitter } from 'events';
 import { Readable, Writable, PassThrough } from 'stream';
 import { buildSystemPrompt, spawnClaude, runRun, type SystemPromptInput, type SpawnClaudeDeps, type RunRunOpts, type RunRunDeps } from '../../src/commands/run';
 import { ProcessManager } from '../../src/process';
-import type { RalphConfig, AgentInfo, Task } from '../../src/types';
+import type { CairnConfig, AgentInfo, Task } from '../../src/types';
 
-function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
+function makeConfig(overrides: Partial<CairnConfig> = {}): CairnConfig {
   return {
     projectName: 'test-project',
     projectDescription: '',
@@ -630,7 +630,7 @@ describe('spawnClaude', () => {
 
 // --- runRun tests ---
 
-function makeTestConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
+function makeTestConfig(overrides: Partial<CairnConfig> = {}): CairnConfig {
   return {
     projectName: 'test-project',
     projectDescription: '',

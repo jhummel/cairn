@@ -119,16 +119,16 @@ describe('setupProjectContext', () => {
     expect(result.dataDir).toBe(path.join(result.projectRoot, '.ralph'));
   });
 
-  test('sets CAIRN_LIB_DIR to <ralphRoot>/lib', () => {
+  test('sets CAIRN_LIB_DIR to <cairnRoot>/lib', () => {
     const result = setupProjectContext();
-    expect(process.env.CAIRN_LIB_DIR).toBe(path.join(result.ralphRoot, 'lib'));
-    expect(result.libDir).toBe(path.join(result.ralphRoot, 'lib'));
+    expect(process.env.CAIRN_LIB_DIR).toBe(path.join(result.cairnRoot, 'lib'));
+    expect(result.libDir).toBe(path.join(result.cairnRoot, 'lib'));
   });
 
   test('sets CAIRN_NARRATE_PYTHON', () => {
     const result = setupProjectContext();
     expect(process.env.CAIRN_NARRATE_PYTHON).toBe(
-      path.join(result.ralphRoot, '.venv', 'bin', 'python3')
+      path.join(result.cairnRoot, '.venv', 'bin', 'python3')
     );
   });
 

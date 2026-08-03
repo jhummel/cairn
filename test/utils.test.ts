@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { resolvePath, findProjectRoot, findDataDir, resolveRalphRoot, tempFilePath, findTempFilePath, allTempFilePaths } from '../src/utils';
+import { resolvePath, findProjectRoot, findDataDir, resolveCairnRoot, tempFilePath, findTempFilePath, allTempFilePaths } from '../src/utils';
 import { resetLegacyWarnings } from '../src/brand';
 import { mkdirSync, symlinkSync, writeFileSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -135,14 +135,14 @@ describe('findProjectRoot', () => {
   });
 });
 
-describe('resolveRalphRoot', () => {
+describe('resolveCairnRoot', () => {
   it('returns a directory that contains package.json', () => {
-    const root = resolveRalphRoot();
+    const root = resolveCairnRoot();
     expect(existsSync(join(root, 'package.json'))).toBe(true);
   });
 
   it('returns a directory that contains src/utils.ts', () => {
-    const root = resolveRalphRoot();
+    const root = resolveCairnRoot();
     expect(existsSync(join(root, 'src', 'utils.ts'))).toBe(true);
   });
 });

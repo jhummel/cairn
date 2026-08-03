@@ -1,4 +1,4 @@
-export interface RalphConfig {
+export interface CairnConfig {
   projectName: string;
   projectDescription: string;
   healthCheck: string;
@@ -39,7 +39,7 @@ export interface AgentInfo {
   internal?: boolean;
 }
 
-export function isValidConfig(data: unknown): data is RalphConfig {
+export function isValidConfig(data: unknown): data is CairnConfig {
   if (typeof data !== 'object' || data === null) return false;
   const d = data as Record<string, unknown>;
 

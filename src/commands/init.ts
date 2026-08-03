@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync as nodeSpawnSync } from 'child_process';
-import type { RalphConfig } from '../types';
+import type { CairnConfig } from '../types';
 import { loadConfig, autoDetectHealthCheck } from '../config';
-import { resolveRalphRoot } from '../utils';
+import { resolveCairnRoot } from '../utils';
 import { seedNextId } from '../task-counter';
 
 const GITIGNORE_CONTENT = `# Runtime temp files (tasks.json and planning-notes.md are tracked)
@@ -151,7 +151,7 @@ async function promptBoolean(
 export async function promptForConfig(
   rl: PromptInterface,
   defaults: ConfigDefaults,
-): Promise<RalphConfig> {
+): Promise<CairnConfig> {
   const projectName = await promptValue(rl, 'Project name', defaults.projectName);
   const projectDescription = await promptValue(rl, 'Description (used in agent system prompts)', defaults.projectDescription);
   const healthCheck = await promptValue(rl, 'Health check command (auto-detected if blank)', defaults.healthCheck);
@@ -189,9 +189,9 @@ export async function promptForConfig(
 }
 
 /**
- * Write a RalphConfig to ralph.json in the project root.
+ * Write a CairnConfig to ralph.json in the project root.
  */
-export function writeRalphJson(projectRoot: string, config: RalphConfig): void {
+export function writeCairnJson(projectRoot: string, config: CairnConfig): void {
   const configPath = path.join(projectRoot, 'ralph.json');
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 }
@@ -339,10 +339,10 @@ export async function installNarrationHooks(
 /**
  * Copy slash command .md files from ralph's commands/ directory
  * into the target project's .claude/commands/ directory.
- * Accepts an optional ralphRoot override for testing.
+ * Accepts an optional cairnRoot override for testing.
  */
-export function installSlashCommands(projectRoot: string, ralphRoot?: string): void {
-  const root = ralphRoot ?? resolveRalphRoot();
+export function installSlashCommands(projectRoot: string, cairnRoot?: string): void {
+  const root = cairnRoot ?? resolveCairnRoot();
   const srcDir = path.join(root, 'commands');
 
   if (!fs.existsSync(srcDir)) {
@@ -364,10 +364,10 @@ export function installSlashCommands(projectRoot: string, ralphRoot?: string): v
 /**
  * Copy agent .md files from ralph's agents/ directory
  * into the target project's .claude/agents/ directory.
- * Accepts an optional ralphRoot override for testing.
+ * Accepts an optional cairnRoot override for testing.
  */
-export function installAgents(projectRoot: string, ralphRoot?: string): void {
-  const root = ralphRoot ?? resolveRalphRoot();
+export function installAgents(projectRoot: string, cairnRoot?: string): void {
+  const root = cairnRoot ?? resolveCairnRoot();
   const srcDir = path.join(root, 'agents');
 
   if (!fs.existsSync(srcDir)) {
@@ -416,7 +416,7 @@ export async function runInit(
   const defaults = getConfigDefaults(projectRoot);
   console.log('');
   const config = await promptForConfig(rl, defaults);
-  writeRalphJson(projectRoot, config);
+  writeCairnJson(projectRoot, config);
   console.log('');
   console.log('  Wrote: ralph.json');
 

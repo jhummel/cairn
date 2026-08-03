@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { join } from 'path';
 import * as readline from 'readline';
-import { findProjectRoot, findDataDir, resolveRalphRoot } from './utils';
+import { findProjectRoot, findDataDir, resolveCairnRoot } from './utils';
 import { loadConfig, autoDetectHealthCheck, setConfigEnvVars, discoverAgents } from './config';
 import { runStatus } from './commands/status';
 import { runEdit } from './commands/edit';
@@ -14,7 +14,7 @@ import { runNarrate } from './commands/narrate';
 import { registerTaskCommands } from './commands/task';
 import type { AgentInfo } from './types';
 
-const RALPH_VERSION = '0.1.0';
+const CAIRN_VERSION = '0.1.0';
 
 /**
  * Resolve project context: project root, data dir, config, and set env vars.
@@ -23,7 +23,7 @@ const RALPH_VERSION = '0.1.0';
 export function setupProjectContext(projectRootOverride?: string): {
   projectRoot: string;
   dataDir: string;
-  ralphRoot: string;
+  cairnRoot: string;
   libDir: string;
 } {
   // If an override is provided, set env var so findProjectRoot picks it up
@@ -32,17 +32,17 @@ export function setupProjectContext(projectRootOverride?: string): {
   }
 
   const projectRoot = findProjectRoot();
-  const ralphRoot = resolveRalphRoot();
+  const cairnRoot = resolveCairnRoot();
   // Resolve (never reconstruct) the data dir: projects still on the legacy
   // layout must keep resolving to .ralph/, not to a nonexistent .cairn/.
   const dataDir = findDataDir(projectRoot);
-  const libDir = join(ralphRoot, 'lib');
+  const libDir = join(cairnRoot, 'lib');
 
   // Set env vars for subcommands
   process.env.CAIRN_PROJECT_ROOT = projectRoot;
   process.env.CAIRN_DATA_DIR = dataDir;
   process.env.CAIRN_LIB_DIR = libDir;
-  process.env.CAIRN_NARRATE_PYTHON = join(ralphRoot, '.venv', 'bin', 'python3');
+  process.env.CAIRN_NARRATE_PYTHON = join(cairnRoot, '.venv', 'bin', 'python3');
 
   // Load config and set config env vars
   const config = loadConfig(projectRoot);
@@ -56,7 +56,7 @@ export function setupProjectContext(projectRootOverride?: string): {
   process.env.CAIRN_AGENTS_DIR = join(projectRoot, '.claude', 'agents');
   process.env.CAIRN_AGENTS_JSON = JSON.stringify(agents);
 
-  return { projectRoot, dataDir, ralphRoot, libDir };
+  return { projectRoot, dataDir, cairnRoot, libDir };
 }
 
 /**
@@ -68,7 +68,7 @@ export function createProgram(): Command {
 
   program
     .name('ralph')
-    .version(`ralph ${RALPH_VERSION}`, '--version, -v')
+    .version(`ralph ${CAIRN_VERSION}`, '--version, -v')
     .description('Agentic Task Orchestration for Claude Code')
     .option('--project-root <path>', 'Override project root detection')
     .allowUnknownOption(false);

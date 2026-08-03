@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawn as nodeSpawn, type ChildProcess } from 'child_process';
 import type { Readable, Writable } from 'stream';
-import type { RalphConfig, AgentInfo, Task } from '../types';
+import type { CairnConfig, AgentInfo, Task } from '../types';
 import { ProcessManager, type ProcessManagerOptions } from '../process';
 import { processStream, sendToNarrate as defaultSendToNarrate, sendNtfy as defaultSendNtfy, type ProcessStreamOptions, type NtfyOpts } from '../stream-filter';
 import { startNarrationServer as defaultStartNarrationServer, stopNarrationServer as defaultStopNarrationServer, checkNarrationHealth as defaultCheckNarrationHealth, type StartNarrationOpts } from '../narration';
@@ -23,7 +23,7 @@ export interface SystemPromptInput {
   taskAgent: string;
   projectRoot: string;
   dataDir: string;
-  config: RalphConfig;
+  config: CairnConfig;
   agents: AgentInfo[];
   iteration: number;
   commitPrefix?: string;
@@ -270,7 +270,7 @@ export interface RunRunOpts {
   iterationTimeout?: number; // seconds; default 900
   projectRoot: string;
   dataDir: string;
-  config: RalphConfig;
+  config: CairnConfig;
   agents: AgentInfo[];
 }
 

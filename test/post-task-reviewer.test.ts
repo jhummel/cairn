@@ -13,7 +13,7 @@ import {
   runPostTaskReview,
 } from "../src/post-task-reviewer";
 import type { Task } from "../src/types";
-import type { RalphConfig } from "../src/types";
+import type { CairnConfig } from "../src/types";
 
 let tmpDir: string;
 
@@ -601,7 +601,7 @@ describe("runPostTaskReview", () => {
     ...overrides,
   });
 
-  const makeConfig = (overrides?: Partial<RalphConfig>): RalphConfig => ({
+  const makeConfig = (overrides?: Partial<CairnConfig>): CairnConfig => ({
     projectName: "test",
     projectDescription: "test project",
     healthCheck: "bun test",
