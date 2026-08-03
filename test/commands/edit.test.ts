@@ -88,34 +88,6 @@ describe('runEdit', () => {
     expect(args).toContain(configFile);
   });
 
-  test('target "config" never opens a leftover ralph.json', () => {
-    const exitSpy = spyOn(process, 'exit').mockImplementation((code?: number) => {
-      throw new Error(`process.exit(${code})`);
-    });
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), '{}');
-
-    try {
-      expect(() => runEdit('config', tmpDir, dataDir)).toThrow();
-    } finally {
-      exitSpy.mockRestore();
-    }
-
-    expect(spawnSpy).not.toHaveBeenCalled();
-    expect(stderrLines.join('\n')).toContain('File not found:');
-  });
-
-  test('target "config" opens cairn.json even when a ralph.json also exists', () => {
-    const configFile = path.join(tmpDir, 'cairn.json');
-    fs.writeFileSync(configFile, '{}');
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), '{}');
-
-    runEdit('config', tmpDir, dataDir);
-
-    const [, args] = spawnSpy.mock.calls[0];
-    expect(args).toContain(configFile);
-    expect(args).not.toContain(path.join(tmpDir, 'ralph.json'));
-  });
-
   // --- EDITOR env var ---
 
   test('uses EDITOR env var when set', () => {

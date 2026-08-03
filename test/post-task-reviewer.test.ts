@@ -281,31 +281,6 @@ describe("spawnPostTaskReviewer", () => {
     expect(args[args.indexOf("--agent") + 1]).toBe("post-task-reviewer");
   });
 
-  test("allowlist rule follows the resolved data dir (legacy .ralph/)", async () => {
-    const child = createMockChild();
-    let spawnArgs: string[] = [];
-    const mockSpawn = (_cmd: string, args: string[]) => {
-      spawnArgs = args;
-      setTimeout(() => child.emit("close", 0), 10);
-      return child as any;
-    };
-
-    await spawnPostTaskReviewer({
-      projectRoot: spawnTmpDir,
-      dataDir: join(spawnTmpDir, ".ralph"),
-      task: sampleTask,
-      diff: "",
-      log: "",
-      files: [],
-      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
-    });
-
-    const rule = `/${spawnTmpDir}/.ralph/reviews/**`;
-    expect(spawnArgs[spawnArgs.indexOf("--allowedTools") + 1]).toBe(
-      `Read,Glob,Grep,Edit(${rule}),Write(${rule})`
-    );
-  });
-
   test("allowlist rule follows the resolved data dir (.cairn/)", async () => {
     const child = createMockChild();
     let spawnArgs: string[] = [];

@@ -247,3 +247,61 @@ None detected. Verified independently rather than trusting the agent's self-repo
 
 ### Verdict
 CLEAN
+
+---
+
+## Task #56: Migrate temp-file read callers to tempFilePath (4 files)
+Reviewed: 2026-08-03T16:44:01.207Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] src/task-selector.ts:12 (loadCompletedIds) — findTempFilePath -> tempFilePath,
+│            dual-read comment + marker removed — verified at src/task-selector.ts:8
+├── [DONE] src/tasks-file.ts:134 (snapshot recovery) — findTempFilePath -> tempFilePath,
+│            dual-read comment + marker removed — verified at src/tasks-file.ts:131
+├── [DONE] src/task-archiver.ts:68 — existingIdsFile deleted, idsFile used for both the
+│            existence check and the read — verified at src/task-archiver.ts:64-79
+├── [DONE] src/task-archiver.ts:90 — allTempFilePaths stale-copy sweep loop for prev_notes
+│            deleted entirely (2 markers) — verified at src/task-archiver.ts:82-88
+├── [DONE] src/commands/logs.ts:5 — unmarked caller migrated to tempFilePath (would have
+│            broken task 58's build otherwise) — verified at src/commands/logs.ts:2,5
+├── [DONE] Imports fixed in all four files — grep for findTempFilePath/allTempFilePaths
+│            across src/ (excluding utils.ts) returns zero matches; both resolvers are
+│            now unreferenced outside src/utils.ts, exactly as task 58 requires
+├── [DONE] TDD: test/task-selector.test.ts, test/tasks-file.test.ts,
+│            test/task-archiver.test.ts, test/commands/logs.test.ts all updated; the named
+│            'falls back to the legacy .ralph_iterations.log' test at ~line 66 of
+│            logs.test.ts is gone, along with 6 sibling legacy-fallback tests (7 total)
+├── [DONE] Do NOT run ./install.sh — no evidence it was run; dist/cairn unaffected
+└── [RISK]  Do NOT modify cairn.json's healthCheck — see Regression Risks. The value did
+             change within this task's own commit (1c619af), contradicting both the task's
+             explicit instruction and the agent's own notes ("Did not modify cairn.json's
+             healthCheck").
+```
+
+### Files Changed
+- src/task-selector.ts — `loadCompletedIds`'s `idsFile` now built via `tempFilePath(dataDir, 'completed_ids')`; dual-read comment and its marker removed.
+- src/tasks-file.ts — `readTasksFile`'s snapshot-recovery `snapshotPath` now `tempFilePath(dataDir, 'tasks_snapshot.json')`; dual-read comment and its marker removed.
+- src/task-archiver.ts — completed-IDs merge collapsed to a single `idsFile` read/write path (`existingIdsFile` deleted); the `allTempFilePaths(dataDir, 'prev_notes')` stale-copy sweep loop deleted outright; import trimmed to `tempFilePath` only. Confirmed `unlinkSync` (still used at line 87 for the no-notes case) remains a live import, not dead code.
+- src/commands/logs.ts — the one unmarked caller; `findTempFilePath` → `tempFilePath` for `logFile`.
+- test/task-selector.test.ts, test/tasks-file.test.ts, test/task-archiver.test.ts, test/commands/logs.test.ts — 7 legacy-fallback tests deleted across the four files, matching the 852-vs-859 delta.
+- .cairn/tasks.json, .cairn/.cairn_tasks_snapshot.json, .cairn/.cairn_iterations.log, .cairn/tasks.completed.json — task 56 archived/marked complete via `cairn task complete`; not a direct edit of a forbidden path.
+- .cairn/planning-notes.md — substantially rewritten (soak marked done, manual pre-round pinning marked done, task ordering corrected, outline expanded from 12 to 15 tasks). Unrelated to this task's stated scope; almost certainly working-tree state from a concurrent/prior `cairn plan` session that the harness's per-iteration commit swept in alongside task 56's own changes, not something the task-56 agent authored. Not itself a regression, but see below re: cairn.json.
+- cairn.json — **`healthCheck` changed** from `"bun run build"` to `"bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck"` inside this commit. See Regression Risks.
+
+### Gaps
+None detected in the task's own file-migration scope. All five call sites named in the description were migrated, imports cleaned, and the four named test files updated with red-then-green TDD (per the agent's notes: source migrated first, tests run to confirm exactly 5 legacy-assertion failures, then those tests deleted).
+
+### Regression Risks
+- **cairn.json's `healthCheck` was committed as part of this task's commit, despite the task explicitly saying "Do NOT modify cairn.json's healthCheck."** Verified directly: `git show af5d66a:cairn.json` (task 55's commit) and `git show 51d10b2:cairn.json` (task 54's commit) both still show `"healthCheck": "bun run build"`; `git show 1c619af -- cairn.json` (this task's commit) shows the line changing to the pinned throwaway-outfile value. So the round's pre-round manual pin — documented in CLAUDE.md and this round's planning notes as a **deliberate, uncommitted, round-only** override — got baked into permanent git history for the first time inside task 56's commit, one iteration later than the planning notes claim it happened ("ALL COMPLETE" before Phase C started). This directly contradicts the task-56 agent's own notes, which state "Did **not** modify `cairn.json`'s `healthCheck`." Most likely explanation: the value was sitting dirty in the working tree from a manual/external pin and the per-iteration commit step swept in all dirty state (it also swept in the unrelated `planning-notes.md` rewrite), rather than the task-56 agent itself editing the line — but from a review standpoint the outcome is the same: an override the round's design explicitly requires to stay revertible-by-discard is now committed, so the documented post-round step ("restore `healthCheck` to `bun run build`") will need a new commit rather than a clean revert, and a future `git bisect`/archaeology pass would misattribute this change to "Task #56." Recommend either amending this commit split (extracting cairn.json's line back out) or explicitly noting the discrepancy so the post-round restoration isn't skipped on the assumption it was never committed.
+- Everything else checked out clean:
+  - `bun test test/task-selector.test.ts test/tasks-file.test.ts test/task-archiver.test.ts test/commands/logs.test.ts` → 96 pass, 0 fail — matches notes exactly.
+  - `bun test` (full suite) → 852 pass, 0 fail, 31 files — matches notes exactly, consistent with the 859→852 delta (7 deleted tests, no other regressions).
+  - `grep -rn "findTempFilePath\|allTempFilePaths" src/ --include="*.ts"` → only `src/utils.ts`; confirmed the two resolvers have zero remaining production callers outside it, so task 58's planned deletion is unblocked.
+  - `grep -rn "remove once all projects migrated" src/task-selector.ts src/tasks-file.ts src/task-archiver.ts src/commands/logs.ts` → no matches; all 4 named markers gone (task-selector.ts 1, tasks-file.ts 1, task-archiver.ts 2).
+  - `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck` (the current, pinned health check) succeeds.
+  - `unlinkSync` in `src/task-archiver.ts` confirmed still live (used for the no-notes prev_notes cleanup), not an orphaned import after the sweep-loop deletion.
+
+### Verdict
+HAS_RISKS

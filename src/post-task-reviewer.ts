@@ -123,10 +123,8 @@ export async function spawnPostTaskReviewer(
   // round-1.md (getRound's lazy seed).
   const round = getRound(dataDir);
   // Permission rules need an absolute path, and the caller's dataDir is the
-  // ALREADY-RESOLVED data dir (which may be the legacy .ralph/). Never rebuild
-  // it from a brand constant — see the reviewFileRule note below.
-  // remove once all projects migrated — only the legacy caveat goes; deriving
-  // the rule from the resolved dataDir stays correct either way.
+  // ALREADY-RESOLVED data dir. Never rebuild it from a brand constant — see
+  // the reviewFileRule note below.
   const absDataDir = path.resolve(projectRoot, dataDir);
   const reviewsDir = path.join(absDataDir, "reviews");
   mkdirSync(reviewsDir, { recursive: true });
@@ -135,7 +133,7 @@ export async function spawnPostTaskReviewer(
   const userPrompt = buildPostTaskReviewUserPrompt({ task, diff, log, files, dataDir, reviewFilePath });
 
   // Permission-rule paths must be absolute (leading "//"). A relative glob like
-  // Edit(.ralph/reviews/**) is resolved against the shell's CURRENT working
+  // Edit(.cairn/reviews/**) is resolved against the shell's CURRENT working
   // directory at evaluation time — so after the reviewer cd's into a service dir to
   // run tests, the rule no longer matches and every Edit/Write is silently denied
   // in -p mode (observed 2026-07-11: reviews lost or prepended at the top of the file).
@@ -144,7 +142,7 @@ export async function spawnPostTaskReviewer(
   // The rule is derived from reviewsDir — the same path the prompt tells the
   // reviewer to write — so the two can never diverge. Hardcoding a directory
   // name here would grant an allowlist for e.g. .cairn/reviews/** on a project
-  // that actually lives in .ralph/, and every reviewer write would be silently
+  // that actually lives in .cairn/, and every reviewer write would be silently
   // denied with no error and no review output.
   const reviewFileRule = `/${reviewsDir}/**`;
 

@@ -408,3 +408,5 @@ Iteration 4 completed: 2026-08-03T16:34:28.422Z — SUCCESS
 Iteration 5 started: 2026-08-03T16:36:44.392Z — Task #55: src/commands/run.ts — collapse completion-flag probe and temp-file cleanup
 Iteration 5 completed: 2026-08-03T16:39:21.623Z — SUCCESS
 Iteration 6 started: 2026-08-03T16:41:40.839Z — Task #56: Migrate temp-file read callers to tempFilePath (4 files)
+Iteration 6 completed: 2026-08-03T16:44:23.965Z — SUCCESS
+Iteration 7 started: 2026-08-03T16:47:54.376Z — Task #57: Comment-only legacy caveat removal (post-task-reviewer, index, edit)

@@ -35,9 +35,7 @@ export function setupProjectContext(projectRootOverride?: string): {
 
   const projectRoot = findProjectRoot();
   const cairnRoot = resolveCairnRoot();
-  // Resolve (never reconstruct) the data dir: projects still on the legacy
-  // layout must keep resolving to .ralph/, not to a nonexistent .cairn/.
-  // remove once all projects migrated — the call stays, the caveat goes.
+  // Resolve (never reconstruct) the data dir.
   const dataDir = findDataDir(projectRoot);
   const libDir = join(cairnRoot, 'lib');
 
