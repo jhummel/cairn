@@ -13,7 +13,7 @@ import type { SpawnFn } from '../../src/commands/summarize';
 function makeTempDir(withCairnDir = false, withAgentFile = false): string {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-test-'));
   if (withCairnDir) {
-    fs.mkdirSync(path.join(tmpDir, '.ralph'));
+    fs.mkdirSync(path.join(tmpDir, '.cairn'));
   }
   if (withAgentFile) {
     const agentsDir = path.join(tmpDir, '.claude', 'agents');
@@ -39,7 +39,7 @@ describe('buildUserPrompt', () => {
       projectRoot: tmpDir,
       projectName: 'my-project',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
     });
 
@@ -52,7 +52,7 @@ describe('buildUserPrompt', () => {
       projectRoot: tmpDir,
       projectName: 'my-project',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
     });
 
@@ -67,7 +67,7 @@ describe('buildUserPrompt', () => {
       projectRoot: tmpDir,
       projectName: 'my-project',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
     });
 
@@ -76,7 +76,7 @@ describe('buildUserPrompt', () => {
   });
 
   it('includes completed tasks reference when file exists', () => {
-    const cairnDir = path.join(tmpDir, '.ralph');
+    const cairnDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(cairnDir);
     const completedPath = path.join(cairnDir, 'tasks.completed.json');
     fs.writeFileSync(completedPath, '{}');
@@ -90,7 +90,7 @@ describe('buildUserPrompt', () => {
     });
 
     expect(prompt).toContain('Completed tasks are in');
-    expect(prompt).toContain('.ralph/tasks.completed.json');
+    expect(prompt).toContain('.cairn/tasks.completed.json');
   });
 
   it('no completed tasks reference when file missing', () => {
@@ -98,7 +98,7 @@ describe('buildUserPrompt', () => {
       projectRoot: tmpDir,
       projectName: 'my-project',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
     });
 
@@ -110,7 +110,7 @@ describe('buildUserPrompt', () => {
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: 'src/**/CLAUDE.md',
     });
 
@@ -123,7 +123,7 @@ describe('buildUserPrompt', () => {
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
     });
 
@@ -135,7 +135,7 @@ describe('buildUserPrompt', () => {
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
     });
 
@@ -150,7 +150,7 @@ describe('buildUserPrompt', () => {
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'ARCHITECTURE.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
     });
 
@@ -166,7 +166,7 @@ describe('buildUserPrompt', () => {
         projectRoot: tmpDir,
         projectName: 'test-proj',
         implFile: 'IMPLEMENTATION.md',
-        completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+        completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
         claudeMdPattern: '',
         dataDir,
       });
@@ -184,7 +184,7 @@ describe('buildUserPrompt', () => {
         projectRoot: tmpDir,
         projectName: 'test-proj',
         implFile: 'IMPLEMENTATION.md',
-        completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+        completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
         claudeMdPattern: '',
         dataDir,
       });
@@ -248,7 +248,7 @@ describe('runSummarize', () => {
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
       spawnFn: mockSpawn,
     });
@@ -283,7 +283,7 @@ describe('runSummarize', () => {
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
       spawnFn: mockSpawn,
     });
@@ -309,7 +309,7 @@ describe('runSummarize', () => {
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
       spawnFn: mockSpawn,
     });
@@ -334,7 +334,7 @@ describe('runSummarize', () => {
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
       spawnFn: mockSpawn,
     });
@@ -358,7 +358,7 @@ describe('runSummarize', () => {
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
       spawnFn: mockSpawn,
     });
@@ -381,7 +381,7 @@ describe('runSummarize', () => {
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
       spawnFn: mockSpawn,
       timeoutMs: 50,
@@ -415,7 +415,7 @@ describe('runSummarize', () => {
       projectRoot: tmpDir,
       projectName: 'test-proj',
       implFile: 'IMPLEMENTATION.md',
-      completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+      completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
       claudeMdPattern: '',
       spawnFn: mockSpawn,
     });
@@ -452,7 +452,7 @@ describe('runSummarize', () => {
         projectRoot: tmpDir,
         projectName: 'test-proj',
         implFile: 'IMPLEMENTATION.md',
-        completedTasksPath: path.join(tmpDir, '.ralph', 'tasks.completed.json'),
+        completedTasksPath: path.join(tmpDir, '.cairn', 'tasks.completed.json'),
         claudeMdPattern: '',
         spawnFn: mockSpawn,
       });

@@ -422,3 +422,5 @@ Iteration 11 completed: 2026-08-03T17:09:47.537Z — SUCCESS
 Iteration 12 started: 2026-08-03T17:11:48.541Z — Task #62: Delete test/legacy-markers.test.ts
 Iteration 12 completed: 2026-08-03T17:13:00.580Z — SUCCESS
 Iteration 13 started: 2026-08-03T17:15:26.077Z — Task #63: src/brand.ts — delete LEGACY and rehome the permanent notes prefix
+Iteration 13 completed: 2026-08-03T17:18:20.327Z — SUCCESS
+Iteration 14 started: 2026-08-03T17:20:15.131Z — Task #64: Cosmetic test-fixture sweep across remaining test files

@@ -168,9 +168,9 @@ describe("buildPostTaskReviewUserPrompt", () => {
       diff: "",
       log: "",
       files: [],
-      reviewFilePath: "/abs/proj/.ralph/reviews/round-3.md",
+      reviewFilePath: "/abs/proj/.cairn/reviews/round-3.md",
     });
-    expect(prompt).toContain("/abs/proj/.ralph/reviews/round-3.md");
+    expect(prompt).toContain("/abs/proj/.cairn/reviews/round-3.md");
     expect(prompt).not.toContain("review-post.md");
   });
 
@@ -256,7 +256,7 @@ describe("spawnPostTaskReviewer", () => {
 
     await spawnPostTaskReviewer({
       projectRoot: spawnTmpDir,
-      dataDir: join(spawnTmpDir, ".ralph"),
+      dataDir: join(spawnTmpDir, ".cairn"),
       task: sampleTask,
       diff: "some diff",
       log: "some log",
@@ -274,7 +274,7 @@ describe("spawnPostTaskReviewer", () => {
     expect(args).toContain("--verbose");
     expect(args).toContain("--allowedTools");
     expect(args[args.indexOf("--allowedTools") + 1]).toBe(
-      `Read,Glob,Grep,Edit(/${spawnTmpDir}/.ralph/reviews/**),Write(/${spawnTmpDir}/.ralph/reviews/**)`
+      `Read,Glob,Grep,Edit(/${spawnTmpDir}/.cairn/reviews/**),Write(/${spawnTmpDir}/.cairn/reviews/**)`
     );
     expect(args).toContain("--agents");
     expect(args).toContain("--agent");
@@ -356,7 +356,7 @@ describe("spawnPostTaskReviewer", () => {
 
     await spawnPostTaskReviewer({
       projectRoot: spawnTmpDir,
-      dataDir: join(spawnTmpDir, ".ralph"),
+      dataDir: join(spawnTmpDir, ".cairn"),
       task: sampleTask,
       diff: "",
       log: "",
@@ -381,7 +381,7 @@ describe("spawnPostTaskReviewer", () => {
 
     await spawnPostTaskReviewer({
       projectRoot: spawnTmpDir,
-      dataDir: join(spawnTmpDir, ".ralph"),
+      dataDir: join(spawnTmpDir, ".cairn"),
       task: sampleTask,
       diff: "the diff",
       log: "the log",
@@ -410,7 +410,7 @@ describe("spawnPostTaskReviewer", () => {
 
     await spawnPostTaskReviewer({
       projectRoot: spawnTmpDir,
-      dataDir: join(spawnTmpDir, ".ralph"),
+      dataDir: join(spawnTmpDir, ".cairn"),
       task: sampleTask,
       diff: "",
       log: "",
@@ -431,7 +431,7 @@ describe("spawnPostTaskReviewer", () => {
 
     const result = await spawnPostTaskReviewer({
       projectRoot: spawnTmpDir,
-      dataDir: join(spawnTmpDir, ".ralph"),
+      dataDir: join(spawnTmpDir, ".cairn"),
       task: sampleTask,
       diff: "",
       log: "",
@@ -451,7 +451,7 @@ describe("spawnPostTaskReviewer", () => {
 
     const result = await spawnPostTaskReviewer({
       projectRoot: spawnTmpDir,
-      dataDir: join(spawnTmpDir, ".ralph"),
+      dataDir: join(spawnTmpDir, ".cairn"),
       task: sampleTask,
       diff: "",
       log: "",
@@ -473,7 +473,7 @@ describe("spawnPostTaskReviewer", () => {
 
     await spawnPostTaskReviewer({
       projectRoot: spawnTmpDir,
-      dataDir: join(spawnTmpDir, ".ralph"),
+      dataDir: join(spawnTmpDir, ".cairn"),
       task: sampleTask,
       diff: "",
       log: "",
@@ -484,14 +484,14 @@ describe("spawnPostTaskReviewer", () => {
     expect(spawnOpts.cwd).toBe(spawnTmpDir);
   });
 
-  test("creates .ralph/reviews/ directory when missing", async () => {
+  test("creates .cairn/reviews/ directory when missing", async () => {
     const child = createMockChild();
     const mockSpawn = () => {
       setTimeout(() => child.emit("close", 0), 10);
       return child as any;
     };
 
-    const dataDir = join(spawnTmpDir, ".ralph");
+    const dataDir = join(spawnTmpDir, ".cairn");
     expect(existsSync(join(dataDir, "reviews"))).toBe(false);
 
     await spawnPostTaskReviewer({
@@ -518,7 +518,7 @@ describe("spawnPostTaskReviewer", () => {
       return child as any;
     };
 
-    const dataDir = join(spawnTmpDir, ".ralph");
+    const dataDir = join(spawnTmpDir, ".cairn");
     mkdirSync(dataDir, { recursive: true });
     // No state.json -> round defaults to 1.
 
@@ -532,7 +532,7 @@ describe("spawnPostTaskReviewer", () => {
       deps: { spawn: mockSpawn, processStreamFn: async () => {} },
     });
 
-    expect(stdinData).toContain(".ralph/reviews/round-1.md");
+    expect(stdinData).toContain(".cairn/reviews/round-1.md");
   });
 
   test("prompt targets round-<N>.md when state.json has round: N", async () => {
@@ -546,7 +546,7 @@ describe("spawnPostTaskReviewer", () => {
       return child as any;
     };
 
-    const dataDir = join(spawnTmpDir, ".ralph");
+    const dataDir = join(spawnTmpDir, ".cairn");
     mkdirSync(dataDir, { recursive: true });
     writeFileSync(join(dataDir, "state.json"), JSON.stringify({ round: 4 }));
 
@@ -560,7 +560,7 @@ describe("spawnPostTaskReviewer", () => {
       deps: { spawn: mockSpawn, processStreamFn: async () => {} },
     });
 
-    expect(stdinData).toContain(".ralph/reviews/round-4.md");
+    expect(stdinData).toContain(".cairn/reviews/round-4.md");
   });
 });
 
@@ -611,7 +611,7 @@ describe("runPostTaskReview", () => {
 
     await runPostTaskReview({
       projectRoot: "/fake",
-      dataDir: "/fake/.ralph",
+      dataDir: "/fake/.cairn",
       task: makeTask(),
       taskStatus: "complete",
       beforeSha: "sha123",
@@ -631,7 +631,7 @@ describe("runPostTaskReview", () => {
 
     await runPostTaskReview({
       projectRoot: "/fake",
-      dataDir: "/fake/.ralph",
+      dataDir: "/fake/.cairn",
       task: makeTask(),
       taskStatus: "complete",
       beforeSha: "sha123",
@@ -650,7 +650,7 @@ describe("runPostTaskReview", () => {
 
     await runPostTaskReview({
       projectRoot: "/fake",
-      dataDir: "/fake/.ralph",
+      dataDir: "/fake/.cairn",
       task: makeTask(),
       taskStatus: "in-progress",
       beforeSha: "sha123",
@@ -670,7 +670,7 @@ describe("runPostTaskReview", () => {
 
     await runPostTaskReview({
       projectRoot: "/fake",
-      dataDir: "/fake/.ralph",
+      dataDir: "/fake/.cairn",
       task: makeTask(),
       taskStatus: "complete",
       beforeSha: null,
@@ -691,7 +691,7 @@ describe("runPostTaskReview", () => {
 
     await runPostTaskReview({
       projectRoot: "/fake",
-      dataDir: "/fake/.ralph",
+      dataDir: "/fake/.cairn",
       task: makeTask(),
       taskStatus: "complete",
       beforeSha: "samesha",
@@ -722,7 +722,7 @@ describe("runPostTaskReview", () => {
 
     await runPostTaskReview({
       projectRoot: "/proj",
-      dataDir: "/proj/.ralph",
+      dataDir: "/proj/.cairn",
       task,
       taskStatus: "complete",
       beforeSha: "beforesha111",
@@ -736,7 +736,7 @@ describe("runPostTaskReview", () => {
 
     // spawnPostTaskReviewer called with correct args
     expect(spawnerArgs.projectRoot).toBe("/proj");
-    expect(spawnerArgs.dataDir).toBe("/proj/.ralph");
+    expect(spawnerArgs.dataDir).toBe("/proj/.cairn");
     expect(spawnerArgs.task).toBe(task);
     expect(spawnerArgs.diff).toBe("the diff");
     expect(spawnerArgs.log).toBe("the log");
@@ -752,7 +752,7 @@ describe("runPostTaskReview", () => {
     // Should not throw
     await runPostTaskReview({
       projectRoot: "/fake",
-      dataDir: "/fake/.ralph",
+      dataDir: "/fake/.cairn",
       task: makeTask(),
       taskStatus: "complete",
       beforeSha: "beforesha",
@@ -770,7 +770,7 @@ describe("runPostTaskReview", () => {
 
     await runPostTaskReview({
       projectRoot: "/fake",
-      dataDir: "/fake/.ralph",
+      dataDir: "/fake/.cairn",
       task: makeTask({ id: 5 }),
       taskStatus: "complete",
       beforeSha: "beforesha",

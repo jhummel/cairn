@@ -17,10 +17,10 @@ import { getRound } from '../../src/task-counter';
 
 const FIXTURES_DIR = path.join(__dirname, '..', 'fixtures');
 
-// Helper to create a temp dir with optional .ralph subdir
+// Helper to create a temp dir with optional .cairn subdir
 function makeTempDir(withCairnDir = false, withAgentFile = false): { tmpDir: string; cairnDir: string } {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-plan-test-'));
-  const cairnDir = path.join(tmpDir, '.ralph');
+  const cairnDir = path.join(tmpDir, '.cairn');
   if (withCairnDir) fs.mkdirSync(cairnDir);
   if (withAgentFile) {
     const agentsDir = path.join(tmpDir, '.claude', 'agents');
@@ -291,7 +291,7 @@ describe('buildDynamicContext', () => {
     const result = buildDynamicContext({
       projectName: 'test-project',
       projectRoot: '/tmp/test',
-      dataDir: '/tmp/test/.ralph',
+      dataDir: '/tmp/test/.cairn',
       agents: [],
     });
     expect(result).toContain('PROJECT: test-project');
@@ -302,10 +302,10 @@ describe('buildDynamicContext', () => {
     const result = buildDynamicContext({
       projectName: 'proj',
       projectRoot: '/tmp/test',
-      dataDir: '/tmp/test/.ralph',
+      dataDir: '/tmp/test/.cairn',
       agents: [],
     });
-    expect(result).toContain('DATA DIR: /tmp/test/.ralph');
+    expect(result).toContain('DATA DIR: /tmp/test/.cairn');
   });
 
   test('includes agent list when agents are provided', () => {
@@ -316,7 +316,7 @@ describe('buildDynamicContext', () => {
     const result = buildDynamicContext({
       projectName: 'proj',
       projectRoot: '/tmp/test',
-      dataDir: '/tmp/test/.ralph',
+      dataDir: '/tmp/test/.cairn',
       agents,
     });
     expect(result).toContain('AVAILABLE SPECIALIST AGENTS');
@@ -332,7 +332,7 @@ describe('buildDynamicContext', () => {
     const result = buildDynamicContext({
       projectName: 'proj',
       projectRoot: '/tmp/test',
-      dataDir: '/tmp/test/.ralph',
+      dataDir: '/tmp/test/.cairn',
       agents: [],
     });
     expect(result).not.toContain('AVAILABLE SPECIALIST AGENTS');
@@ -345,7 +345,7 @@ describe('buildDynamicContext', () => {
     const result = buildDynamicContext({
       projectName: 'proj',
       projectRoot: '/tmp/test',
-      dataDir: '/tmp/test/.ralph',
+      dataDir: '/tmp/test/.cairn',
       agents,
     });
     expect(result).toContain('helper');
@@ -392,7 +392,7 @@ describe('buildDynamicContext', () => {
     const result = buildDynamicContext({
       projectName: 'proj',
       projectRoot: '/tmp/test',
-      dataDir: '/tmp/test/.ralph',
+      dataDir: '/tmp/test/.cairn',
       agents,
     });
     expect(result).not.toContain('post-task-reviewer');
@@ -407,7 +407,7 @@ describe('buildDynamicContext', () => {
     const result = buildDynamicContext({
       projectName: 'proj',
       projectRoot: '/tmp/test',
-      dataDir: '/tmp/test/.ralph',
+      dataDir: '/tmp/test/.cairn',
       agents,
     });
     expect(result).not.toContain('post-task-reviewer');

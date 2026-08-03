@@ -27,7 +27,7 @@ function makeInput(overrides: Partial<SystemPromptInput> = {}): SystemPromptInpu
     taskDir: '',
     taskAgent: '',
     projectRoot: '/projects/myapp',
-    dataDir: '/projects/myapp/.ralph',
+    dataDir: '/projects/myapp/.cairn',
     config: makeConfig(),
     agents: [],
     iteration: 1,
@@ -64,7 +64,7 @@ describe('buildSystemPrompt', () => {
   });
 
   test('includes personal instructions from instructions.md', () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+    const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir, { recursive: true });
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n* Be concise');
 
@@ -142,10 +142,10 @@ You are a database expert. Focus on migrations and schema design.`);
 
   test('includes workflow with tasks file path', () => {
     const prompt = buildSystemPrompt(makeInput({
-      dataDir: '/projects/myapp/.ralph',
+      dataDir: '/projects/myapp/.cairn',
     }));
     expect(prompt).toContain('cairn task start');
-    expect(prompt).toContain('/projects/myapp/.ralph/tasks.json');
+    expect(prompt).toContain('/projects/myapp/.cairn/tasks.json');
   });
 
   test('includes default test instruction without defaultTestCommand', () => {
@@ -168,9 +168,9 @@ You are a database expert. Focus on migrations and schema design.`);
 
   test('includes complete flag path', () => {
     const prompt = buildSystemPrompt(makeInput({
-      dataDir: '/projects/myapp/.ralph',
+      dataDir: '/projects/myapp/.cairn',
     }));
-    expect(prompt).toContain('/projects/myapp/.ralph/.cairn_complete');
+    expect(prompt).toContain('/projects/myapp/.cairn/.cairn_complete');
   });
 
   // --- COMMIT PREFIX ---
@@ -282,7 +282,7 @@ Agent body here.`);
   });
 
   test('references notes tempfile path under dataDir with id placeholder', () => {
-    const dataDir = '/projects/myapp/.ralph';
+    const dataDir = '/projects/myapp/.cairn';
     const prompt = buildSystemPrompt(makeInput({ dataDir }));
     expect(prompt).toContain(`${dataDir}/.ralph_task_<id>_notes.md`);
   });
@@ -724,7 +724,7 @@ function makeRunDeps(overrides: Partial<RunRunDeps> = {}): RunRunDeps {
 function makeRunOpts(overrides: Partial<RunRunOpts> = {}): RunRunOpts {
   return {
     projectRoot: '/projects/myapp',
-    dataDir: '/projects/myapp/.ralph',
+    dataDir: '/projects/myapp/.cairn',
     config: makeTestConfig(),
     agents: [],
     ...overrides,
@@ -1157,7 +1157,7 @@ describe('runRun', () => {
 
     const validateCall = (deps.validateTaskTests as ReturnType<typeof mock>).mock.calls[0];
     expect(validateCall[0].task.id).toBe(42);
-    expect(validateCall[0].tasksFilePath).toBe('/projects/myapp/.ralph/tasks.json');
+    expect(validateCall[0].tasksFilePath).toBe('/projects/myapp/.cairn/tasks.json');
     expect(validateCall[0].projectRoot).toBe('/projects/myapp');
   });
 
@@ -1271,7 +1271,7 @@ describe('runRun', () => {
     expect(call[0].taskDir).toBe('src/lib');
     expect(call[0].taskAgent).toBe('test-agent');
     expect(call[0].projectRoot).toBe('/projects/myapp');
-    expect(call[0].dataDir).toBe('/projects/myapp/.ralph');
+    expect(call[0].dataDir).toBe('/projects/myapp/.cairn');
     expect(call[0].agents).toEqual(agents);
     expect(call[0].iteration).toBe(1);
   });
@@ -1834,7 +1834,7 @@ describe('runRun', () => {
     expect(readTasksFile).toHaveBeenCalled();
     const call = (readTasksFile as ReturnType<typeof mock>).mock.calls[0];
     expect(call[0]).toContain('tasks.json');
-    expect(call[1]).toEqual({ dataDir: '/projects/myapp/.ralph' });
+    expect(call[1]).toEqual({ dataDir: '/projects/myapp/.cairn' });
   });
 
   test('post-task-review re-read goes through readTasksFile (not readFileSync)', async () => {
@@ -1953,7 +1953,7 @@ describe('runRun', () => {
     await runRun(makeRunOpts(), deps);
 
     const line = logs.find(l => l.includes('corruption events recovered'));
-    expect(line).toBe('\u26a0 1 corruption events recovered this run \u2014 see /projects/myapp/.ralph/corruption.log');
+    expect(line).toBe('\u26a0 1 corruption events recovered this run \u2014 see /projects/myapp/.cairn/corruption.log');
   });
 
   test('final summary omits corruption-events line when N === 0', async () => {
@@ -2017,7 +2017,7 @@ describe('runRun', () => {
     expect(snapshotTasksFile).toHaveBeenCalled();
     const call = (snapshotTasksFile as ReturnType<typeof mock>).mock.calls[0];
     expect(call[0]).toContain('tasks.json');
-    expect(call[1]).toBe('/projects/myapp/.ralph');
+    expect(call[1]).toBe('/projects/myapp/.cairn');
   });
 
   test('cleanup sweeps .ralph_task_<id>_notes.md files from dataDir at run end', async () => {
@@ -2040,12 +2040,12 @@ describe('runRun', () => {
 
     await runRun(makeRunOpts(), deps);
 
-    expect(readdirSync).toHaveBeenCalledWith('/projects/myapp/.ralph');
+    expect(readdirSync).toHaveBeenCalledWith('/projects/myapp/.cairn');
     expect(unlinked.some(p => p.endsWith('.ralph_task_1_notes.md'))).toBe(true);
     expect(unlinked.some(p => p.endsWith('.ralph_task_42_notes.md'))).toBe(true);
     expect(unlinked.some(p => p.endsWith('.ralph_task_999_notes.md'))).toBe(true);
     expect(unlinked.some(p => p.endsWith('other.md'))).toBe(false);
-    expect(unlinked.some(p => p === '/projects/myapp/.ralph/tasks.json')).toBe(false);
+    expect(unlinked.some(p => p === '/projects/myapp/.cairn/tasks.json')).toBe(false);
     expect(unlinked.some(p => p.endsWith('.ralph_task_notes.md') && !/_\d+_/.test(p))).toBe(false);
     // The sweep must cover the current-brand prefix too, or new scratch files linger forever
     expect(unlinked.some(p => p.endsWith('.cairn_task_7_notes.md'))).toBe(true);

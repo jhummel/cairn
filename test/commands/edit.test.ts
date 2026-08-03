@@ -16,7 +16,7 @@ describe('runEdit', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-edit-test-'));
-    dataDir = path.join(tmpDir, '.ralph');
+    dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
 
     stderrLines = [];
