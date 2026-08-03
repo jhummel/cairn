@@ -54,22 +54,22 @@ describe('runNarrate', () => {
 
   // --- Python validation ---
 
-  it('throws when RALPH_NARRATE_PYTHON is not set', async () => {
-    delete process.env.RALPH_NARRATE_PYTHON;
+  it('throws when CAIRN_NARRATE_PYTHON is not set', async () => {
+    delete process.env.CAIRN_NARRATE_PYTHON;
     const { runNarrate } = await import('../../src/commands/narrate');
-    await expect(runNarrate('status')).rejects.toThrow(/RALPH_NARRATE_PYTHON/);
+    await expect(runNarrate('status')).rejects.toThrow(/CAIRN_NARRATE_PYTHON/);
   });
 
-  it('throws when RALPH_NARRATE_PYTHON path does not exist', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/nonexistent/python/bin/python';
+  it('throws when CAIRN_NARRATE_PYTHON path does not exist', async () => {
+    process.env.CAIRN_NARRATE_PYTHON = '/nonexistent/python/bin/python';
     const { runNarrate } = await import('../../src/commands/narrate');
-    await expect(runNarrate('status')).rejects.toThrow(/not found|RALPH_NARRATE_PYTHON/i);
+    await expect(runNarrate('status')).rejects.toThrow(/not found|CAIRN_NARRATE_PYTHON/i);
   });
 
   // --- status ---
 
   it('status: reports stopped when PID file does not exist', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
     const { runNarrate } = await import('../../src/commands/narrate');
     await runNarrate('status', { pidFile: TEST_PID_FILE });
     const output = consoleLogSpy.mock.calls.map((c: any[]) => c.join(' ')).join('\n');
@@ -77,7 +77,7 @@ describe('runNarrate', () => {
   });
 
   it('status: reports stopped and removes stale PID file when process not alive', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
     // Write a PID that definitely doesn't exist
     fs.writeFileSync(TEST_PID_FILE, '999999999');
 
@@ -90,7 +90,7 @@ describe('runNarrate', () => {
   });
 
   it('status: reports running when PID file exists and process is alive', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
     // Use current process PID — it's definitely alive
     fs.writeFileSync(TEST_PID_FILE, String(process.pid));
 
@@ -105,7 +105,7 @@ describe('runNarrate', () => {
   // --- on/start ---
 
   it('on: reports already running when PID file exists with live process', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
     fs.writeFileSync(TEST_PID_FILE, String(process.pid));
 
     const { runNarrate } = await import('../../src/commands/narrate');
@@ -116,7 +116,7 @@ describe('runNarrate', () => {
   });
 
   it('start: same as on — reports already running when alive', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
     fs.writeFileSync(TEST_PID_FILE, String(process.pid));
 
     const { runNarrate } = await import('../../src/commands/narrate');
@@ -127,7 +127,7 @@ describe('runNarrate', () => {
   });
 
   it('on: starts server, writes PID file, reports started', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
 
     let startCalled = false;
     const mockStart = async (_opts: narration.StartNarrationOpts) => {
@@ -152,7 +152,7 @@ describe('runNarrate', () => {
   });
 
   it('on: cleans PID file when start fails', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
 
     const mockStart = async (_opts: narration.StartNarrationOpts) => {
       throw new Error('Failed to start server');
@@ -173,7 +173,7 @@ describe('runNarrate', () => {
   // --- off/stop ---
 
   it('off: reports not running when PID file does not exist', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
     const { runNarrate } = await import('../../src/commands/narrate');
     await runNarrate('off', { pidFile: TEST_PID_FILE });
 
@@ -182,7 +182,7 @@ describe('runNarrate', () => {
   });
 
   it('stop: same as off — reports not running when no PID file', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
     const { runNarrate } = await import('../../src/commands/narrate');
     await runNarrate('stop', { pidFile: TEST_PID_FILE });
 
@@ -191,7 +191,7 @@ describe('runNarrate', () => {
   });
 
   it('off: stops server, removes PID file, reports stopped', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
     const fakePid = 54321;
     fs.writeFileSync(TEST_PID_FILE, String(fakePid));
 
@@ -220,8 +220,8 @@ describe('runNarrate', () => {
   // --- one-shot TTS ---
 
   it('unknown action: spawns ralph_narrate.py with spawnSync', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
-    process.env.RALPH_LIB_DIR = '/usr/lib/ralph';
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_LIB_DIR = '/usr/lib/ralph';
 
     let capturedCmd = '';
     let capturedArgs: string[] = [];
@@ -245,9 +245,9 @@ describe('runNarrate', () => {
     expect(capturedOpts.stdio).toBe('inherit');
   });
 
-  it('unknown action: uses RALPH_LIB_DIR for script path', async () => {
-    process.env.RALPH_NARRATE_PYTHON = '/usr/bin/true';
-    process.env.RALPH_LIB_DIR = '/custom/lib';
+  it('unknown action: uses CAIRN_LIB_DIR for script path', async () => {
+    process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
+    process.env.CAIRN_LIB_DIR = '/custom/lib';
 
     let capturedArgs: string[] = [];
     const mockSpawnSync = (_cmd: string, args: readonly string[], _opts?: any): any => {

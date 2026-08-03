@@ -360,3 +360,5 @@ Iteration 2 completed: 2026-08-03T00:59:10.860Z — SUCCESS
 Iteration 3 started: 2026-08-03T01:01:47.125Z — Task #33: Stateful temp files: .cairn_ prefix with .ralph_ dual-read
 Iteration 3 completed: 2026-08-03T01:08:37.100Z — SUCCESS
 Iteration 4 started: 2026-08-03T01:11:26.193Z — Task #34: Dual-name build and install
+Iteration 4 completed: 2026-08-03T01:13:03.029Z — SUCCESS
+Iteration 5 started: 2026-08-03T01:14:30.340Z — Task #35: Env vars to CAIRN_* plus three-way API-key chain

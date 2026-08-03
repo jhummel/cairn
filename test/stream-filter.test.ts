@@ -359,10 +359,10 @@ describe('processStream', () => {
     expect(out).toContain('[init]');
   });
 
-  it('reads RALPH_TRUNCATE_TEXT from env when option not provided', async () => {
-    const originalEnv = process.env.RALPH_TRUNCATE_TEXT;
+  it('reads CAIRN_TRUNCATE_TEXT from env when option not provided', async () => {
+    const originalEnv = process.env.CAIRN_TRUNCATE_TEXT;
     try {
-      process.env.RALPH_TRUNCATE_TEXT = 'false';
+      process.env.CAIRN_TRUNCATE_TEXT = 'false';
       const text = 'line1\nline2';
       const event = JSON.stringify({
         type: 'assistant',
@@ -378,9 +378,9 @@ describe('processStream', () => {
       expect(lines.length).toBe(2);
     } finally {
       if (originalEnv === undefined) {
-        delete process.env.RALPH_TRUNCATE_TEXT;
+        delete process.env.CAIRN_TRUNCATE_TEXT;
       } else {
-        process.env.RALPH_TRUNCATE_TEXT = originalEnv;
+        process.env.CAIRN_TRUNCATE_TEXT = originalEnv;
       }
     }
   });

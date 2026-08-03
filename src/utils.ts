@@ -125,7 +125,7 @@ export function findTempFilePath(dataDir: string, suffix: string): string {
 
 /**
  * Find the project root directory. Detection order:
- * 1. RALPH_PROJECT_ROOT env var
+ * 1. CAIRN_PROJECT_ROOT env var
  * 2. Walk upward from cwd looking for a .cairn/ (or legacy .ralph/) directory
  * 3. Git root via `git rev-parse --show-toplevel`
  * 4. Fall back to cwd
@@ -136,8 +136,8 @@ export function findProjectRoot(cwd?: string): string {
   const startDir = cwd ?? process.cwd();
 
   // 1. Env var
-  if (process.env.RALPH_PROJECT_ROOT) {
-    return process.env.RALPH_PROJECT_ROOT;
+  if (process.env.CAIRN_PROJECT_ROOT) {
+    return process.env.CAIRN_PROJECT_ROOT;
   }
 
   // 2. Walk upward looking for a data directory. Both names are checked at

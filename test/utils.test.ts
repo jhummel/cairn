@@ -74,24 +74,24 @@ describe('resolvePath', () => {
 
 describe('findProjectRoot', () => {
   let tempDir: string;
-  const originalEnv = process.env.RALPH_PROJECT_ROOT;
+  const originalEnv = process.env.CAIRN_PROJECT_ROOT;
 
   beforeEach(() => {
     tempDir = makeTempDir('findroot');
-    delete process.env.RALPH_PROJECT_ROOT;
+    delete process.env.CAIRN_PROJECT_ROOT;
   });
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
     if (originalEnv !== undefined) {
-      process.env.RALPH_PROJECT_ROOT = originalEnv;
+      process.env.CAIRN_PROJECT_ROOT = originalEnv;
     } else {
-      delete process.env.RALPH_PROJECT_ROOT;
+      delete process.env.CAIRN_PROJECT_ROOT;
     }
   });
 
-  it('returns RALPH_PROJECT_ROOT env var when set', () => {
-    process.env.RALPH_PROJECT_ROOT = '/some/explicit/path';
+  it('returns CAIRN_PROJECT_ROOT env var when set', () => {
+    process.env.CAIRN_PROJECT_ROOT = '/some/explicit/path';
     expect(findProjectRoot(tempDir)).toBe('/some/explicit/path');
   });
 
@@ -149,12 +149,12 @@ describe('resolveRalphRoot', () => {
 
 describe('findProjectRoot — dual-read data directory discovery', () => {
   let tempDir: string;
-  const originalEnv = process.env.RALPH_PROJECT_ROOT;
+  const originalEnv = process.env.CAIRN_PROJECT_ROOT;
   let originalError: typeof console.error;
 
   beforeEach(() => {
     tempDir = makeTempDir('dualread');
-    delete process.env.RALPH_PROJECT_ROOT;
+    delete process.env.CAIRN_PROJECT_ROOT;
     resetLegacyWarnings();
     originalError = console.error;
     console.error = () => {};
@@ -165,9 +165,9 @@ describe('findProjectRoot — dual-read data directory discovery', () => {
     resetLegacyWarnings();
     rmSync(tempDir, { recursive: true, force: true });
     if (originalEnv !== undefined) {
-      process.env.RALPH_PROJECT_ROOT = originalEnv;
+      process.env.CAIRN_PROJECT_ROOT = originalEnv;
     } else {
-      delete process.env.RALPH_PROJECT_ROOT;
+      delete process.env.CAIRN_PROJECT_ROOT;
     }
   });
 

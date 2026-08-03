@@ -6,6 +6,7 @@ import {
   stopNarrationServer,
   type StartNarrationOpts,
 } from '../narration';
+import { resolveAnthropicApiKeyChain, warnIfLegacyApiKey } from '../config';
 
 const DEFAULT_PID_FILE = '/tmp/ralph-tts.pid';
 const DEFAULT_SOCKET_PATH = '/tmp/ralph-tts.sock';
@@ -32,11 +33,11 @@ function isProcessAlive(pid: number): boolean {
 }
 
 export async function runNarrate(action: string, opts: RunNarrateOpts = {}): Promise<void> {
-  const pythonPath = opts.pythonPath ?? process.env.RALPH_NARRATE_PYTHON ?? '';
-  const libDir = opts.libDir ?? process.env.RALPH_LIB_DIR ?? '';
+  const pythonPath = opts.pythonPath ?? process.env.CAIRN_NARRATE_PYTHON ?? '';
+  const libDir = opts.libDir ?? process.env.CAIRN_LIB_DIR ?? '';
   const pidFile = opts.pidFile ?? DEFAULT_PID_FILE;
   const socketPath = opts.socketPath ?? DEFAULT_SOCKET_PATH;
-  const voice = opts.voice ?? process.env.RALPH_NARRATION_VOICE ?? DEFAULT_VOICE;
+  const voice = opts.voice ?? process.env.CAIRN_NARRATION_VOICE ?? DEFAULT_VOICE;
   const startServer = opts.startServer ?? startNarrationServer;
   const stopServer = opts.stopServer ?? stopNarrationServer;
   const spawnSyncFn = opts.spawnSyncFn ?? spawnSync;
@@ -44,12 +45,12 @@ export async function runNarrate(action: string, opts: RunNarrateOpts = {}): Pro
   // Validate python path before any action
   if (!pythonPath) {
     throw new Error(
-      'RALPH_NARRATE_PYTHON is not set. Run: python3.11 -m venv .venv && .venv/bin/pip install kokoro sounddevice anthropic',
+      'CAIRN_NARRATE_PYTHON is not set. Run: python3.11 -m venv .venv && .venv/bin/pip install kokoro sounddevice anthropic',
     );
   }
   if (!fs.existsSync(pythonPath)) {
     throw new Error(
-      `Narration venv not found at RALPH_NARRATE_PYTHON: ${pythonPath}. Run: python3.11 -m venv .venv && .venv/bin/pip install kokoro sounddevice anthropic`,
+      `Narration venv not found at CAIRN_NARRATE_PYTHON: ${pythonPath}. Run: python3.11 -m venv .venv && .venv/bin/pip install kokoro sounddevice anthropic`,
     );
   }
 
@@ -66,6 +67,8 @@ export async function runNarrate(action: string, opts: RunNarrateOpts = {}): Pro
         // Stale PID file — remove it
         fs.unlinkSync(pidFile);
       }
+
+      warnIfLegacyApiKey(resolveAnthropicApiKeyChain());
 
       console.log(`Starting narration server (voice: ${voice})...`);
       let pid: number;

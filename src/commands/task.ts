@@ -332,8 +332,8 @@ export function taskNextId(opts: TaskNextIdOpts): number {
  * Wire the `task` subcommand group onto a Commander program.
  */
 export function registerTaskCommands(program: Command): void {
-  const tasksPath = () => path.join(process.env.RALPH_DATA_DIR!, 'tasks.json');
-  const dataDir = () => process.env.RALPH_DATA_DIR!;
+  const tasksPath = () => path.join(process.env.CAIRN_DATA_DIR!, 'tasks.json');
+  const dataDir = () => process.env.CAIRN_DATA_DIR!;
 
   const task = program
     .command('task')

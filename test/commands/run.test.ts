@@ -1086,9 +1086,9 @@ describe('runRun', () => {
     expect(unlinkCalls.some(p => p.endsWith('.ralph_completed_ids'))).toBe(true);
   });
 
-  // --- RALPH_TASK_CONTEXT env ---
+  // --- CAIRN_TASK_CONTEXT env ---
 
-  test('sets RALPH_TASK_CONTEXT env var during iteration', async () => {
+  test('sets CAIRN_TASK_CONTEXT env var during iteration', async () => {
     let capturedContext: string | undefined;
     let callCount = 0;
     const task = makeTask({ title: 'Build the widget' });
@@ -1099,7 +1099,7 @@ describe('runRun', () => {
         return callCount <= 1 ? task : null;
       }),
       spawnClaude: mock(async () => {
-        capturedContext = process.env.RALPH_TASK_CONTEXT;
+        capturedContext = process.env.CAIRN_TASK_CONTEXT;
         return { exitCode: 0 };
       }),
     });

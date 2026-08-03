@@ -63,7 +63,7 @@ def narrate(text, voice=DEFAULT_VOICE):
 
 
 if __name__ == "__main__":
-    voice = os.environ.get("RALPH_NARRATION_VOICE", DEFAULT_VOICE)
+    voice = os.environ.get("CAIRN_NARRATION_VOICE", DEFAULT_VOICE)
 
     if len(sys.argv) > 1:
         text = " ".join(sys.argv[1:])

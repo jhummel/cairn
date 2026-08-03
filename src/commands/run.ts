@@ -16,6 +16,7 @@ import { loadPersonalInstructions } from '../personal-instructions';
 import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnapshotTasksFile, TasksFileError, type TasksFile } from '../tasks-file';
 import { tempFilePath, allTempFilePaths } from '../utils';
 import { BRAND, LEGACY } from '../brand';
+import { resolveAnthropicApiKeyChain, warnIfLegacyApiKey } from '../config';
 
 export interface SystemPromptInput {
   taskDir: string;
@@ -407,10 +408,11 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   const narrationSocketPath = '/tmp/ralph-tts.sock';
 
   if (narrationEnabled) {
+    warnIfLegacyApiKey(resolveAnthropicApiKeyChain());
     try {
       narrationPid = await deps.startNarrationServer({
-        pythonPath: process.env.RALPH_NARRATE_PYTHON!,
-        scriptPath: path.join(process.env.RALPH_LIB_DIR!, 'ralph_narrate_server.py'),
+        pythonPath: process.env.CAIRN_NARRATE_PYTHON!,
+        scriptPath: path.join(process.env.CAIRN_LIB_DIR!, 'ralph_narrate_server.py'),
         voice: config.narration.voice,
         socketPath: narrationSocketPath,
       });
@@ -449,8 +451,8 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
           processManager.unregister('narration');
           try {
             narrationPid = await deps.startNarrationServer({
-              pythonPath: process.env.RALPH_NARRATE_PYTHON!,
-              scriptPath: path.join(process.env.RALPH_LIB_DIR!, 'ralph_narrate_server.py'),
+              pythonPath: process.env.CAIRN_NARRATE_PYTHON!,
+              scriptPath: path.join(process.env.CAIRN_LIB_DIR!, 'ralph_narrate_server.py'),
               voice: config.narration.voice,
               socketPath: narrationSocketPath,
             });
@@ -503,8 +505,8 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
 
       const taskDir = task.directory ?? '';
 
-      // Set RALPH_TASK_CONTEXT env var
-      process.env.RALPH_TASK_CONTEXT = task.title;
+      // Set CAIRN_TASK_CONTEXT env var
+      process.env.CAIRN_TASK_CONTEXT = task.title;
 
       deps.log(`\n--- ITERATION ${iteration}/${maxIterations} ---`);
       deps.log(`Task #${task.id}: ${task.title}`);

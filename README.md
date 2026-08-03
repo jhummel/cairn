@@ -155,10 +155,10 @@ ralph narrate off         # Stop when done
 
 Run `ralph init` with narration enabled to install Claude Code hooks (`.claude/hooks/narrate.sh`, `speak.sh`, `notify.sh`) into your project. These detect the server socket at `/tmp/ralph-tts.sock` and forward events automatically.
 
-**Note:** During `ralph run`, the loop sets `RALPH_NARRATE_SOCKET` automatically. For standalone `claude` sessions, you need to export it yourself so the hooks know where to send events:
+**Note:** During `ralph run`, the loop sets `CAIRN_NARRATE_SOCKET` automatically. For standalone `claude` sessions, you need to export it yourself so the hooks know where to send events (the legacy `RALPH_NARRATE_SOCKET` name is still read as a fallback):
 
 ```bash
-export RALPH_NARRATE_SOCKET="/tmp/ralph-tts.sock"
+export CAIRN_NARRATE_SOCKET="/tmp/ralph-tts.sock"
 ralph narrate on
 claude
 ```
@@ -257,7 +257,7 @@ If `healthCheck` is not set in `ralph.json`, Ralph auto-detects:
 Ralph finds your project root in this order:
 
 1. `--project-root` flag
-2. `RALPH_PROJECT_ROOT` environment variable
+2. `CAIRN_PROJECT_ROOT` environment variable
 3. Walk upward from CWD looking for `.ralph/` directory
 4. Git repository root
 5. Current working directory

@@ -154,18 +154,59 @@ export function discoverAgents(projectRoot: string): AgentInfo[] {
 }
 
 /**
- * Set RALPH_* environment variables from a config object.
- * Matches the env var names from ralph_config.sh for shell fallback compatibility.
+ * Set CAIRN_* environment variables from a config object, for subcommands to read.
  */
 export function setConfigEnvVars(config: RalphConfig): void {
-  process.env.RALPH_PROJECT_NAME = config.projectName;
-  process.env.RALPH_PROJECT_DESC = config.projectDescription;
-  process.env.RALPH_HEALTH_CHECK = config.healthCheck;
-  process.env.RALPH_TEST_CMD = config.defaultTestCommand;
-  process.env.RALPH_IMPL_FILE = config.implementationFile;
-  process.env.RALPH_CLAUDE_MD_PATTERN = config.summarize.claudeMdPattern;
-  process.env.RALPH_TRUNCATE_TEXT = String(config.truncateText);
-  process.env.RALPH_NARRATION_ENABLED = String(config.narration.enabled);
-  process.env.RALPH_NARRATION_VOICE = config.narration.voice;
-  process.env.RALPH_NTFY_TOPIC = config.narration.ntfyTopic;
+  process.env.CAIRN_PROJECT_NAME = config.projectName;
+  process.env.CAIRN_PROJECT_DESC = config.projectDescription;
+  process.env.CAIRN_HEALTH_CHECK = config.healthCheck;
+  process.env.CAIRN_TEST_CMD = config.defaultTestCommand;
+  process.env.CAIRN_IMPL_FILE = config.implementationFile;
+  process.env.CAIRN_CLAUDE_MD_PATTERN = config.summarize.claudeMdPattern;
+  process.env.CAIRN_TRUNCATE_TEXT = String(config.truncateText);
+  process.env.CAIRN_NARRATION_ENABLED = String(config.narration.enabled);
+  process.env.CAIRN_NARRATION_VOICE = config.narration.voice;
+  process.env.CAIRN_NTFY_TOPIC = config.narration.ntfyTopic;
+}
+
+export interface AnthropicApiKeyResolution {
+  key: string | undefined;
+  source: 'cairn' | 'legacy' | 'plain' | 'none';
+}
+
+/**
+ * Resolve the Anthropic API key the narration server should use.
+ *
+ * CAIRN_ANTHROPIC_API_KEY -> legacy RALPH_ANTHROPIC_API_KEY -> plain ANTHROPIC_API_KEY.
+ * The main loop blanks ANTHROPIC_API_KEY before spawning `claude` (run.ts, plan.ts,
+ * summarize.ts, post-task-reviewer.ts) to force Max-plan usage, so the prefixed names
+ * are what still let the narration server reach a real key. Never normalize the
+ * resolved value onto plain ANTHROPIC_API_KEY — that would defeat the blanking above.
+ */
+export function resolveAnthropicApiKeyChain(
+  env: Record<string, string | undefined> = process.env
+): AnthropicApiKeyResolution {
+  if (env.CAIRN_ANTHROPIC_API_KEY) {
+    return { key: env.CAIRN_ANTHROPIC_API_KEY, source: 'cairn' };
+  }
+  if (env.RALPH_ANTHROPIC_API_KEY) {
+    return { key: env.RALPH_ANTHROPIC_API_KEY, source: 'legacy' };
+  }
+  if (env.ANTHROPIC_API_KEY) {
+    return { key: env.ANTHROPIC_API_KEY, source: 'plain' };
+  }
+  return { key: undefined, source: 'none' };
+}
+
+/**
+ * Warn once when an Anthropic API key resolution fell back to the legacy
+ * RALPH_ANTHROPIC_API_KEY name.
+ */
+export function warnIfLegacyApiKey(resolution: AnthropicApiKeyResolution): void {
+  if (resolution.source !== 'legacy') return;
+  warnLegacyOnce(
+    'anthropic-api-key',
+    `Using legacy RALPH_ANTHROPIC_API_KEY. ${BRAND.displayName} now reads CAIRN_ANTHROPIC_API_KEY; ` +
+      `RALPH_ANTHROPIC_API_KEY is still read but support will be removed in a future release.`
+  );
 }

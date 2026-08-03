@@ -71,3 +71,83 @@ None detected. Verified directly:
 
 ### Verdict
 HAS_RISKS
+
+---
+
+## Task #33: Stateful temp files: .cairn_ prefix with .ralph_ dual-read
+Reviewed: 2026-08-03T01:15:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] Mechanism: `tempFilePath` (write, current prefix) / `findTempFilePath` (read, .cairn_ → .ralph_ fallback, warns once) / `allTempFilePaths` (both, for DI'd existence checks and cleanup sweeps) — src/utils.ts, mirrors the findDataDir() pattern from tasks 31/32
+├── [DONE] LEGACY.tempPrefix = '.ralph_' added to src/brand.ts (BRAND.tempPrefix already existed)
+├── [DONE] .ralph_completed_ids — read: task-selector.ts:11 via findTempFilePath; write: task-archiver.ts:66 via tempFilePath; forward-migration read (existingIdsFile) also uses findTempFilePath so legacy IDs are unioned into the new file
+├── [DONE] .ralph_prev_notes — write: task-archiver.ts:87 via tempFilePath; stale legacy copy actively unlinked before every write/clear so it can't keep answering the dual-read
+├── [DONE] .ralph_iterations.log — read: logs.ts:5 via findTempFilePath; write: run.ts:376 via tempFilePath (append-only, no read-side needed there)
+├── [DONE] .ralph_tasks_snapshot.json — read: tasks-file.ts:133 via findTempFilePath (corruption-recovery path); write: tasks-file.ts:194 (snapshotTasksFile) via tempFilePath
+├── [DONE] .ralph_complete — prompt-facing path (buildSystemPrompt, run.ts:49) via tempFilePath; loop existence check (run.ts:436) via allTempFilePaths(...).some(existsSync), correctly DI-safe; TEMP_FILES → TEMP_FILE_SUFFIXES, exit cleanup (run.ts:689) iterates allTempFilePaths for both prefixes
+├── [DONE] Notes-sweep regex (run.ts:363, NOTES_TEMPFILE_RE) rebuilt from both BRAND.tempPrefix and LEGACY.tempPrefix, properly regex-escaped, matches both `.cairn_task_<id>_notes.md` and `.ralph_task_<id>_notes.md`, still rejects a missing `<id>`
+├── [DONE] .ralph_task_*_notes.md left unrenamed — buildSystemPrompt still builds the notes path from `LEGACY.tempPrefix` with an explicit comment explaining why, per the task's explicit instruction not to touch it
+└── [DONE] TDD — one fallback-read test per stateful file, confirmed present in all four required test files (task-selector.test.ts, task-archiver.test.ts, tasks-file.test.ts, commands/logs.test.ts), plus new mechanism-level tests in utils.test.ts (prefer-current, fallback, default-when-neither, warn-exactly-once)
+
+### Files Changed
+- src/brand.ts (LEGACY.tempPrefix)
+- src/utils.ts (tempFilePath / findTempFilePath / allTempFilePaths)
+- src/task-selector.ts, src/task-archiver.ts, src/tasks-file.ts, src/commands/logs.ts, src/commands/run.ts (conversion sites)
+- src/commands/init.ts (GITIGNORE_CONTENT: added `.cairn_*` block, filled two entries — `tasks_snapshot.json`, `task_*_notes.md` — missing from both prefix lists)
+- CLAUDE.md (new "temp-file prefix — a second naming tier" section)
+- test/utils.test.ts, test/task-selector.test.ts, test/task-archiver.test.ts, test/tasks-file.test.ts, test/commands/logs.test.ts, test/commands/run.test.ts, test/commands/init.test.ts
+- .ralph/.gitignore, .ralph/tasks.json, .ralph/tasks.completed.json, .ralph/.ralph_iterations.log, .ralph/.ralph_tasks_snapshot.json (tool-managed bookkeeping)
+
+### Gaps
+None detected against the task description. Independently verified, not just trusted from notes:
+- `bun test` → 781 pass, 0 fail (matches notes exactly).
+- `bun build --target=bun src/index.ts` → succeeds cleanly.
+- `grep -rn '\.ralph_'` in `src/` → every remaining hit is either a comment, the `LEGACY.tempPrefix` constant definition, or the deliberate `LEGACY.tempPrefix`-built notes filename — no stray hardcoded `.ralph_` write/read site left uncovered.
+- Read the full post-diff contents of run.ts, task-archiver.ts, task-selector.ts, logs.ts, tasks-file.ts (not just the diff hunks) to confirm no leftover unconverted call site and no now-unused import (`path` was fully removed from logs.ts and is no longer referenced there; `join` remains correctly used in task-selector.ts/task-archiver.ts for `tasks.completed.json`).
+
+### Regression Risks
+- **Asymmetric stale-file cleanup.** `prev_notes` actively unlinks the non-current-prefix file on every archive pass (task-archiver.ts:88-90), but `completed_ids` and `tasks_snapshot.json` do not — a legacy `.ralph_completed_ids` / `.ralph_tasks_snapshot.json` is left on disk indefinitely holding a stale, frozen snapshot of old data once the `.cairn_` file starts being written. Functionally harmless today (`findTempFilePath` always prefers the current prefix once it exists, so the stale file is never read again), but it's an inconsistency in an otherwise carefully-reasoned mechanism, and a future bug that deleted or renamed the `.cairn_` file would silently resurrect very stale state from the orphaned legacy file. Worth a one-line comment (as the author already did for the `iterations.log` decision) or a follow-up cleanup — not a functional defect today.
+- **`.ralph_task_meta` / `.cairn_task_meta` left inconsistent.** `src/commands/init.ts`'s `GITIGNORE_CONTENT` lists both `.cairn_task_meta` and `.ralph_task_meta`, but no code in `src/` ever reads or writes a `task_meta` temp file via `tempFilePath`/`findTempFilePath` — appears vestigial from a removed or never-built feature, predating this task. Not introduced by this diff and not in scope per the task description (only four stateful files + `.ralph_complete` were named), but flagging since it sits right next to the lines this task touched and could be mistaken for a fifth stateful file that was missed.
+- No exports were removed, no test coverage was reduced (test count only went up, 752/728→781/781 per the notes, independently confirmed at 781 pass/0 fail), and no previously-passing behavior was changed without a corresponding regression-guard test (legacy-only and both-exist cases are asserted alongside the current-prefix-only case at every converted read site).
+
+### Verdict
+HAS_GAPS
+
+---
+
+## Task #34: Dual-name build and install
+Reviewed: 2026-08-03T01:20:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] package.json: "name" → "cairn"
+├── [DONE] package.json: build outfile dist/ralph → dist/cairn
+├── [DONE] install.sh: symlinks BOTH $PREFIX/bin/cairn and $PREFIX/bin/ralph to dist/cairn
+├── [DONE] install.sh: RALPH_ROOT/RALPH_BIN → CAIRN_ROOT/CAIRN_BIN (grep-confirmed: zero remaining RALPH_ROOT/RALPH_BIN references anywhere outside the new test file, which asserts their absence)
+├── [DONE] install.sh: echo messages updated to report both installed paths ("Building cairn...", "Installed: $PREFIX/bin/cairn -> ...", "Installed: $PREFIX/bin/ralph -> ...")
+├── [DONE] No deprecation warning on the ralph symlink — comment frames it as a "long-lived compatibility name, kept working indefinitely"; grep for "deprecat" (case-insensitive) in install.sh returns nothing
+├── [DONE] CRITICAL constraint: ./install.sh not run — confirmed no dist/cairn artifact exists on disk (only the stale pre-existing dist/ralph), and ~/.local/bin/ralph still resolves to the user's frozen binary copy (ralph-frozen), untouched
+├── [DONE] CRITICAL constraint: ralph.json healthCheck not modified — `git log -1 -- ralph.json` shows the last touch was task #31, not this diff
+└── [DONE] TDD — new test/install-script.test.ts written first per notes (5/6 failing pre-fix, confirmed against original files), 6 tests covering name, outfile, dual symlink, renamed vars, and no-deprecation-text; independently re-ran full suite: 787 pass, 0 fail
+
+### Files Changed
+- package.json (name, build outfile)
+- install.sh (var rename, dual symlink, echo messages, header comment)
+- test/install-script.test.ts (new, 6 tests)
+- .ralph/tasks.json, .ralph/tasks.completed.json, .ralph/.ralph_iterations.log, .ralph/.ralph_tasks_snapshot.json (tool-managed bookkeeping)
+
+### Gaps
+None detected against the task description or its file scope. Independently verified, not just trusted from notes:
+- `bun test` → 787 pass, 0 fail (matches notes exactly, re-run standalone and as part of the full suite).
+- Read the full post-diff `install.sh` and `package.json` (not just diff hunks) — no leftover `RALPH_ROOT`/`RALPH_BIN`/`dist/ralph` reference, PATH-check logic below the symlink block is untouched and still correct.
+- `grep -rn "RALPH_ROOT\|RALPH_BIN"` and `grep -rn "dist/ralph"` across the repo (excluding `.ralph/`) → only remaining hits are: this task's own test assertions (expected), a pre-existing comment in `src/utils.ts:192` (explicitly flagged out-of-scope in the notes, correctly so — it's prose, not a resolution bug), and README.md/CLAUDE.md, which are stale relative to this change but are explicitly owned by a separate, not-yet-run task ("Docs: README, CLAUDE.md, RFC", id 41 in the pending list) — correctly out of this task's file scope, not a gap.
+
+### Regression Risks
+None detected.
+- No exports were removed or renamed in any module other agents depend on — this task's blast radius is fully contained to `package.json`/`install.sh`, neither of which is imported by other source files.
+- No test coverage was reduced; test count went up (781 → 787, +6, all new).
+- `.claude/settings.local.json` still contains a stale permission grant referencing `dist/ralph` (`Bash(ln -sf .../dist/ralph ~/.local/bin/ralph)`) — harmless (an unused permission entry, not executable), pre-existing, and not part of this task's file scope; noting only for visibility since the underlying path it names no longer matches where `bun run build` will place the binary once the freeze lifts.
+
+### Verdict
+CLEAN

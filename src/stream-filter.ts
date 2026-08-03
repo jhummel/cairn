@@ -178,7 +178,7 @@ export async function processStream(
   options?: ProcessStreamOptions,
 ): Promise<void> {
   const truncateText = options?.truncateText
-    ?? (process.env.RALPH_TRUNCATE_TEXT?.toLowerCase() !== 'false');
+    ?? (process.env.CAIRN_TRUNCATE_TEXT?.toLowerCase() !== 'false');
 
   const prefix = options?.taskId != null ? `[#${options.taskId}] ` : '';
   const writeLine = (text: string) => output.write(prefix + text);

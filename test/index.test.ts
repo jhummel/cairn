@@ -74,20 +74,20 @@ describe('createProgram', () => {
 describe('setupProjectContext', () => {
   const savedEnv: Record<string, string | undefined> = {};
   const envKeys = [
-    'RALPH_PROJECT_ROOT',
-    'RALPH_DATA_DIR',
-    'RALPH_LIB_DIR',
-    'RALPH_NARRATE_PYTHON',
-    'RALPH_PROJECT_NAME',
-    'RALPH_PROJECT_DESC',
-    'RALPH_HEALTH_CHECK',
-    'RALPH_TEST_CMD',
-    'RALPH_IMPL_FILE',
-    'RALPH_CLAUDE_MD_PATTERN',
-    'RALPH_TRUNCATE_TEXT',
-    'RALPH_NARRATION_ENABLED',
-    'RALPH_NARRATION_VOICE',
-    'RALPH_NTFY_TOPIC',
+    'CAIRN_PROJECT_ROOT',
+    'CAIRN_DATA_DIR',
+    'CAIRN_LIB_DIR',
+    'CAIRN_NARRATE_PYTHON',
+    'CAIRN_PROJECT_NAME',
+    'CAIRN_PROJECT_DESC',
+    'CAIRN_HEALTH_CHECK',
+    'CAIRN_TEST_CMD',
+    'CAIRN_IMPL_FILE',
+    'CAIRN_CLAUDE_MD_PATTERN',
+    'CAIRN_TRUNCATE_TEXT',
+    'CAIRN_NARRATION_ENABLED',
+    'CAIRN_NARRATION_VOICE',
+    'CAIRN_NTFY_TOPIC',
   ];
 
   beforeEach(() => {
@@ -107,27 +107,27 @@ describe('setupProjectContext', () => {
     }
   });
 
-  test('sets RALPH_PROJECT_ROOT env var', () => {
+  test('sets CAIRN_PROJECT_ROOT env var', () => {
     const result = setupProjectContext();
-    expect(process.env.RALPH_PROJECT_ROOT).toBe(result.projectRoot);
+    expect(process.env.CAIRN_PROJECT_ROOT).toBe(result.projectRoot);
     expect(result.projectRoot).toBeTruthy();
   });
 
-  test('sets RALPH_DATA_DIR to <projectRoot>/.ralph', () => {
+  test('sets CAIRN_DATA_DIR to <projectRoot>/.ralph', () => {
     const result = setupProjectContext();
-    expect(process.env.RALPH_DATA_DIR).toBe(path.join(result.projectRoot, '.ralph'));
+    expect(process.env.CAIRN_DATA_DIR).toBe(path.join(result.projectRoot, '.ralph'));
     expect(result.dataDir).toBe(path.join(result.projectRoot, '.ralph'));
   });
 
-  test('sets RALPH_LIB_DIR to <ralphRoot>/lib', () => {
+  test('sets CAIRN_LIB_DIR to <ralphRoot>/lib', () => {
     const result = setupProjectContext();
-    expect(process.env.RALPH_LIB_DIR).toBe(path.join(result.ralphRoot, 'lib'));
+    expect(process.env.CAIRN_LIB_DIR).toBe(path.join(result.ralphRoot, 'lib'));
     expect(result.libDir).toBe(path.join(result.ralphRoot, 'lib'));
   });
 
-  test('sets RALPH_NARRATE_PYTHON', () => {
+  test('sets CAIRN_NARRATE_PYTHON', () => {
     const result = setupProjectContext();
-    expect(process.env.RALPH_NARRATE_PYTHON).toBe(
+    expect(process.env.CAIRN_NARRATE_PYTHON).toBe(
       path.join(result.ralphRoot, '.venv', 'bin', 'python3')
     );
   });
@@ -135,8 +135,8 @@ describe('setupProjectContext', () => {
   test('sets config env vars', () => {
     setupProjectContext();
     // Config env vars should be set (at minimum project name)
-    expect(process.env.RALPH_PROJECT_NAME).toBeTruthy();
-    expect(process.env.RALPH_TRUNCATE_TEXT).toBeDefined();
+    expect(process.env.CAIRN_PROJECT_NAME).toBeTruthy();
+    expect(process.env.CAIRN_TRUNCATE_TEXT).toBeDefined();
   });
 
   test('respects --project-root override', () => {
@@ -144,7 +144,7 @@ describe('setupProjectContext', () => {
     try {
       const result = setupProjectContext(tmpDir);
       expect(result.projectRoot).toBe(tmpDir);
-      expect(process.env.RALPH_PROJECT_ROOT).toBe(tmpDir);
+      expect(process.env.CAIRN_PROJECT_ROOT).toBe(tmpDir);
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
@@ -154,7 +154,7 @@ describe('setupProjectContext', () => {
     // Since we're running in the ralph project root which has package.json,
     // the health check may or may not be auto-detected. Just verify it's set.
     setupProjectContext();
-    expect(process.env.RALPH_HEALTH_CHECK).toBeDefined();
+    expect(process.env.CAIRN_HEALTH_CHECK).toBeDefined();
   });
 
   describe('data dir resolution', () => {
@@ -174,7 +174,7 @@ describe('setupProjectContext', () => {
       const result = setupProjectContext(tmpDir);
 
       expect(result.dataDir).toBe(path.join(tmpDir, '.cairn'));
-      expect(process.env.RALPH_DATA_DIR).toBe(path.join(tmpDir, '.cairn'));
+      expect(process.env.CAIRN_DATA_DIR).toBe(path.join(tmpDir, '.cairn'));
     });
 
     test('falls back to an existing legacy .ralph/ data dir', () => {
@@ -183,7 +183,7 @@ describe('setupProjectContext', () => {
       const result = setupProjectContext(tmpDir);
 
       expect(result.dataDir).toBe(path.join(tmpDir, '.ralph'));
-      expect(process.env.RALPH_DATA_DIR).toBe(path.join(tmpDir, '.ralph'));
+      expect(process.env.CAIRN_DATA_DIR).toBe(path.join(tmpDir, '.ralph'));
     });
 
     test('defaults to .cairn/ when neither layout exists', () => {
@@ -205,7 +205,7 @@ describe('setupProjectContext', () => {
 
 describe('summarize action', () => {
   const savedEnv: Record<string, string | undefined> = {};
-  const envKeys = ['RALPH_PROJECT_ROOT', 'RALPH_DATA_DIR'];
+  const envKeys = ['CAIRN_PROJECT_ROOT', 'CAIRN_DATA_DIR'];
   let tmpDir: string;
 
   beforeEach(() => {
@@ -262,14 +262,14 @@ describe('main', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    savedEnv.RALPH_PROJECT_ROOT = process.env.RALPH_PROJECT_ROOT;
+    savedEnv.CAIRN_PROJECT_ROOT = process.env.CAIRN_PROJECT_ROOT;
   });
 
   afterEach(() => {
-    if (savedEnv.RALPH_PROJECT_ROOT !== undefined) {
-      process.env.RALPH_PROJECT_ROOT = savedEnv.RALPH_PROJECT_ROOT;
+    if (savedEnv.CAIRN_PROJECT_ROOT !== undefined) {
+      process.env.CAIRN_PROJECT_ROOT = savedEnv.CAIRN_PROJECT_ROOT;
     } else {
-      delete process.env.RALPH_PROJECT_ROOT;
+      delete process.env.CAIRN_PROJECT_ROOT;
     }
   });
 

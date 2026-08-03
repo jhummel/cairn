@@ -28,7 +28,7 @@ export function setupProjectContext(projectRootOverride?: string): {
 } {
   // If an override is provided, set env var so findProjectRoot picks it up
   if (projectRootOverride) {
-    process.env.RALPH_PROJECT_ROOT = projectRootOverride;
+    process.env.CAIRN_PROJECT_ROOT = projectRootOverride;
   }
 
   const projectRoot = findProjectRoot();
@@ -39,10 +39,10 @@ export function setupProjectContext(projectRootOverride?: string): {
   const libDir = join(ralphRoot, 'lib');
 
   // Set env vars for subcommands
-  process.env.RALPH_PROJECT_ROOT = projectRoot;
-  process.env.RALPH_DATA_DIR = dataDir;
-  process.env.RALPH_LIB_DIR = libDir;
-  process.env.RALPH_NARRATE_PYTHON = join(ralphRoot, '.venv', 'bin', 'python3');
+  process.env.CAIRN_PROJECT_ROOT = projectRoot;
+  process.env.CAIRN_DATA_DIR = dataDir;
+  process.env.CAIRN_LIB_DIR = libDir;
+  process.env.CAIRN_NARRATE_PYTHON = join(ralphRoot, '.venv', 'bin', 'python3');
 
   // Load config and set config env vars
   const config = loadConfig(projectRoot);
@@ -53,8 +53,8 @@ export function setupProjectContext(projectRootOverride?: string): {
 
   // Discover agents and set env vars
   const agents = discoverAgents(projectRoot);
-  process.env.RALPH_AGENTS_DIR = join(projectRoot, '.claude', 'agents');
-  process.env.RALPH_AGENTS_JSON = JSON.stringify(agents);
+  process.env.CAIRN_AGENTS_DIR = join(projectRoot, '.claude', 'agents');
+  process.env.CAIRN_AGENTS_JSON = JSON.stringify(agents);
 
   return { projectRoot, dataDir, ralphRoot, libDir };
 }
@@ -79,8 +79,8 @@ export function createProgram(): Command {
     .command('status')
     .description('Show current task list overview')
     .action(() => {
-      const projectRoot = process.env.RALPH_PROJECT_ROOT!;
-      const dataDir = process.env.RALPH_DATA_DIR!;
+      const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
+      const dataDir = process.env.CAIRN_DATA_DIR!;
       runStatus(projectRoot, dataDir);
     });
 
@@ -88,8 +88,8 @@ export function createProgram(): Command {
     .command('edit [target]')
     .description('Edit tasks.json (default), planning notes, or config')
     .action((target?: string) => {
-      const projectRoot = process.env.RALPH_PROJECT_ROOT!;
-      const dataDir = process.env.RALPH_DATA_DIR!;
+      const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
+      const dataDir = process.env.CAIRN_DATA_DIR!;
       runEdit(target ?? 'tasks', projectRoot, dataDir);
     });
 
@@ -97,7 +97,7 @@ export function createProgram(): Command {
     .command('logs')
     .description('Show iteration log')
     .action(() => {
-      const dataDir = process.env.RALPH_DATA_DIR!;
+      const dataDir = process.env.CAIRN_DATA_DIR!;
       runLogs(dataDir);
     });
 
@@ -105,8 +105,8 @@ export function createProgram(): Command {
     .command('init')
     .description('Initialize Ralph in the current project')
     .action(async () => {
-      const projectRoot = process.env.RALPH_PROJECT_ROOT!;
-      const dataDir = process.env.RALPH_DATA_DIR!;
+      const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
+      const dataDir = process.env.CAIRN_DATA_DIR!;
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       const promptInterface = {
         question: (query: string) =>
@@ -120,14 +120,14 @@ export function createProgram(): Command {
     .command('summarize')
     .description('Update implementation documentation')
     .action(async () => {
-      const projectRoot = process.env.RALPH_PROJECT_ROOT!;
-      const dataDir = process.env.RALPH_DATA_DIR!;
+      const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
+      const dataDir = process.env.CAIRN_DATA_DIR!;
       await runSummarize({
         projectRoot,
-        projectName: process.env.RALPH_PROJECT_NAME ?? '',
-        implFile: process.env.RALPH_IMPL_FILE ?? 'IMPLEMENTATION.md',
+        projectName: process.env.CAIRN_PROJECT_NAME ?? '',
+        implFile: process.env.CAIRN_IMPL_FILE ?? 'IMPLEMENTATION.md',
         completedTasksPath: join(dataDir, 'tasks.completed.json'),
-        claudeMdPattern: process.env.RALPH_CLAUDE_MD_PATTERN ?? '',
+        claudeMdPattern: process.env.CAIRN_CLAUDE_MD_PATTERN ?? '',
         dataDir,
       });
     });
@@ -138,12 +138,12 @@ export function createProgram(): Command {
     .command('plan')
     .description('Interactive planning session: discuss goals, generate tasks')
     .action(() => {
-      const projectRoot = process.env.RALPH_PROJECT_ROOT!;
-      const dataDir = process.env.RALPH_DATA_DIR!;
-      const projectName = process.env.RALPH_PROJECT_NAME ?? '';
+      const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
+      const dataDir = process.env.CAIRN_DATA_DIR!;
+      const projectName = process.env.CAIRN_PROJECT_NAME ?? '';
       let agents: AgentInfo[] = [];
       try {
-        agents = JSON.parse(process.env.RALPH_AGENTS_JSON ?? '[]') as AgentInfo[];
+        agents = JSON.parse(process.env.CAIRN_AGENTS_JSON ?? '[]') as AgentInfo[];
       } catch {
         // ignore parse errors
       }
@@ -156,11 +156,11 @@ export function createProgram(): Command {
     .command('run [max]')
     .description('Execute tasks autonomously with fresh Claude agents')
     .action(async (max?: string) => {
-      const projectRoot = process.env.RALPH_PROJECT_ROOT!;
-      const dataDir = process.env.RALPH_DATA_DIR!;
+      const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
+      const dataDir = process.env.CAIRN_DATA_DIR!;
       let agents: AgentInfo[] = [];
       try {
-        agents = JSON.parse(process.env.RALPH_AGENTS_JSON ?? '[]') as AgentInfo[];
+        agents = JSON.parse(process.env.CAIRN_AGENTS_JSON ?? '[]') as AgentInfo[];
       } catch {
         // ignore parse errors
       }

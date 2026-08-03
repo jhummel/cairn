@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { loadConfig, findConfigFile, autoDetectHealthCheck, discoverAgents, setConfigEnvVars } from '../src/config';
+import { loadConfig, findConfigFile, autoDetectHealthCheck, discoverAgents, setConfigEnvVars, resolveAnthropicApiKeyChain, warnIfLegacyApiKey } from '../src/config';
 import { resetLegacyWarnings } from '../src/brand';
 import { isValidConfig } from '../src/types';
 import type { RalphConfig } from '../src/types';
@@ -382,16 +382,16 @@ Body text.`
 describe('setConfigEnvVars', () => {
   const savedEnv: Record<string, string | undefined> = {};
   const envKeys = [
-    'RALPH_PROJECT_NAME',
-    'RALPH_PROJECT_DESC',
-    'RALPH_HEALTH_CHECK',
-    'RALPH_TEST_CMD',
-    'RALPH_IMPL_FILE',
-    'RALPH_CLAUDE_MD_PATTERN',
-    'RALPH_TRUNCATE_TEXT',
-    'RALPH_NARRATION_ENABLED',
-    'RALPH_NARRATION_VOICE',
-    'RALPH_NTFY_TOPIC',
+    'CAIRN_PROJECT_NAME',
+    'CAIRN_PROJECT_DESC',
+    'CAIRN_HEALTH_CHECK',
+    'CAIRN_TEST_CMD',
+    'CAIRN_IMPL_FILE',
+    'CAIRN_CLAUDE_MD_PATTERN',
+    'CAIRN_TRUNCATE_TEXT',
+    'CAIRN_NARRATION_ENABLED',
+    'CAIRN_NARRATION_VOICE',
+    'CAIRN_NTFY_TOPIC',
   ];
 
   beforeEach(() => {
@@ -425,16 +425,16 @@ describe('setConfigEnvVars', () => {
 
     setConfigEnvVars(config);
 
-    expect(process.env.RALPH_PROJECT_NAME).toBe('test-proj');
-    expect(process.env.RALPH_PROJECT_DESC).toBe('A desc');
-    expect(process.env.RALPH_HEALTH_CHECK).toBe('npm run check');
-    expect(process.env.RALPH_TEST_CMD).toBe('npm test');
-    expect(process.env.RALPH_IMPL_FILE).toBe('IMPL.md');
-    expect(process.env.RALPH_CLAUDE_MD_PATTERN).toBe('**/CLAUDE.md');
-    expect(process.env.RALPH_TRUNCATE_TEXT).toBe('false');
-    expect(process.env.RALPH_NARRATION_ENABLED).toBe('true');
-    expect(process.env.RALPH_NARRATION_VOICE).toBe('custom');
-    expect(process.env.RALPH_NTFY_TOPIC).toBe('topic');
+    expect(process.env.CAIRN_PROJECT_NAME).toBe('test-proj');
+    expect(process.env.CAIRN_PROJECT_DESC).toBe('A desc');
+    expect(process.env.CAIRN_HEALTH_CHECK).toBe('npm run check');
+    expect(process.env.CAIRN_TEST_CMD).toBe('npm test');
+    expect(process.env.CAIRN_IMPL_FILE).toBe('IMPL.md');
+    expect(process.env.CAIRN_CLAUDE_MD_PATTERN).toBe('**/CLAUDE.md');
+    expect(process.env.CAIRN_TRUNCATE_TEXT).toBe('false');
+    expect(process.env.CAIRN_NARRATION_ENABLED).toBe('true');
+    expect(process.env.CAIRN_NARRATION_VOICE).toBe('custom');
+    expect(process.env.CAIRN_NTFY_TOPIC).toBe('topic');
   });
 
   it('converts booleans to lowercase strings', () => {
@@ -451,8 +451,8 @@ describe('setConfigEnvVars', () => {
 
     setConfigEnvVars(config);
 
-    expect(process.env.RALPH_TRUNCATE_TEXT).toBe('true');
-    expect(process.env.RALPH_NARRATION_ENABLED).toBe('false');
+    expect(process.env.CAIRN_TRUNCATE_TEXT).toBe('true');
+    expect(process.env.CAIRN_NARRATION_ENABLED).toBe('false');
   });
 });
 
@@ -622,5 +622,76 @@ describe('findConfigFile', () => {
 
   it('defaults to cairn.json when neither exists, so new config is created there', () => {
     expect(findConfigFile(tmpDir)).toBe(path.join(tmpDir, 'cairn.json'));
+  });
+});
+
+describe('resolveAnthropicApiKeyChain', () => {
+  it('prefers CAIRN_ANTHROPIC_API_KEY over everything else', () => {
+    const env = {
+      CAIRN_ANTHROPIC_API_KEY: 'cairn-key',
+      RALPH_ANTHROPIC_API_KEY: 'legacy-key',
+      ANTHROPIC_API_KEY: 'plain-key',
+    };
+    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'cairn-key', source: 'cairn' });
+  });
+
+  it('falls back to legacy RALPH_ANTHROPIC_API_KEY when CAIRN_ANTHROPIC_API_KEY is unset', () => {
+    const env = { RALPH_ANTHROPIC_API_KEY: 'legacy-key', ANTHROPIC_API_KEY: 'plain-key' };
+    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'legacy-key', source: 'legacy' });
+  });
+
+  it('falls back to plain ANTHROPIC_API_KEY when neither prefixed name is set', () => {
+    const env = { ANTHROPIC_API_KEY: 'plain-key' };
+    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'plain-key', source: 'plain' });
+  });
+
+  it('returns no key when none of the three are set', () => {
+    expect(resolveAnthropicApiKeyChain({})).toEqual({ key: undefined, source: 'none' });
+  });
+
+  it('never normalizes onto plain ANTHROPIC_API_KEY when the legacy name resolves', () => {
+    const env = { RALPH_ANTHROPIC_API_KEY: 'legacy-key' };
+    const result = resolveAnthropicApiKeyChain(env);
+    expect(result.key).toBe('legacy-key');
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it('ignores an empty-string CAIRN_ANTHROPIC_API_KEY and falls through to legacy', () => {
+    const env = { CAIRN_ANTHROPIC_API_KEY: '', RALPH_ANTHROPIC_API_KEY: 'legacy-key' };
+    expect(resolveAnthropicApiKeyChain(env)).toEqual({ key: 'legacy-key', source: 'legacy' });
+  });
+});
+
+describe('warnIfLegacyApiKey', () => {
+  beforeEach(() => resetLegacyWarnings());
+  afterEach(() => resetLegacyWarnings());
+
+  it('warns exactly once when the resolution source is legacy', () => {
+    const seen: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
+    try {
+      warnIfLegacyApiKey({ key: 'legacy-key', source: 'legacy' });
+      warnIfLegacyApiKey({ key: 'legacy-key', source: 'legacy' });
+    } finally {
+      console.error = originalError;
+    }
+    expect(seen.length).toBe(1);
+    expect(seen[0]).toContain('RALPH_ANTHROPIC_API_KEY');
+    expect(seen[0]).toContain('CAIRN_ANTHROPIC_API_KEY');
+  });
+
+  it('does not warn when the resolution source is cairn, plain, or none', () => {
+    const seen: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
+    try {
+      warnIfLegacyApiKey({ key: 'k', source: 'cairn' });
+      warnIfLegacyApiKey({ key: 'k', source: 'plain' });
+      warnIfLegacyApiKey({ key: undefined, source: 'none' });
+    } finally {
+      console.error = originalError;
+    }
+    expect(seen.length).toBe(0);
   });
 });
