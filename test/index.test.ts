@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as childProcess from 'child_process';
+import * as summarizeModule from '../src/commands/summarize';
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 
@@ -154,6 +155,106 @@ describe('setupProjectContext', () => {
     // the health check may or may not be auto-detected. Just verify it's set.
     setupProjectContext();
     expect(process.env.RALPH_HEALTH_CHECK).toBeDefined();
+  });
+
+  describe('data dir resolution', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    test('resolves an existing .cairn/ data dir', () => {
+      fs.mkdirSync(path.join(tmpDir, '.cairn'));
+
+      const result = setupProjectContext(tmpDir);
+
+      expect(result.dataDir).toBe(path.join(tmpDir, '.cairn'));
+      expect(process.env.RALPH_DATA_DIR).toBe(path.join(tmpDir, '.cairn'));
+    });
+
+    test('falls back to an existing legacy .ralph/ data dir', () => {
+      fs.mkdirSync(path.join(tmpDir, '.ralph'));
+
+      const result = setupProjectContext(tmpDir);
+
+      expect(result.dataDir).toBe(path.join(tmpDir, '.ralph'));
+      expect(process.env.RALPH_DATA_DIR).toBe(path.join(tmpDir, '.ralph'));
+    });
+
+    test('defaults to .cairn/ when neither layout exists', () => {
+      const result = setupProjectContext(tmpDir);
+
+      expect(result.dataDir).toBe(path.join(tmpDir, '.cairn'));
+    });
+
+    test('prefers .cairn/ when both layouts exist', () => {
+      fs.mkdirSync(path.join(tmpDir, '.cairn'));
+      fs.mkdirSync(path.join(tmpDir, '.ralph'));
+
+      const result = setupProjectContext(tmpDir);
+
+      expect(result.dataDir).toBe(path.join(tmpDir, '.cairn'));
+    });
+  });
+});
+
+describe('summarize action', () => {
+  const savedEnv: Record<string, string | undefined> = {};
+  const envKeys = ['RALPH_PROJECT_ROOT', 'RALPH_DATA_DIR'];
+  let tmpDir: string;
+
+  beforeEach(() => {
+    for (const key of envKeys) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ralph-test-'));
+  });
+
+  afterEach(() => {
+    for (const key of envKeys) {
+      if (savedEnv[key] !== undefined) {
+        process.env[key] = savedEnv[key];
+      } else {
+        delete process.env[key];
+      }
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  async function capturedSummarizeOpts(): Promise<any> {
+    const spy = spyOn(summarizeModule, 'runSummarize').mockImplementation(async () => {});
+    try {
+      await main(['node', 'ralph', '--project-root', tmpDir, 'summarize']);
+      return spy.mock.calls[0]?.[0];
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  test('points completedTasksPath at the resolved .cairn/ data dir', async () => {
+    fs.mkdirSync(path.join(tmpDir, '.cairn'));
+
+    const opts = await capturedSummarizeOpts();
+
+    expect(opts.completedTasksPath).toBe(
+      path.join(tmpDir, '.cairn', 'tasks.completed.json')
+    );
+  });
+
+  test('points completedTasksPath at a legacy .ralph/ data dir', async () => {
+    fs.mkdirSync(path.join(tmpDir, '.ralph'));
+
+    const opts = await capturedSummarizeOpts();
+
+    expect(opts.completedTasksPath).toBe(
+      path.join(tmpDir, '.ralph', 'tasks.completed.json')
+    );
   });
 });
 

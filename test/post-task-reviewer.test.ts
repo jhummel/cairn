@@ -281,6 +281,95 @@ describe("spawnPostTaskReviewer", () => {
     expect(args[args.indexOf("--agent") + 1]).toBe("post-task-reviewer");
   });
 
+  test("allowlist rule follows the resolved data dir (legacy .ralph/)", async () => {
+    const child = createMockChild();
+    let spawnArgs: string[] = [];
+    const mockSpawn = (_cmd: string, args: string[]) => {
+      spawnArgs = args;
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+
+    await spawnPostTaskReviewer({
+      projectRoot: spawnTmpDir,
+      dataDir: join(spawnTmpDir, ".ralph"),
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    const rule = `/${spawnTmpDir}/.ralph/reviews/**`;
+    expect(spawnArgs[spawnArgs.indexOf("--allowedTools") + 1]).toBe(
+      `Read,Glob,Grep,Edit(${rule}),Write(${rule})`
+    );
+  });
+
+  test("allowlist rule follows the resolved data dir (.cairn/)", async () => {
+    const child = createMockChild();
+    let spawnArgs: string[] = [];
+    const mockSpawn = (_cmd: string, args: string[]) => {
+      spawnArgs = args;
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+
+    await spawnPostTaskReviewer({
+      projectRoot: spawnTmpDir,
+      dataDir: join(spawnTmpDir, ".cairn"),
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    const rule = `/${spawnTmpDir}/.cairn/reviews/**`;
+    expect(spawnArgs[spawnArgs.indexOf("--allowedTools") + 1]).toBe(
+      `Read,Glob,Grep,Edit(${rule}),Write(${rule})`
+    );
+  });
+
+  test("allowlist rule covers the review file the prompt targets", async () => {
+    const child = createMockChild();
+    let spawnArgs: string[] = [];
+    let stdinData = "";
+    const mockSpawn = (_cmd: string, args: string[]) => {
+      spawnArgs = args;
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+    const child2 = child;
+    child2.stdin.on("data", (chunk: Buffer) => {
+      stdinData += chunk.toString();
+    });
+
+    const dataDir = join(spawnTmpDir, ".cairn");
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(join(dataDir, "state.json"), JSON.stringify({ round: 7 }));
+
+    await spawnPostTaskReviewer({
+      projectRoot: spawnTmpDir,
+      dataDir,
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    const allowed = spawnArgs[spawnArgs.indexOf("--allowedTools") + 1];
+    // The rule is a directory glob; strip the trailing "**" and confirm the
+    // prompt's target path sits underneath it.
+    const rulePrefix = allowed
+      .replace(/^.*Edit\(/, "")
+      .replace(/\/\*\*\).*$/, "")
+      .replace(/^\//, "");
+    expect(stdinData).toContain(join(dataDir, "reviews", "round-7.md"));
+    expect(join(dataDir, "reviews", "round-7.md").startsWith(rulePrefix)).toBe(true);
+  });
+
   test("unsets ANTHROPIC_API_KEY in env", async () => {
     const child = createMockChild();
     let spawnOpts: any;

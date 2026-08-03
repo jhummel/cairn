@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { join } from 'path';
 import * as readline from 'readline';
-import { findProjectRoot, resolveRalphRoot } from './utils';
+import { findProjectRoot, findDataDir, resolveRalphRoot } from './utils';
 import { loadConfig, autoDetectHealthCheck, setConfigEnvVars, discoverAgents } from './config';
 import { runStatus } from './commands/status';
 import { runEdit } from './commands/edit';
@@ -33,7 +33,9 @@ export function setupProjectContext(projectRootOverride?: string): {
 
   const projectRoot = findProjectRoot();
   const ralphRoot = resolveRalphRoot();
-  const dataDir = join(projectRoot, '.ralph');
+  // Resolve (never reconstruct) the data dir: projects still on the legacy
+  // layout must keep resolving to .ralph/, not to a nonexistent .cairn/.
+  const dataDir = findDataDir(projectRoot);
   const libDir = join(ralphRoot, 'lib');
 
   // Set env vars for subcommands
@@ -124,7 +126,7 @@ export function createProgram(): Command {
         projectRoot,
         projectName: process.env.RALPH_PROJECT_NAME ?? '',
         implFile: process.env.RALPH_IMPL_FILE ?? 'IMPLEMENTATION.md',
-        completedTasksPath: join(projectRoot, '.ralph', 'tasks.completed.json'),
+        completedTasksPath: join(dataDir, 'tasks.completed.json'),
         claudeMdPattern: process.env.RALPH_CLAUDE_MD_PATTERN ?? '',
         dataDir,
       });

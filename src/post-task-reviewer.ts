@@ -122,7 +122,11 @@ export async function spawnPostTaskReviewer(
   // never compute the round or target path itself. Pre-plan reviews land in
   // round-1.md (getRound's lazy seed).
   const round = getRound(dataDir);
-  const reviewsDir = path.join(dataDir, "reviews");
+  // Permission rules need an absolute path, and the caller's dataDir is the
+  // ALREADY-RESOLVED data dir (which may be the legacy .ralph/). Never rebuild
+  // it from a brand constant — see the reviewFileRule note below.
+  const absDataDir = path.resolve(projectRoot, dataDir);
+  const reviewsDir = path.join(absDataDir, "reviews");
   mkdirSync(reviewsDir, { recursive: true });
   const reviewFilePath = path.join(reviewsDir, `round-${round}.md`);
 
@@ -134,7 +138,13 @@ export async function spawnPostTaskReviewer(
   // run tests, the rule no longer matches and every Edit/Write is silently denied
   // in -p mode (observed 2026-07-11: reviews lost or prepended at the top of the file).
   // A directory glob covers every round-<N>.md the reviewer may target.
-  const reviewFileRule = `/${projectRoot}/.ralph/reviews/**`;
+  //
+  // The rule is derived from reviewsDir — the same path the prompt tells the
+  // reviewer to write — so the two can never diverge. Hardcoding a directory
+  // name here would grant an allowlist for e.g. .cairn/reviews/** on a project
+  // that actually lives in .ralph/, and every reviewer write would be silently
+  // denied with no error and no review output.
+  const reviewFileRule = `/${reviewsDir}/**`;
 
   const args = [
     "-p",

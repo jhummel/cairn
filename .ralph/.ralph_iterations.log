@@ -354,3 +354,5 @@ Iteration 6: COMPLETION FLAG FOUND
 Ralph Execution Loop Started: 2026-08-03T00:48:34.081Z
 
 Iteration 1 started: 2026-08-03T00:48:34.088Z — Task #31: src/brand.ts + dual-read discovery and config
+Iteration 1 completed: 2026-08-03T00:52:45.034Z — SUCCESS
+Iteration 2 started: 2026-08-03T00:55:11.463Z — Task #32: Thread the resolved dataDir instead of reconstructing paths
