@@ -562,7 +562,7 @@ describe('processStream narration', () => {
 
     expect(narrateCalls).toContain('Starting work on: implement feature X');
     expect(ntfyCalls[0].msg).toBe('Starting: implement feature X');
-    expect(ntfyCalls[0].opts?.title).toBe('Ralph');
+    expect(ntfyCalls[0].opts?.title).toBe('Cairn');
     expect(ntfyCalls[0].opts?.tags).toBe('hammer');
   });
 
@@ -665,7 +665,7 @@ describe('processStream narration', () => {
     expect(narrateCalls[0]).toContain('10 seconds');
     expect(ntfyCalls[0].opts?.tags).toBe('white_check_mark');
     expect(ntfyCalls[0].opts?.priority).toBe('3');
-    expect(ntfyCalls[0].opts?.title).toBe('Ralph - Finished');
+    expect(ntfyCalls[0].opts?.title).toBe('Cairn - Finished');
   });
 
   it('uses error tags/priority for failed result events', async () => {
@@ -684,7 +684,7 @@ describe('processStream narration', () => {
 
     expect(ntfyCalls[0].opts?.tags).toBe('x');
     expect(ntfyCalls[0].opts?.priority).toBe('4');
-    expect(ntfyCalls[0].opts?.title).toBe('Ralph - Failed');
+    expect(ntfyCalls[0].opts?.title).toBe('Cairn - Failed');
     expect(ntfyCalls[0].msg).toContain('failed');
   });
 

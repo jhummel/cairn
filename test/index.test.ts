@@ -11,7 +11,14 @@ const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 describe('createProgram', () => {
   test('creates a Commander program with correct name and version', () => {
     const program = createProgram();
-    expect(program.name()).toBe('ralph');
+    expect(program.name()).toBe('cairn');
+  });
+
+  test('init command description names the current brand, not the legacy one', () => {
+    const program = createProgram();
+    const init = program.commands.find((c) => c.name() === 'init');
+    expect(init?.description()).toContain('Cairn');
+    expect(init?.description()).not.toContain('Ralph');
   });
 
   test('has --project-root option', () => {
@@ -22,7 +29,7 @@ describe('createProgram', () => {
 
   test('has --version flag', () => {
     const program = createProgram();
-    expect(program.version()).toBe('ralph 0.1.0');
+    expect(program.version()).toBe('cairn 0.1.0');
   });
 
   test('registers ported commands (status, edit, logs)', () => {
@@ -286,7 +293,7 @@ describe('main', () => {
     }
 
     const output = logSpy.mock.calls.map((c) => String(c[0])).join('');
-    expect(output).toContain('ralph 0.1.0');
+    expect(output).toContain('cairn 0.1.0');
 
     mockExit.mockRestore();
     logSpy.mockRestore();

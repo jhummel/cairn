@@ -77,8 +77,8 @@ describe('runEdit', () => {
     expect(args).toContain(notesFile);
   });
 
-  test('target "config" maps to ralph.json in projectRoot', () => {
-    const configFile = path.join(tmpDir, 'ralph.json');
+  test('target "config" maps to cairn.json in projectRoot', () => {
+    const configFile = path.join(tmpDir, 'cairn.json');
     fs.writeFileSync(configFile, '{}');
 
     runEdit('config', tmpDir, dataDir);
@@ -86,6 +86,29 @@ describe('runEdit', () => {
     expect(spawnSpy).toHaveBeenCalledTimes(1);
     const [, args] = spawnSpy.mock.calls[0];
     expect(args).toContain(configFile);
+  });
+
+  test('target "config" resolves an existing legacy ralph.json', () => {
+    const legacyFile = path.join(tmpDir, 'ralph.json');
+    fs.writeFileSync(legacyFile, '{}');
+
+    runEdit('config', tmpDir, dataDir);
+
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+    const [, args] = spawnSpy.mock.calls[0];
+    expect(args).toContain(legacyFile);
+  });
+
+  test('target "config" prefers cairn.json when both config files exist', () => {
+    const configFile = path.join(tmpDir, 'cairn.json');
+    fs.writeFileSync(configFile, '{}');
+    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), '{}');
+
+    runEdit('config', tmpDir, dataDir);
+
+    const [, args] = spawnSpy.mock.calls[0];
+    expect(args).toContain(configFile);
+    expect(args).not.toContain(path.join(tmpDir, 'ralph.json'));
   });
 
   // --- EDITOR env var ---
@@ -149,7 +172,7 @@ describe('runEdit', () => {
     expect(exitCode).toBe(1);
     const combined = stderrLines.join('\n');
     expect(combined).toContain('Unknown target: bogus');
-    expect(combined).toContain('Usage: ralph edit');
+    expect(combined).toContain('Usage: cairn edit');
     expect(spawnSpy).not.toHaveBeenCalled();
   });
 

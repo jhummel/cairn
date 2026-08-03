@@ -2,8 +2,9 @@ import { Readable, Writable } from 'stream';
 import { createInterface } from 'readline';
 import { existsSync } from 'fs';
 import net from 'net';
+import { BRAND } from './brand';
 
-// ANSI color constants matching lib/ralph_stream_filter.py
+// ANSI color constants for the rendered tool/result lines.
 export const CYAN = '\x1b[36m';
 export const DIM = '\x1b[2m';
 export const GREEN = '\x1b[32m';
@@ -170,7 +171,6 @@ export interface ProcessStreamOptions {
 
 /**
  * Read stream-json lines from input, write formatted output to output.
- * Matches the main loop in lib/ralph_stream_filter.py exactly.
  */
 export async function processStream(
   input: Readable,
@@ -206,7 +206,7 @@ export async function processStream(
       writeLine(`  ${DIM}[init]${RESET} ${model} | ${mode}\n`);
       if (options?.taskContext) {
         options.narrate?.(`Starting work on: ${options.taskContext}`);
-        options.ntfy?.(`Starting: ${options.taskContext}`, { title: 'Ralph', tags: 'hammer' });
+        options.ntfy?.(`Starting: ${options.taskContext}`, { title: BRAND.displayName, tags: 'hammer' });
       }
     } else if (t === 'assistant') {
       const content: any[] = e.message?.content ?? [];
@@ -248,7 +248,7 @@ export async function processStream(
       let summary = `Task ${status} after ${turns} turns in ${Math.round(dur)} seconds.`;
       if (options?.taskContext) summary = `${options.taskContext}: ${summary}`;
       options?.narrate?.(summary);
-      options?.ntfy?.(summary, { title: `Ralph - ${statusTitle}`, tags, priority });
+      options?.ntfy?.(summary, { title: `${BRAND.displayName} - ${statusTitle}`, tags, priority });
     }
   }
 }

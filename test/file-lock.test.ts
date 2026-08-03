@@ -100,7 +100,28 @@ describe('acquireLock', () => {
     release(fd, lockPath);
   });
 
-  it('(4) FileLockError is exported for callers to recognize lock failures', () => {
+  it('(4) the timeout error names the current brand when advising the user to remove the lockfile', () => {
+    const lockPath = path.join(tmpDir, 'tasks.json.lock');
+
+    // Hold a fresh (non-stale) lock, then jump the clock past the wait budget
+    // so the very first retry hits the deadline instead of spinning for 15s.
+    const fd = acquireLock(lockPath);
+    const realNow = Date.now;
+    let calls = 0;
+    const t0 = realNow();
+    Date.now = () => (++calls === 1 ? t0 : t0 + 20_000);
+
+    try {
+      expect(() => acquireLock(lockPath)).toThrow(
+        /no other cairn process is running/
+      );
+    } finally {
+      Date.now = realNow;
+      release(fd, lockPath);
+    }
+  });
+
+  it('(5) FileLockError is exported for callers to recognize lock failures', () => {
     expect(typeof FileLockError).toBe('function');
     const err = new FileLockError('boom');
     expect(err).toBeInstanceOf(Error);

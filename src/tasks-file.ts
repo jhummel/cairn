@@ -166,7 +166,7 @@ export function readTasksFile(
 
 /**
  * Build a per-process, per-call unique temp path so concurrent writers (each
- * Ralph agent shells `ralph task ...`, a separate OS process) never share — and
+ * Cairn agent shells `cairn task ...`, a separate OS process) never share — and
  * thus never clobber — the same staging file. pid scopes it to a process;
  * a random suffix scopes it within a process.
  */
@@ -201,7 +201,7 @@ export function mutateTasksFile(
   opts?: { dataDir?: string }
 ): void {
   // Hold a cross-process lock around the entire read->modify->write->snapshot
-  // critical section. Each Ralph agent shells `ralph task ...` as a separate OS
+  // critical section. Each Cairn agent shells `cairn task ...` as a separate OS
   // process, so two concurrent mutations could otherwise interleave their
   // read-modify-write cycles and lose updates. writeTasksFile is itself atomic
   // (unique tmp + rename) and self-cleans on failure, so no manual tmp cleanup

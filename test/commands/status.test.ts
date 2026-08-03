@@ -43,6 +43,8 @@ describe('runStatus', () => {
       runStatus(tmpDir, path.join(tmpDir, '.ralph'));
       const output = stdoutLines.join('\n');
       expect(output).toContain('Not initialized');
+      expect(output).toContain("Run 'cairn init' first.");
+      expect(output).not.toContain('ralph init');
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
@@ -70,6 +72,8 @@ describe('runStatus', () => {
       runStatus(tmpDir, ralphDir);
       const output = stdoutLines.join('\n');
       expect(output).toContain('No tasks.json found');
+      expect(output).toContain("Run 'cairn plan' to create one.");
+      expect(output).not.toContain('ralph plan');
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }

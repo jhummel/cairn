@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { BRAND } from './brand';
 
 export class FileLockError extends Error {
   constructor(message: string) {
@@ -52,7 +53,7 @@ export function acquireLock(lockPath: string): number {
       if (Date.now() >= deadline) {
         throw new FileLockError(
           `Could not acquire tasks-file lock at ${lockPath} within ${LOCK_MAX_WAIT_MS}ms; ` +
-            `another writer may be stuck. Remove the lockfile if no other ralph process is running.`
+            `another writer may be stuck. Remove the lockfile if no other ${BRAND.name} process is running.`
         );
       }
       sleepSync(LOCK_RETRY_MS + Math.floor(Math.random() * LOCK_RETRY_MS));

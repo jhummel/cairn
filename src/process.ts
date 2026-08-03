@@ -1,5 +1,5 @@
 /**
- * Process lifecycle management — ported from ralph_execute.sh lines 1-29.
+ * Process lifecycle management for spawned agent processes.
  *
  * Handles signal traps, process group kills, PID tracking, and timeouts.
  * Injectable kill function for testing.

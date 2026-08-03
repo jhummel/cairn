@@ -13,6 +13,7 @@ import { runRun } from './commands/run';
 import { runNarrate } from './commands/narrate';
 import { registerTaskCommands } from './commands/task';
 import type { AgentInfo } from './types';
+import { BRAND } from './brand';
 
 const CAIRN_VERSION = '0.1.0';
 
@@ -67,8 +68,8 @@ export function createProgram(): Command {
   const program = new Command();
 
   program
-    .name('ralph')
-    .version(`ralph ${CAIRN_VERSION}`, '--version, -v')
+    .name(BRAND.name)
+    .version(`${BRAND.name} ${CAIRN_VERSION}`, '--version, -v')
     .description('Agentic Task Orchestration for Claude Code')
     .option('--project-root <path>', 'Override project root detection')
     .allowUnknownOption(false);
@@ -103,7 +104,7 @@ export function createProgram(): Command {
 
   program
     .command('init')
-    .description('Initialize Ralph in the current project')
+    .description(`Initialize ${BRAND.displayName} in the current project`)
     .action(async () => {
       const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
       const dataDir = process.env.CAIRN_DATA_DIR!;

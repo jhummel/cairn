@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import { acquireLock } from './file-lock';
 
 /**
- * The persisted state object. `nextTaskId` and `round` are the fields Ralph
+ * The persisted state object. `nextTaskId` and `round` are the fields Cairn
  * manages, but any additional keys present on disk are read and written back
  * verbatim so that independent features storing state here never clobber each
  * other.
@@ -107,7 +107,7 @@ function readState(filePath: string): CounterState | null {
  * Reserve `count` contiguous, monotonically increasing task ids. Performs an
  * atomic read -> increment-by-count -> write of <dataDir>/state.json inside the
  * shared cross-process file lock (state.json.lock), so concurrent reservations
- * from separate `ralph` processes never overlap. When state.json is missing it
+ * from separate `cairn` processes never overlap. When state.json is missing it
  * is lazily seeded from the max existing id (see seedNextId).
  *
  * Returns the reserved ids, e.g. reserveTaskIds(dir, 3) -> [7, 8, 9].

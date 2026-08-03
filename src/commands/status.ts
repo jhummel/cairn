@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Task } from '../types';
+import { BRAND } from '../brand';
 
 const STATUS_ICONS: Record<string, string> = {
   complete: '✓',
@@ -22,7 +23,7 @@ export function runStatus(projectRoot: string, dataDir: string): void {
   console.log('');
 
   if (!fs.existsSync(dataDir)) {
-    console.log("Not initialized. Run 'ralph init' first.");
+    console.log(`Not initialized. Run '${BRAND.name} init' first.`);
     return;
   }
 
@@ -43,7 +44,7 @@ export function runStatus(projectRoot: string, dataDir: string): void {
   // Active tasks
   const tasksFile = path.join(dataDir, 'tasks.json');
   if (!fs.existsSync(tasksFile)) {
-    console.log("  No tasks.json found. Run 'ralph plan' to create one.");
+    console.log(`  No tasks.json found. Run '${BRAND.name} plan' to create one.`);
     console.log('');
     return;
   }

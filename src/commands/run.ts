@@ -41,7 +41,6 @@ function stripFrontmatter(content: string): string {
 
 /**
  * Build the system prompt for a task execution agent.
- * Ports build_system_prompt() from ralph_execute.sh.
  */
 export function buildSystemPrompt(input: SystemPromptInput): string {
   const { taskDir, taskAgent, projectRoot, dataDir, config, agents, iteration, commitPrefix: commitPrefixOverride } = input;
@@ -184,7 +183,6 @@ export interface SpawnClaudeOpts {
 /**
  * Spawn a Claude agent process, pipe the prompt to stdin, stream stdout
  * through processStream, and return the exit code.
- * Ports run_claude() from ralph_execute.sh.
  */
 export async function spawnClaude(opts: SpawnClaudeOpts): Promise<{ exitCode: number }> {
   const {
@@ -380,7 +378,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   if (!deps.existsSync(tasksFilePath)) {
     const answer = await deps.prompt('No tasks.json found. Launch planner? [Y/n] ');
     if (answer.toLowerCase() === 'n' || answer.toLowerCase() === 'no') {
-      throw new Error('tasks.json not found. Create it first with \'ralph plan\'');
+      throw new Error(`tasks.json not found. Create it first with '${BRAND.name} plan'`);
     }
     await deps.runPlan({ projectRoot, dataDir, config, agents });
     // After plan, tasks.json should exist. If still missing, bail.
@@ -400,7 +398,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   const processManager = deps.createProcessManager();
 
   // 4. Write iteration log header
-  deps.appendFileSync(iterationLogPath, `Ralph Execution Loop Started: ${new Date().toISOString()}\n\n`);
+  deps.appendFileSync(iterationLogPath, `${BRAND.displayName} Execution Loop Started: ${new Date().toISOString()}\n\n`);
 
   // 5. Start narration server if enabled
   let narrationPid: number | null = null;
@@ -650,7 +648,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     // 8. Final summary
     deps.log('');
     deps.log('=========================================');
-    deps.log('Ralph Execution Loop Completed');
+    deps.log(`${BRAND.displayName} Execution Loop Completed`);
     deps.log(`Iterations completed: ${iterationsCompleted}`);
     deps.log(`Tasks archived: ${totalArchived}`);
     if (completedByFlag) {
@@ -671,7 +669,9 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     // Send ntfy notification
     if (config.narration.ntfyTopic) {
       const ntfyTags = completedByFlag ? 'tada' : 'warning';
-      const ntfyTitle = completedByFlag ? 'Ralph - Complete' : 'Ralph - Stopped';
+      const ntfyTitle = completedByFlag
+        ? `${BRAND.displayName} - Complete`
+        : `${BRAND.displayName} - Stopped`;
       await deps.sendNtfy(summaryMsg, config.narration.ntfyTopic, {
         title: ntfyTitle,
         tags: ntfyTags,

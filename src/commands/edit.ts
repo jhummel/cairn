@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
+import { BRAND } from '../brand';
+import { findConfigFile } from '../config';
 
 export function runEdit(target: string, projectRoot: string, dataDir: string): void {
   let filePath: string;
@@ -14,11 +16,13 @@ export function runEdit(target: string, projectRoot: string, dataDir: string): v
       filePath = path.join(dataDir, 'planning-notes.md');
       break;
     case 'config':
-      filePath = path.join(projectRoot, 'ralph.json');
+      // Resolve, never reconstruct: a project still on ralph.json must open
+      // that file rather than a cairn.json that does not exist.
+      filePath = findConfigFile(projectRoot);
       break;
     default:
       console.error(`Unknown target: ${target}`);
-      console.error('Usage: ralph edit [tasks|plan|config]');
+      console.error(`Usage: ${BRAND.name} edit [tasks|plan|config]`);
       process.exit(1);
   }
 

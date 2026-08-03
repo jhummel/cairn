@@ -767,6 +767,7 @@ describe('runRun', () => {
     });
 
     await expect(runRun(makeRunOpts(), deps)).rejects.toThrow('tasks.json not found');
+    await expect(runRun(makeRunOpts(), deps)).rejects.toThrow("Create it first with 'cairn plan'");
   });
 
   // --- PATH augmentation ---
@@ -1331,7 +1332,7 @@ describe('runRun', () => {
     expect(calls.length).toBeGreaterThanOrEqual(1);
     const [logPath, content] = calls[0];
     expect(logPath).toContain('.cairn_iterations.log');
-    expect(content).toContain('Ralph Execution Loop Started');
+    expect(content).toContain('Cairn Execution Loop Started');
   });
 
   test('logs iteration start with task info', async () => {
@@ -1633,7 +1634,32 @@ describe('runRun', () => {
 
     const ntfyCall = (deps.sendNtfy as ReturnType<typeof mock>).mock.calls[0];
     expect(ntfyCall[0]).toContain('complete');
-    expect(ntfyCall[2]).toMatchObject({ tags: 'tada' });
+    expect(ntfyCall[2]).toMatchObject({ tags: 'tada', title: 'Cairn - Complete' });
+  });
+
+  test('completion ntfy title uses the current brand when the loop stops early', async () => {
+    const config = makeTestConfig({ narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => null),
+    });
+
+    await runRun(makeRunOpts({ config }), deps);
+
+    const ntfyCall = (deps.sendNtfy as ReturnType<typeof mock>).mock.calls[0];
+    expect(ntfyCall[2]).toMatchObject({ title: 'Cairn - Stopped' });
+  });
+
+  test('final summary banner names the current brand', async () => {
+    const logs: string[] = [];
+    const deps = makeRunDeps({
+      selectNextTask: mock(() => null),
+      log: mock((msg: string) => { logs.push(msg); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(logs).toContain('Cairn Execution Loop Completed');
+    expect(logs.some(l => l.includes('Ralph'))).toBe(false);
   });
 
   test('passes ntfy callback in streamOpts when ntfyTopic is set', async () => {
