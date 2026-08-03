@@ -445,3 +445,5 @@ Iteration 3 completed: 2026-08-03T22:24:59.992Z — SUCCESS
 Iteration 4 started: 2026-08-03T22:27:05.451Z — Task #72: Rewrite the tests-field description in commands/generate-tasks.md
 Iteration 4 completed: 2026-08-03T22:28:51.216Z — SUCCESS
 Iteration 5 started: 2026-08-03T22:30:08.119Z — Task #73: CLAUDE.md truth-up: health check command and the CREATE-vs-RESOLVE standing rule
+Iteration 5 completed: 2026-08-03T22:31:38.690Z — SUCCESS
+Iteration 6 started: 2026-08-03T22:33:53.108Z — Task #74: src/commands/init.ts — retire migrate-era comments and un-export three symbols

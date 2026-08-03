@@ -222,3 +222,57 @@ None detected. Change is confined to a single bullet's text in a markdown file; 
 
 ### Verdict
 HAS_GAPS
+
+---
+
+## Task #73: CLAUDE.md truth-up: health check command and the CREATE-vs-RESOLVE standing rule
+Reviewed: 2026-08-03T22:52:00Z
+
+### Coverage
+```
+Task Requirements
+├── (a) Health check command truth-up
+│   ├── [DONE] Conventions bullet (CLAUDE.md:68) — `--target=bun` replaced with the
+│   │             `--compile` form, matched against package.json's actual `build` script
+│   ├── [DONE] Rationale rewritten — explains why `--compile` is required (exercises the
+│   │             same compile step that produces the shipped binary) instead of the old,
+│   │             now-inapplicable `--target=bun`/Node-builtins rationale
+│   ├── [DONE] Pin/unpin intro (CLAUDE.md:94) — now states the real value
+│   │             (`bun build --compile src/index.ts --outfile dist/cairn`)
+│   ├── [DONE] Pin/unpin step 2 (CLAUDE.md:99) — throwaway-redirect example updated to
+│   │             `--compile ... --outfile /tmp/cairn-healthcheck`, contrasted against
+│   │             "the real `dist/cairn` output"
+│   └── [DONE] Documented the REAL value, not cairn.json's current pinned value — verified
+│                 cairn.json itself was untouched by this commit (see Regression Risks)
+├── (b) CREATE-vs-RESOLVE standing rule restored
+│   ├── [DONE] Restored as a single Conventions bullet (CLAUDE.md:69), phrased against
+│   │             current code, covering all four live functions
+│   ├── [DONE] All four functions verified live: findDataDir (src/utils.ts:36),
+│   │             findConfigFile (src/config.ts:12), findNarrationSocketPath
+│   │             (src/narration.ts:37), findNarrationPidFile (src/narration.ts:52)
+│   └── [DONE] Kept to a single tightened bullet, not a re-expansion of the pre-#65
+│                 three-part form (verified via `git log -p` on CLAUDE.md pre-#65)
+├── [DONE] Pin/unpin permanence note — one added sentence stating the section is
+│             permanent, generic guidance for any self-modifying round, not tied to the
+│             Ralph→Cairn rename; the old rename-specific parenthetical was dropped
+├── [DONE] Only CLAUDE.md edited — src/brand.ts, src/utils.ts, src/config.ts,
+│             src/narration.ts, cairn.json all confirmed untouched by this commit
+│             (git show --stat HEAD: only .cairn/* and CLAUDE.md changed)
+└── [DONE] cairn.json's healthCheck not modified, ./install.sh not run — confirmed the
+              pin (`--compile ... --outfile /tmp/cairn-healthcheck`) predates this commit
+```
+
+Verified independently, not just from the notes: read the live `CLAUDE.md` end to end; grepped the whole file plus `src/` for any remaining `--target=bun`/`--compile` mismatches (only two survivors, both deliberate — `CLAUDE.md:68`'s counter-example and an unrelated flag-token comment in `src/test-validator.ts:115`); read `src/brand.ts`, `src/utils.ts`, `src/config.ts`, `src/narration.ts` to confirm all four cited functions are live, exported, and match the doc's description; ran `git diff HEAD~1 -- cairn.json` and `git show --stat HEAD` to confirm the pin was not touched by and did not leak into this commit; ran `bun test test/brand.test.ts` (5 pass/0 fail) and the full `bun test` (821 pass/0 fail, 29 files) directly — both match the implementer's notes exactly; diffed `git log -p` on `CLAUDE.md` to compare the restored bullet's length against the pre-#65 original.
+
+### Files Changed
+- CLAUDE.md
+- .cairn/tasks.json / .cairn/tasks.completed.json / .cairn/.cairn_tasks_snapshot.json / .cairn/planning-notes.md / .cairn/.cairn_iterations.log / .cairn/reviews/round-9.md (task bookkeeping only)
+
+### Gaps
+None detected. One pre-existing discrepancy worth noting for awareness, not attributable to this task: the task description asserted that `src/brand.ts`'s doc comment (lines 6-12) "still tells readers the rule lives in CLAUDE.md." The live comment does not actually say that — it restates the rule directly and contains no "see CLAUDE.md" pointer or the literal string "CLAUDE.md" anywhere in the file. This was a premise in the task's own description, not something task #73 was asked or permitted to fix (`src/brand.ts` was read-only for this task), so it isn't a gap in what was delivered — CLAUDE.md's Conventions section now matches brand.ts's rule content either way.
+
+### Regression Risks
+None detected. Diff is confined to CLAUDE.md; no code, schema, or test file touched (confirmed via `git show --stat`). `cairn.json`'s `healthCheck` pin predates this commit and was not modified or swept in by it. Full test suite unchanged at 821 pass / 0 fail.
+
+### Verdict
+CLEAN

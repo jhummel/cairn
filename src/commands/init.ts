@@ -7,12 +7,8 @@ import { resolveCairnRoot } from '../utils';
 import { seedNextId } from '../task-counter';
 import { BRAND, NOTES_TEMP_PREFIX } from '../brand';
 
-/**
- * Runtime temp-file names to ignore, minus the prefix. Exported because
- * `cairn migrate` appends the same set to an existing data-dir .gitignore —
- * two lists would silently drift apart.
- */
-export const TEMP_IGNORE_SUFFIXES = [
+/** Runtime temp-file names to ignore, minus the prefix. */
+const TEMP_IGNORE_SUFFIXES = [
   'complete',
   'iterations.log',
   'prev_notes',
@@ -22,11 +18,11 @@ export const TEMP_IGNORE_SUFFIXES = [
   'task_*_notes.md',
 ] as const;
 
-export const GITIGNORE_CURRENT_HEADER =
+const GITIGNORE_CURRENT_HEADER =
   '# Runtime temp files (tasks.json and planning-notes.md are tracked)';
 
 /** `prefix` + each suffix, one per line, newline-terminated. */
-export function ignoreBlock(prefix: string): string {
+function ignoreBlock(prefix: string): string {
   return TEMP_IGNORE_SUFFIXES.map((s) => `${prefix}${s}\n`).join('');
 }
 
@@ -35,9 +31,8 @@ const GITIGNORE_CONTENT =
   ignoreBlock(BRAND.tempPrefix) +
   // A permanent exception, not a compatibility leftover: buildSystemPrompt hands
   // every agent a NOTES_TEMP_PREFIX-spelled `task_<id>_notes.md` as its scratch
-  // file (see CLAUDE.md, "The temp-file prefix — a second naming tier"). Drop
-  // this line and each iteration leaves a scratch file for the agent's own
-  // commit to pick up.
+  // file. Drop this line and each iteration leaves a scratch file for the
+  // agent's own commit to pick up.
   `${NOTES_TEMP_PREFIX}task_*_notes.md\n` +
   'instructions.md\n';
 
@@ -325,8 +320,11 @@ export const NARRATION_HOOKS: ReadonlyArray<{ name: string; event: string; conte
 ];
 
 /**
- * Shared knobs for the three installers. `cairn migrate` reuses them to refresh
- * an existing project, where re-reporting untouched files would be noise.
+ * Shared knobs for the three installers, which write into a project's `.claude/`
+ * tree and report each file they touch. `skipUnchanged` lets a re-run skip files
+ * whose destination is already byte-identical to the source, instead of
+ * rewriting and re-reporting a no-op. `log` lets a caller redirect or capture
+ * the per-file reporting instead of the `console.log` default.
  */
 export interface InstallOptions {
   /** Leave files whose destination is already byte-identical alone and omit them from the result. */
