@@ -1,7 +1,7 @@
 import { lstatSync, readlinkSync, existsSync, statSync } from 'fs';
 import { resolve, dirname, basename, join, isAbsolute } from 'path';
 import { execSync } from 'child_process';
-import { BRAND, LEGACY, warnLegacyOnce } from './brand';
+import { BRAND } from './brand';
 
 /**
  * Resolve symlinks to find the real path of a file or directory.
@@ -28,122 +28,35 @@ export function resolvePath(target: string): string {
 }
 
 /**
- * Name of the data directory present in `dir`, preferring the current brand
- * over the legacy one. Returns null when neither exists.
- *
- * remove once all projects migrated — the LEGACY.dataDir candidate collapses to
- * a plain `statSync(join(dir, BRAND.dataDir))` check.
- */
-function dataDirNameAt(dir: string): string | null {
-  for (const name of [BRAND.dataDir, LEGACY.dataDir]) {
-    const candidate = join(dir, name);
-    try {
-      if (statSync(candidate).isDirectory()) return name;
-    } catch {
-      // Not present (or not readable) — try the next candidate.
-    }
-  }
-  return null;
-}
-
-/** remove once all projects migrated — whole function goes with LEGACY.dataDir. */
-function warnIfLegacyDataDir(name: string, dir: string): void {
-  if (name !== LEGACY.dataDir) return;
-  warnLegacyOnce(
-    'data-dir',
-    `Using legacy ${LEGACY.dataDir}/ data directory at ${dir}. ` +
-      `${BRAND.displayName} now creates ${BRAND.dataDir}/; ` +
-      `${LEGACY.dataDir}/ is still read but support will be removed in a future release.`
-  );
-}
-
-/**
  * Resolve the data directory for a project root.
  *
- * Prefers an existing .cairn/, falls back to an existing legacy .ralph/, and
- * defaults to .cairn/ when neither exists so that new data is created under the
- * current brand. Always use this (never BRAND.dataDir) when building a path to
- * data that is expected to already exist.
- *
- * remove once all projects migrated — the .ralph/ leg of the fallback goes away;
- * the helper itself stays, since callers still need a resolved data dir.
+ * Always use this (never BRAND.dataDir directly) when building a path to data
+ * that is expected to already exist, so every caller agrees on one location.
  */
 export function findDataDir(projectRoot: string): string {
-  const name = dataDirNameAt(projectRoot);
-  if (name) {
-    warnIfLegacyDataDir(name, projectRoot);
-    return join(projectRoot, name);
-  }
   return join(projectRoot, BRAND.dataDir);
 }
 
 // ── Runtime temp files ────────────────────────────────────────────────────────
 //
 // Inside the data directory there is a SECOND naming tier: runtime temp files
-// prefixed `.cairn_` (legacy `.ralph_`). The prefix is independent of the
-// directory name — a project can be on `.cairn/` and still hold `.ralph_`-
-// prefixed temp files, and vice versa.
+// prefixed `.cairn_`. The prefix is independent of the directory name.
 //
 // Several of these carry live cross-run state (completed IDs, prev notes, the
-// tasks snapshot, the iteration log), so the same standing rule applies as for
-// the data dir itself: build WRITE paths with `tempFilePath`, resolve READ
-// paths with `findTempFilePath`. Writing `.cairn_` without a read fallback
-// would silently discard whatever the legacy file was holding.
-//
-// remove once all projects migrated — the whole read-fallback tier collapses:
-// `findTempFilePath`/`allTempFilePaths` become `tempFilePath`.
+// tasks snapshot, the iteration log).
 
 /**
- * Path for CREATING a runtime temp file — always the current brand's prefix.
- * `suffix` is the name minus the prefix, e.g. `'completed_ids'`.
+ * Path for a runtime temp file. `suffix` is the name minus the prefix,
+ * e.g. `'completed_ids'`.
  */
 export function tempFilePath(dataDir: string, suffix: string): string {
   return join(dataDir, `${BRAND.tempPrefix}${suffix}`);
 }
 
 /**
- * Every path a given temp file could live at, current brand first. Use when a
- * caller needs to test or remove all candidates (existence checks behind an
- * injected `existsSync`, cleanup sweeps) rather than resolve a single path.
- *
- * remove once all projects migrated — returns a single-element list today, so
- * every caller collapses to `tempFilePath`.
- */
-export function allTempFilePaths(dataDir: string, suffix: string): string[] {
-  return [
-    join(dataDir, `${BRAND.tempPrefix}${suffix}`),
-    join(dataDir, `${LEGACY.tempPrefix}${suffix}`),
-  ];
-}
-
-/**
- * Path for READING a runtime temp file: an existing `.cairn_`-prefixed file,
- * else an existing legacy `.ralph_`-prefixed one, else the current-brand path
- * (so a missing-file caller reports the name it would create).
- *
- * remove once all projects migrated — collapses to `tempFilePath`.
- */
-export function findTempFilePath(dataDir: string, suffix: string): string {
-  const [current, legacy] = allTempFilePaths(dataDir, suffix);
-  if (existsSync(current)) return current;
-  if (existsSync(legacy)) {
-    warnLegacyOnce(
-      `temp-file:${suffix}`,
-      `Reading legacy ${LEGACY.tempPrefix}${suffix} in ${dataDir}. ` +
-        `${BRAND.displayName} now writes ${BRAND.tempPrefix}${suffix}; ` +
-        `the legacy name is still read but support will be removed in a future release.`
-    );
-    return legacy;
-  }
-  return current;
-}
-
-/**
  * Find the project root directory. Detection order:
  * 1. CAIRN_PROJECT_ROOT env var
- * 2. Walk upward from cwd looking for a .cairn/ (or legacy .ralph/) directory
- *    — remove once all projects migrated: the legacy leg lives in
- *    `dataDirNameAt`, so nothing in this function changes.
+ * 2. Walk upward from cwd looking for a .cairn/ directory
  * 3. Git root via `git rev-parse --show-toplevel`
  * 4. Fall back to cwd
  *
@@ -157,14 +70,13 @@ export function findProjectRoot(cwd?: string): string {
     return process.env.CAIRN_PROJECT_ROOT;
   }
 
-  // 2. Walk upward looking for a data directory. Both names are checked at
-  // every level so the *nearest* project wins, whichever layout it uses.
+  // 2. Walk upward looking for a data directory, so the *nearest* project wins.
   let dir = resolve(startDir);
   while (dir !== dirname(dir)) {
-    const name = dataDirNameAt(dir);
-    if (name) {
-      warnIfLegacyDataDir(name, dir);
-      return dir;
+    try {
+      if (statSync(join(dir, BRAND.dataDir)).isDirectory()) return dir;
+    } catch {
+      // Not present (or not readable) — keep walking.
     }
     dir = dirname(dir);
   }

@@ -187,28 +187,19 @@ describe('setupProjectContext', () => {
       expect(process.env.CAIRN_DATA_DIR).toBe(path.join(tmpDir, '.cairn'));
     });
 
-    test('falls back to an existing legacy .ralph/ data dir', () => {
-      fs.mkdirSync(path.join(tmpDir, '.ralph'));
-
-      const result = setupProjectContext(tmpDir);
-
-      expect(result.dataDir).toBe(path.join(tmpDir, '.ralph'));
-      expect(process.env.CAIRN_DATA_DIR).toBe(path.join(tmpDir, '.ralph'));
-    });
-
-    test('defaults to .cairn/ when neither layout exists', () => {
+    test('defaults to .cairn/ when the data dir does not exist yet', () => {
       const result = setupProjectContext(tmpDir);
 
       expect(result.dataDir).toBe(path.join(tmpDir, '.cairn'));
     });
 
-    test('prefers .cairn/ when both layouts exist', () => {
-      fs.mkdirSync(path.join(tmpDir, '.cairn'));
+    test('never resolves to a leftover .ralph/ directory', () => {
       fs.mkdirSync(path.join(tmpDir, '.ralph'));
 
       const result = setupProjectContext(tmpDir);
 
       expect(result.dataDir).toBe(path.join(tmpDir, '.cairn'));
+      expect(process.env.CAIRN_DATA_DIR).toBe(path.join(tmpDir, '.cairn'));
     });
   });
 });
@@ -257,13 +248,13 @@ describe('summarize action', () => {
     );
   });
 
-  test('points completedTasksPath at a legacy .ralph/ data dir', async () => {
+  test('points completedTasksPath at .cairn/ even when a leftover .ralph/ exists', async () => {
     fs.mkdirSync(path.join(tmpDir, '.ralph'));
 
     const opts = await capturedSummarizeOpts();
 
     expect(opts.completedTasksPath).toBe(
-      path.join(tmpDir, '.ralph', 'tasks.completed.json')
+      path.join(tmpDir, '.cairn', 'tasks.completed.json')
     );
   });
 });
