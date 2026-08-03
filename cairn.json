@@ -1,7 +1,7 @@
 {
   "projectName": "cairn-cli-tool",
   "projectDescription": "Cairn programming tool to launch autonomous programming mode using CC with specific steps for planning, review, execution and cleanup.",
-  "healthCheck": "bun run build",
+  "healthCheck": "bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck",
   "defaultTestCommand": "bun test",
   "implementationFile": "IMPLEMENTATION.md",
   "truncateText": false,

@@ -39,19 +39,6 @@ describe('loadCompletedIds', () => {
     expect(ids).toEqual(new Set([1, 2, 3]));
   });
 
-  it('falls back to the legacy .ralph_completed_ids when no .cairn_ file exists', () => {
-    writeFileSync(join(dir, '.ralph_completed_ids'), JSON.stringify([7, 8]));
-    const ids = loadCompletedIds(dir);
-    expect(ids).toEqual(new Set([7, 8]));
-  });
-
-  it('prefers .cairn_completed_ids over the legacy file when both exist', () => {
-    writeFileSync(join(dir, '.cairn_completed_ids'), JSON.stringify([1]));
-    writeFileSync(join(dir, '.ralph_completed_ids'), JSON.stringify([99]));
-    const ids = loadCompletedIds(dir);
-    expect(ids).toEqual(new Set([1]));
-  });
-
   it('reads IDs from tasks.completed.json (array of tasks)', () => {
     const tasks = [
       { id: 10, title: 'A', status: 'complete', priority: 1 },

@@ -1,15 +1,13 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { findTempFilePath } from './utils';
+import { tempFilePath } from './utils';
 import type { Task } from './types';
 
 export function loadCompletedIds(dataDir: string): Set<number> {
   const ids = new Set<number>();
 
-  // Load from .cairn_completed_ids (array of ints as JSON), falling back to the
-  // legacy .ralph_ name so an un-migrated project's IDs are not lost.
-  // remove once all projects migrated — findTempFilePath -> tempFilePath.
-  const idsFile = findTempFilePath(dataDir, 'completed_ids');
+  // Load from .cairn_completed_ids (array of ints as JSON).
+  const idsFile = tempFilePath(dataDir, 'completed_ids');
   try {
     const content = readFileSync(idsFile, 'utf-8').trim();
     if (content) {

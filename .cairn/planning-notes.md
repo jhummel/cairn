@@ -20,27 +20,34 @@ Round 8's post-round manual steps were all verified done: both symlinks point at
 - **`migrate` does not touch the repo-root `.gitignore`.** Only the one *inside* the data dir. karaoke-platform had five `**/.ralph_*` patterns at root that went dead on migration; fixed by hand. No other project had any. Moot going forward — `migrate` is being deleted and nothing is left to migrate.
 - **`RALPH_ANTHROPIC_API_KEY` is in no rc file.** It survives only as inherited env in long-lived shells started before the `~/.zshrc` edit. Fresh logins get `CAIRN_` only. Removing the fallback chain will break narration in those stale shells until they restart.
 - **lyrical-pitch runs prettier via a pre-commit hook** and it reformatted all four installed agent `.md` files (11 lines: blank-line normalization + one escaped `\*`). Semantically identical, but every future `cairn init` there will rewrite from source and prettier will re-escape — perpetual churn.
-- **The soak is not yet done.** No migrated project has run a real `cairn run` / plan cycle post-migration. `cairn status` was verified in all five, but that only proves discovery.
-- Uncommitted in this repo: a `test/index.test.ts` fix (stale `.ralph` assertion, made layout-agnostic) and a pre-existing `.cairn/state.json` modification.
+- **Soak done via karaoke-platform** (round 32 → 33, real work committed post-migration). lyrical-pitch-reservations remains unsoaked — the one project whose migration was an *upgrade* rather than a rename.
 - Removal surface measured: **36 markers across 15 source files** (`src/utils.ts` 7, `src/narration.ts` 5, `src/config.ts` 5, `run.ts`/`init.ts` 3 each, `install.sh` and the Python server 2 each, six files with 1). The test surface is larger — ~20 test files, led by `init.test.ts` (90 legacy refs), `config.test.ts` (56), `migrate.test.ts` (47), `utils.test.ts` (41).
 - **No `Bash(ralph:*)` permission rules exist in any project**, so dropping the symlink causes no permission friction in interactive sessions.
 
 ## Goals
 
-1. **Soak** — prove a migrated project runs a real loop before burning the bridge.
-2. **Remove the compatibility surface entirely** — all 36 markers, `LEGACY`, the dual symlink, `cairn migrate`, and the marker-enforcement test.
-3. Keep the historical record intact — archives, review files, iteration logs, and committed task notes still contain `ralph` and must not be rewritten.
-4. Leave `brand.ts` as the single source of truth, minus `LEGACY`.
+1. **Remove the compatibility surface entirely** — all 36 markers, `LEGACY`, the dual symlink, `cairn migrate`, and the marker-enforcement test. (The soak that gated this is complete; see Approach.)
+2. Keep the historical record intact — archives, review files, iteration logs, and committed task notes still contain `ralph` and must not be rewritten.
+3. Leave `brand.ts` as the single source of truth, minus `LEGACY`.
 
 ## Approach
 
-- **Soak first, in the two projects that changed most.** lyrical-pitch-reservations (oldest layout, gained agents/commands it never had) and karaoke-platform (largest surface, 951 tasks, narration hooks). A plan or run cycle in each. Cheap insurance while the fallback still exists.
+- **Soak — DONE.** karaoke-platform ran a full round post-migration (round 32 → 33, real work committed). That is the largest surface: 951-task archive, narration hooks, full agent set. lyrical-pitch-reservations was *not* soaked (still no `state.json`, last commit is its migration) — accepted, because every project is now on `.cairn/` and the fallbacks being deleted are unreachable regardless.
 
-- **Pin the binary for the removal round.** Same procedure as round 8, documented in CLAUDE.md: freeze `~/.local/bin/cairn` at a known-good copy, point `healthCheck` at `/tmp/cairn-healthcheck`. Milder hazard than round 8 (cairn is already on `.cairn/`, so deleting legacy paths shouldn't break its own reads) but `healthCheck: bun run build` still writes `dist/cairn` — the live binary every agent calls via `cairn task` — so a bad intermediate build goes live mid-round without it.
+- **Pin the binary for the removal round — DONE.** `~/.local/bin/cairn` → `~/.local/bin/cairn-frozen` (a real 59MB copy, not a link, so no rebuild can reach it). Milder hazard than round 8 (cairn is already on `.cairn/`, so deleting legacy paths shouldn't break its own reads) but the default `healthCheck: bun run build` writes `dist/cairn` — the live binary every agent calls via `cairn task` — so a bad intermediate build would go live mid-round without the pin.
 
-- **Ordering is load-bearing, twice:**
+- **Health check redirected to a throwaway outfile — DONE.** `cairn.json` now holds `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck`. This is the real build command with only the outfile changed, so it validates exactly what `bun run build` does without touching `dist/`. Deliberately **not** round 8's `bun build --target=bun …` form: that produces a plain bundle rather than a standalone executable, so a compile-step failure would pass the check and only break after unpinning. The 155ms difference is not worth the gap.
+
+- **`cairn.json` and `install.sh` build output are user-managed for the round.** The `healthCheck` value above is a deliberate, uncommitted, round-only change. No task may "restore" it, and no agent may run `./install.sh` — either would un-freeze the binary mid-round. Task 9 edits `install.sh`'s symlink block only; it must leave the build command alone.
+
+- **Ordering is load-bearing, three times** (corrected during task generation — the first draft of these notes got two of them wrong):
+  - **`src/utils.ts` cannot go first.** `findTempFilePath` / `allTempFilePaths` have five external callers — `task-selector.ts`, `tasks-file.ts`, `task-archiver.ts`, `commands/run.ts`, and `commands/logs.ts` (the last missing from the first draft entirely, because it carries no marker — it never spells `ralph`). Deleting the exports first breaks the build, and the health check runs *before every iteration*, so the loop stalls immediately. It runs after the caller-migration tasks.
+  - **`test/legacy-markers.test.ts` deleted immediately BEFORE `brand.ts`, not after.** The first draft had this backwards. Killing `LEGACY` forces a hardcoded `.ralph_` literal for the permanent notes-scratch exception; that is an unmarked `ralph` mention, so the markers test fails the moment the `brand.ts` task lands — leaving it with a red suite and getting it reverted to `in-progress` by the post-iteration validator. The original rationale survives the inversion: earlier tasks only *remove* marked mentions and can never introduce an unmarked one, so the guardrail has no work left by then.
   - **`src/brand.ts` last among source changes.** Every fallback reads `LEGACY`; deleting it first breaks the build everywhere at once.
-  - **`test/legacy-markers.test.ts` deleted last.** It asserts every `ralph` mention *carries* a marker, so it stays green while mentions are stripped and only becomes wrong once `LEGACY` is gone. Deleting it early removes the guardrail while it's still doing work.
+
+- **The `.ralph_task_<id>_notes.md` scratch exception is more load-bearing than the first draft assumed.** `run.ts:52` builds the agent-facing path from `LEGACY.tempPrefix`, and `TEMP_IGNORE_SUFFIXES` includes `task_*_notes.md`, so `ignoreBlock(LEGACY.tempPrefix)` is what keeps that scratch gitignored. Two first-draft instructions were wrong and are corrected in the tasks: `NOTES_TEMPFILE_RE` must **keep** matching the legacy prefix (collapsing it leaks scratch into every data dir forever), and the legacy gitignore block must **keep exactly one line** (dropping it wholesale un-ignores an actively written file — the mechanism behind karaoke-platform's 24 committed scratch files). The prefix is rehomed to a `NOTES_TEMP_PREFIX` constant in `brand.ts`, explicitly *not* a compatibility fallback.
+
+- **Narration's hook-file probe stays.** The first draft said it could go since all hooks now name the current socket. Decided otherwise: it carries no removal marker (the markers there target only the `LEGACY.socket`/`pidFile` candidates), it is the mechanism that binds the server where the hooks actually dial rather than a compat fallback, and removing it would collapse the `RunRunDeps.findNarrationSocketPath` injection seam for no benefit.
 
 - **`rm ~/.local/bin/ralph` is an explicit manual step.** Dropping the symlink from `install.sh` does not delete the existing one — it's a live symlink on disk and would keep resolving to `dist/cairn` forever. Without this, "is it really gone?" silently passes.
 
@@ -87,43 +94,46 @@ Round 8's post-round manual steps were all verified done: both symlinks point at
 
 ## Rough Task Outline
 
-### Phase B — soak (MANUAL, before the round)
+### Phase B — soak: COMPLETE
 
-- Run a real plan or `cairn run` cycle in **lyrical-pitch-reservations** — biggest behavioral change, newly installed agents, `state.json` lazy-seeds to 15 on first use.
-- Run a real cycle in **karaoke-platform** — largest surface, narration hooks, 951-task archive.
-- Confirm narration actually reaches `/tmp/cairn-tts.sock` if enabled in either.
+karaoke-platform ran round 32 → 33 post-migration with real work committed. lyrical-pitch-reservations was not soaked; accepted as a known gap (see Approach).
 
-### Phase C — removal round (MANUAL pre-step, then agent tasks)
+### Phase C — removal round
 
-**MANUAL pre-round:**
-```
-cp dist/cairn ~/.local/bin/cairn-frozen
-ln -sf ~/.local/bin/cairn-frozen ~/.local/bin/cairn
-# cairn.json, this round only:
-#   "healthCheck": "bun build --target=bun src/index.ts --outfile /tmp/cairn-healthcheck"
-```
-Also commit or discard the two pending changes in this repo first (`test/index.test.ts`, `.cairn/state.json`).
+**MANUAL pre-round — ALL COMPLETE:**
+- `~/.local/bin/cairn` → `~/.local/bin/cairn-frozen` (pinned) ✅
+- `cairn.json` `healthCheck` → `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck` (uncommitted, round-only) ✅
+- Working tree otherwise clean; the earlier `test/index.test.ts` fix is committed (`02e7b1f`), suite green at 862 pass / 0 fail ✅
 
-1. **`src/utils.ts` — drop data-dir and temp-file fallbacks.** 7 markers: `findDataDir`, `findTempFilePath`, `allTempFilePaths`, `dataDirNameAt`, `warnIfLegacyDataDir`. Collapse resolvers to single-candidate. Update `test/utils.test.ts` (41 legacy refs). — `src/`, `test/`
-2. **`src/config.ts` — drop config-file and API-key fallbacks.** 5 markers: `findConfigFile`, the three-way key chain → `CAIRN_ANTHROPIC_API_KEY` → `ANTHROPIC_API_KEY`. Update `test/config.test.ts` (56 refs). — `src/`, `test/`
-3. **`src/narration.ts` — drop socket and pid fallbacks.** 5 markers: `findNarrationSocketPath` (hook-file probing can go — all hooks now name the current socket), `findNarrationPidFile`. Update `test/narration.test.ts`. — `src/`, `test/`
-4. **`src/commands/init.ts` — drop the legacy gitignore block and hook legacy paths.** 3 markers, including `GITIGNORE_LEGACY_HEADER` and the legacy temp-prefix entries. Update `test/commands/init.test.ts` (90 refs — the largest single test file). — `src/commands/`, `test/commands/`
-5. **`src/commands/run.ts` — drop dual-prefix sweep and completion-flag probing.** 3 markers: `NOTES_TEMPFILE_RE` collapses to the current prefix, completion flag stops checking both names. Update `test/commands/run.test.ts`. — `src/commands/`, `test/commands/`
-6. **Single-marker files sweep.** `task-archiver.ts` (2), `task-selector.ts`, `tasks-file.ts`, `post-task-reviewer.ts`, `index.ts`, `commands/edit.ts` — each one fallback. Update the matching tests. — `src/`, `src/commands/`, `test/`
-7. **`lib/cairn_narrate_server.py` — drop the legacy API-key fallback.** 2 markers. — `lib/`
-8. **Delete `cairn migrate`.** Remove `src/commands/migrate.ts`, `test/commands/migrate.test.ts` (47 refs), and the Commander registration in `src/index.ts`. — `src/commands/`, `src/`, `test/commands/`
-9. **`install.sh` — drop the `ralph` symlink.** 2 markers. Update `test/install-script.test.ts`. — repo root, `test/`
-10. **`src/brand.ts` — delete `LEGACY`, `warnLegacyOnce`, and `resetLegacyWarnings`.** Verified: every `warnLegacyOnce` call site is in `narration.ts` / `utils.ts` / `config.ts` (all deleted in tasks 1–3), and `resetLegacyWarnings` is called only from `test/{brand,utils,narration,config}.test.ts` (all rewritten in tasks 1–3). Zero surviving callers — all three go. Update `test/brand.test.ts`. **Must run after tasks 1–9.** — `src/`, `test/`
-11. **Delete `test/legacy-markers.test.ts`.** Nothing left to enforce. **Must run after task 10.** — `test/`
-12. **Docs.** `CLAUDE.md`: remove "Branding and the legacy layout", "The compatibility window", "The removal marker", "The `cairn migrate` command", and the temp-prefix/socket tier subsections; keep "Pin/unpin procedure" (generic, reusable). `README.md`: drop compatibility-window and `migrate` references. — repo root
+The tasks below are the round proper.
+
+**`.cairn/tasks.json` is authoritative** — generated from this outline and corrected against the code. It expanded to **15 tasks (IDs 51–65)**; the summary below reflects what was actually generated, not the 12-item first draft.
+
+| ID | Task | Model | Agent | Deps |
+|---|---|---|---|---|
+| 51 | `src/config.ts` — drop `ralph.json` + `RALPH_ANTHROPIC_API_KEY` legs | opus | planner | — |
+| 52 | `src/narration.ts` — drop legacy socket/pid candidates (keep the hook probe) | opus | — | — |
+| 53 | `src/commands/init.ts` — drop legacy gitignore block, **keep the notes-scratch line** | opus | — | — |
+| 54 | `test/commands/init.test.ts` — cosmetic fixture rename (~70 refs) | sonnet | — | 53 |
+| 55 | `src/commands/run.ts` — completion flag + temp-file cleanup (**not** the notes regex) | opus | — | — |
+| 56 | Temp-file read callers → `tempFilePath` (4 files, incl. `commands/logs.ts`) | sonnet | — | — |
+| 57 | Comment-only caveats (`post-task-reviewer`, `index`, `edit`) | sonnet | — | 51 |
+| 58 | `src/utils.ts` — collapse data-dir tier, delete temp resolvers | opus | planner | 55, 56 |
+| 59 | `lib/cairn_narrate_server.py` — drop `RALPH_` env legs | sonnet | — | — |
+| 60 | Delete `cairn migrate` | sonnet | — | — |
+| 61 | `install.sh` — drop the `ralph` symlink | sonnet | — | — |
+| 62 | Delete `test/legacy-markers.test.ts` | sonnet | — | 51–61 |
+| 63 | `src/brand.ts` — delete `LEGACY`, rehome `NOTES_TEMP_PREFIX` | opus | planner | 62 |
+| 64 | Cosmetic test-fixture sweep (7 files, ~75 refs) | sonnet | — | 63 |
+| 65 | Docs — `CLAUDE.md`, `README.md`, `docs/parallel-execution-rfc.md` | sonnet | summarizer | 63 |
+
+Three additions the first draft missed: `src/commands/logs.ts` as an unmarked caller of `findTempFilePath`; the ~75 cosmetic `.ralph` fixture refs across seven test files (task 64); and the split of `init.test.ts` (1381 lines) into behavioral vs. mechanical halves.
 
 **MANUAL post-round:**
 - Restore `healthCheck` to `bun run build`; `./install.sh`; `rm ~/.local/bin/cairn-frozen`.
 - **`rm ~/.local/bin/ralph`** — `install.sh` no longer creates it, but the existing symlink persists on disk.
 - Verify `cairn --version` works and `ralph --version` reports command-not-found.
-- Final sweep: `grep -rni ralph src/ lib/ test/ agents/ commands/ install.sh` should return nothing.
-
-**Agent suitability:** `planner` suits tasks 1, 2, and 10 (resolver collapse and deletion ordering interact). Tasks 4–7 are mechanical sweeps for a generalist, though task 4's 90-ref test file is the round's biggest single edit. Task 12 suits `summarizer`.
+- Final sweep: `grep -rni ralph src/ lib/ test/ agents/ commands/ install.sh | grep -v NOTES_TEMP_PREFIX`. This **cannot** be empty — the permanent notes-scratch exception requires one `.ralph_` literal in `src/brand.ts` plus its assertion in `test/brand.test.ts`. Expect exactly those two and nothing else.
 
 ## Open Questions
 

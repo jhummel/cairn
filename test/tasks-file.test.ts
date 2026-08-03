@@ -128,37 +128,6 @@ describe('readTasksFile', () => {
     expect(stages).toContain('jsonrepair');
   });
 
-  it('(7b) recovers from a legacy .ralph_tasks_snapshot.json when no .cairn_ snapshot exists', () => {
-    const filePath = path.join(tmpDir, 'tasks.json');
-    fs.writeFileSync(filePath, 'THIS IS NOT JSON AT ALL !!!');
-    fs.writeFileSync(
-      path.join(tmpDir, '.ralph_tasks_snapshot.json'),
-      JSON.stringify({
-        project: 'legacy-project',
-        tasks: [{ id: 42, priority: 1, title: 'Legacy snapshot task', status: 'pending' }],
-      })
-    );
-    const result = readTasksFile(filePath, { dataDir: tmpDir });
-    expect(result.restored).toBe(true);
-    expect(result.data.project).toBe('legacy-project');
-    expect(result.data.tasks[0].id).toBe(42);
-  });
-
-  it('(7c) prefers the .cairn_ snapshot over a legacy one when both exist', () => {
-    const filePath = path.join(tmpDir, 'tasks.json');
-    fs.writeFileSync(filePath, 'CORRUPT');
-    fs.writeFileSync(
-      path.join(tmpDir, '.cairn_tasks_snapshot.json'),
-      JSON.stringify({ project: 'current', tasks: [] })
-    );
-    fs.writeFileSync(
-      path.join(tmpDir, '.ralph_tasks_snapshot.json'),
-      JSON.stringify({ project: 'legacy', tasks: [] })
-    );
-    const result = readTasksFile(filePath, { dataDir: tmpDir });
-    expect(result.data.project).toBe('current');
-  });
-
   it('(8) snapshot-present-and-also-corrupted throws TasksFileError', () => {
     const filePath = path.join(tmpDir, 'tasks.json');
     fs.writeFileSync(filePath, 'CORRUPT');

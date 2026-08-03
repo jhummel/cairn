@@ -167,19 +167,6 @@ describe('archiveCompletedTasks', () => {
       expect(ids).toContain(5);
     });
 
-    it('merges IDs from a legacy .ralph_completed_ids into the new .cairn_ file', async () => {
-      writeFileSync(join(tmpDir, '.ralph_completed_ids'), JSON.stringify([3, 4]));
-
-      const tasks: Task[] = [{ id: 5, priority: 1, title: 'Done', status: 'complete' }];
-      writeTasks(tasksFilePath, tasks);
-
-      await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
-
-      // Pre-existing state must migrate forward, not be silently discarded
-      const ids = readIds(join(tmpDir, '.cairn_completed_ids'));
-      expect(ids).toEqual([3, 4, 5]);
-    });
-
     it('deduplicates IDs when merging', async () => {
       const idsFile = join(tmpDir, '.cairn_completed_ids');
       writeFileSync(idsFile, JSON.stringify([5]));
@@ -260,19 +247,6 @@ describe('archiveCompletedTasks', () => {
       await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
 
       expect(existsSync(prevNotesFile)).toBe(false);
-    });
-
-    it('removes a legacy .ralph_prev_notes when last completed task has no notes', async () => {
-      const legacyPrevNotes = join(tmpDir, '.ralph_prev_notes');
-      writeFileSync(legacyPrevNotes, 'old notes');
-
-      const tasks: Task[] = [{ id: 1, priority: 1, title: 'Done', status: 'complete' }];
-      writeTasks(tasksFilePath, tasks);
-
-      await archiveCompletedTasks({ tasksFilePath, dataDir: tmpDir });
-
-      // Otherwise a stale legacy file would keep answering the dual-read
-      expect(existsSync(legacyPrevNotes)).toBe(false);
     });
 
     it('does not create .cairn_prev_notes when no notes', async () => {

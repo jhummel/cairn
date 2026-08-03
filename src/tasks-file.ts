@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import { jsonrepair } from 'jsonrepair';
 import type { Task } from './types';
 import { acquireLock } from './file-lock';
-import { tempFilePath, findTempFilePath } from './utils';
+import { tempFilePath } from './utils';
 
 export interface TasksFile {
   project?: string;
@@ -128,10 +128,7 @@ export function readTasksFile(
 
       // Path 3: snapshot recovery
       if (dataDir) {
-        // Dual-read: an existing .cairn_ snapshot wins, but a project that has
-        // only ever written .ralph_ must still be recoverable.
-        // remove once all projects migrated — findTempFilePath -> tempFilePath.
-        const snapshotPath = findTempFilePath(dataDir, 'tasks_snapshot.json');
+        const snapshotPath = tempFilePath(dataDir, 'tasks_snapshot.json');
         if (fs.existsSync(snapshotPath)) {
           let snapBytes: Buffer;
           try {
