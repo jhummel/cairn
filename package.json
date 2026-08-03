@@ -1,8 +1,8 @@
 {
-  "name": "ralph",
+  "name": "cairn",
   "type": "module",
   "scripts": {
-    "build": "bun build --compile src/index.ts --outfile dist/ralph",
+    "build": "bun build --compile src/index.ts --outfile dist/cairn",
     "test": "bun test"
   },
   "dependencies": {

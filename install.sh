@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Installs ralph by building the Bun binary and symlinking it to a location on PATH.
+# Installs cairn by building the Bun binary and symlinking it to a location on PATH.
+# Both `cairn` and `ralph` are symlinked to the same binary — `ralph` is a
+# long-lived compatibility name, kept working indefinitely.
 # Usage: ./install.sh [prefix]
 #   Default prefix: ~/.local
 
 PREFIX="${1:-$HOME/.local}"
-RALPH_ROOT="$(cd "$(dirname "$0")" && pwd)"
+CAIRN_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 if ! command -v bun &>/dev/null; then
     echo "ERROR: 'bun' is not available on PATH." >&2
@@ -14,21 +16,23 @@ if ! command -v bun &>/dev/null; then
     exit 1
 fi
 
-echo "Building ralph..."
-cd "$RALPH_ROOT"
+echo "Building cairn..."
+cd "$CAIRN_ROOT"
 bun run build
 
-RALPH_BIN="$RALPH_ROOT/dist/ralph"
+CAIRN_BIN="$CAIRN_ROOT/dist/cairn"
 
-if [[ ! -f "$RALPH_BIN" ]]; then
-    echo "ERROR: build succeeded but dist/ralph not found." >&2
+if [[ ! -f "$CAIRN_BIN" ]]; then
+    echo "ERROR: build succeeded but dist/cairn not found." >&2
     exit 1
 fi
 
 mkdir -p "$PREFIX/bin"
-ln -sf "$RALPH_BIN" "$PREFIX/bin/ralph"
+ln -sf "$CAIRN_BIN" "$PREFIX/bin/cairn"
+ln -sf "$CAIRN_BIN" "$PREFIX/bin/ralph"
 
-echo "Installed: $PREFIX/bin/ralph -> $RALPH_BIN"
+echo "Installed: $PREFIX/bin/cairn -> $CAIRN_BIN"
+echo "Installed: $PREFIX/bin/ralph -> $CAIRN_BIN"
 echo ""
 
 # Check if the prefix bin is on PATH
