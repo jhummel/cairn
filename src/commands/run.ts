@@ -13,7 +13,7 @@ import { validateTaskTests as defaultValidateTaskTests, type ValidateTaskTestsOp
 import { archiveCompletedTasks as defaultArchiveCompletedTasks, type ArchiveResult } from '../task-archiver';
 import { captureGitSha as defaultCaptureGitSha, runPostTaskReview as defaultRunPostTaskReview, type RunPostTaskReviewOpts } from '../post-task-reviewer';
 import { loadPersonalInstructions } from '../personal-instructions';
-import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnapshotTasksFile, TasksFileError, type TasksFile } from '../tasks-file';
+import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnapshotTasksFile, mutateTasksFile as defaultMutateTasksFile, TasksFileError, type TasksFile } from '../tasks-file';
 import { tempFilePath } from '../utils';
 import { BRAND, NOTES_TEMP_PREFIX } from '../brand';
 
@@ -298,7 +298,15 @@ export interface RunRunDeps {
   sendToNarrate: (text: string, socketPath: string) => Promise<void>;
   findNarrationSocketPath: (projectRoot: string) => string;
   sendNtfy: (message: string, topic: string, opts?: NtfyOpts) => Promise<void>;
+  blockTask: (opts: BlockTaskOpts) => void;
   log: (...args: unknown[]) => void;
+}
+
+export interface BlockTaskOpts {
+  tasksFilePath: string;
+  dataDir: string;
+  taskId: number;
+  note: string;
 }
 
 function defaultDeps(): RunRunDeps {
@@ -344,6 +352,16 @@ function defaultDeps(): RunRunDeps {
     sendToNarrate: defaultSendToNarrate,
     findNarrationSocketPath: defaultFindNarrationSocketPath,
     sendNtfy: defaultSendNtfy,
+    blockTask: ({ tasksFilePath, dataDir, taskId, note }) => {
+      // Routed through mutateTasksFile so the write is locked, atomic and
+      // snapshotted — same path every `cairn task` mutation takes.
+      defaultMutateTasksFile(tasksFilePath, (data) => {
+        const t = (data.tasks ?? []).find((x: Task) => x.id === taskId);
+        if (!t) return;
+        t.status = 'blocked';
+        t.notes = t.notes ? `${t.notes} | ${note}` : note;
+      }, { dataDir });
+    },
     log: console.log,
   };
 }
@@ -357,6 +375,25 @@ const PATH_ADDITIONS = [
 
 // Suffixes (prefix-less) of the run-scoped temp files removed at loop exit.
 const TEMP_FILE_SUFFIXES = ['complete', 'prev_notes', 'completed_ids'];
+
+/**
+ * Consecutive post-iteration validation reverts tolerated before a task is
+ * forced to 'blocked'.
+ *
+ * A revert puts the task back to 'in-progress', and selectNextTask returns any
+ * in-progress task ahead of all pending work — so without this guard a task the
+ * agent cannot get past is re-picked every iteration for the rest of the run.
+ * Fixed at 2 on purpose: one revert is a normal "agent left work unfinished"
+ * signal worth retrying, two in a row is a livelock. Not configurable.
+ */
+const REVERT_BLOCK_THRESHOLD = 2;
+
+/** Squash a validation message into a single readable line for a task note. */
+function summarizeFailure(message: string | undefined): string {
+  if (!message) return 'unknown command';
+  const oneLine = message.replace(/\s+/g, ' ').trim();
+  return oneLine.length > 300 ? `${oneLine.slice(0, 300)}…` : oneLine;
+}
 
 /**
  * `.ralph_task_<id>_notes.md` or `.cairn_task_<id>_notes.md`, nothing else.
@@ -435,6 +472,13 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   let totalArchived = 0;
   let completedByFlag = false;
   let corruptionEvents = 0;
+  // taskId -> consecutive post-iteration validation reverts. In-memory and
+  // per-run on purpose: a livelock only matters inside a single run, so this
+  // resets naturally on restart and needs no schema/Task field.
+  const consecutiveReverts = new Map<number, number>();
+  // Tasks this run forced to 'blocked' — the summary's fallback count if the
+  // final tasks.json read fails.
+  const blockedByGuard = new Set<number>();
 
   try {
     // 6. Main iteration loop
@@ -599,11 +643,36 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       iterationsCompleted++;
 
       // k. Post-iteration: validate tests
-      await deps.validateTaskTests({
+      const validation = await deps.validateTaskTests({
         task,
         tasksFilePath,
         projectRoot,
       });
+
+      // k2. Consecutive-revert guard. A 'failed' validation reverted the task to
+      // in-progress; two in a row means the loop would otherwise re-pick it
+      // forever, so block it and let the run continue with other work.
+      if (validation.status === 'failed') {
+        const reverts = (consecutiveReverts.get(task.id) ?? 0) + 1;
+        consecutiveReverts.set(task.id, reverts);
+
+        if (reverts >= REVERT_BLOCK_THRESHOLD) {
+          const note = `Blocked by ${BRAND.name} after ${reverts} consecutive post-iteration test validation failures. Last failing command — ${summarizeFailure(validation.message)}`;
+          try {
+            deps.blockTask({ tasksFilePath, dataDir, taskId: task.id, note });
+            blockedByGuard.add(task.id);
+            deps.log(`Task #${task.id} blocked after ${reverts} consecutive validation failures — moving on.`);
+            deps.appendFileSync(iterationLogPath, `Iteration ${iteration}: Task #${task.id} BLOCKED after ${reverts} consecutive validation failures\n`);
+          } catch (err) {
+            deps.log(`Failed to block task #${task.id}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          // Start the count over: if a human unblocks the task mid-run it gets a
+          // fresh pair of attempts rather than re-blocking on the first revert.
+          consecutiveReverts.delete(task.id);
+        }
+      } else if (validation.status === 'passed') {
+        consecutiveReverts.delete(task.id);
+      }
 
       // l. Post-task review (if enabled and task completed)
       if (config.review?.postTask) {
@@ -652,32 +721,61 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     }
 
     // 8. Final summary
+    //
+    // Blocked tasks are counted from tasks.json rather than from this run's own
+    // guard: agents can block tasks too, and a blocked task is neither pending
+    // nor in-progress, so the completion flag fires with one still sitting
+    // there. Reporting the flag alone would turn a visible livelock into a
+    // silent drop.
+    let blockedCount = blockedByGuard.size;
+    try {
+      const finalRead = deps.readTasksFile(tasksFilePath, { dataDir });
+      blockedCount = (finalRead.data.tasks ?? []).filter((t: Task) => t.status === 'blocked').length;
+    } catch {
+      // Unreadable tasks.json — fall back to what this run blocked itself.
+    }
+    const allClear = completedByFlag && blockedCount === 0;
+
     deps.log('');
     deps.log('=========================================');
     deps.log(`${BRAND.displayName} Execution Loop Completed`);
     deps.log(`Iterations completed: ${iterationsCompleted}`);
     deps.log(`Tasks archived: ${totalArchived}`);
-    if (completedByFlag) {
+    if (blockedCount > 0) {
+      deps.log(`Tasks blocked: ${blockedCount}`);
+    }
+    if (allClear) {
       deps.log('Status: ALL TASKS COMPLETE');
+    } else if (completedByFlag) {
+      deps.log(`Status: NO ACTIONABLE TASKS REMAIN — ${blockedCount} blocked task(s) need attention`);
     }
     if (corruptionEvents > 0) {
       deps.log(`\u26a0 ${corruptionEvents} corruption events recovered this run \u2014 see ${path.join(dataDir, 'corruption.log')}`);
     }
     deps.log('=========================================');
 
-    const baseSummary = completedByFlag
-      ? `All tasks complete after ${iterationsCompleted} iterations`
-      : `Loop stopped after ${iterationsCompleted} iterations — tasks may remain`;
+    let baseSummary: string;
+    if (allClear) {
+      baseSummary = `All tasks complete after ${iterationsCompleted} iterations`;
+    } else if (completedByFlag) {
+      baseSummary = `No actionable tasks remain after ${iterationsCompleted} iterations — ${blockedCount} task(s) blocked`;
+    } else if (blockedCount > 0) {
+      baseSummary = `Loop stopped after ${iterationsCompleted} iterations — ${blockedCount} task(s) blocked, tasks may remain`;
+    } else {
+      baseSummary = `Loop stopped after ${iterationsCompleted} iterations — tasks may remain`;
+    }
     const summaryMsg = corruptionEvents > 0
       ? `${baseSummary} (${corruptionEvents} corruption events recovered)`
       : baseSummary;
 
     // Send ntfy notification
     if (config.narration.ntfyTopic) {
-      const ntfyTags = completedByFlag ? 'tada' : 'warning';
-      const ntfyTitle = completedByFlag
+      const ntfyTags = allClear ? 'tada' : 'warning';
+      const ntfyTitle = allClear
         ? `${BRAND.displayName} - Complete`
-        : `${BRAND.displayName} - Stopped`;
+        : blockedCount > 0
+          ? `${BRAND.displayName} - Blocked`
+          : `${BRAND.displayName} - Stopped`;
       await deps.sendNtfy(summaryMsg, config.narration.ntfyTopic, {
         title: ntfyTitle,
         tags: ntfyTags,

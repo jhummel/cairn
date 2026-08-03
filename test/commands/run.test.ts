@@ -717,6 +717,7 @@ function makeRunDeps(overrides: Partial<RunRunDeps> = {}): RunRunDeps {
     sendToNarrate: overrides.sendToNarrate ?? mock(async () => {}),
     findNarrationSocketPath: overrides.findNarrationSocketPath ?? mock(() => '/tmp/cairn-tts.sock'),
     sendNtfy: overrides.sendNtfy ?? mock(async () => {}),
+    blockTask: overrides.blockTask ?? mock(() => undefined),
     log: overrides.log ?? mock(() => {}),
   };
 }
@@ -1159,6 +1160,182 @@ describe('runRun', () => {
     expect(validateCall[0].task.id).toBe(42);
     expect(validateCall[0].tasksFilePath).toBe('/projects/myapp/.cairn/tasks.json');
     expect(validateCall[0].projectRoot).toBe('/projects/myapp');
+  });
+
+  // --- Consecutive-revert guard ---
+
+  /**
+   * Deps wired to a mutable task array so the guard can be exercised end-to-end:
+   * selectNextTask behaves like the real selector (in-progress first, blocked
+   * skipped) and blockTask actually flips the task's status, which is what lets
+   * these tests prove the loop *moves on* rather than re-picking forever.
+   */
+  function makeGuardDeps(tasks: Task[], overrides: Partial<RunRunDeps> = {}): RunRunDeps {
+    return makeRunDeps({
+      readTasksFile: mock(() => ({ data: { tasks }, repaired: false, restored: false })),
+      selectNextTask: mock((ts: Task[]) =>
+        ts.find(t => t.status === 'in-progress') ?? ts.find(t => t.status === 'pending') ?? null),
+      blockTask: mock((o: { taskId: number }) => {
+        const t = tasks.find(x => x.id === o.taskId);
+        if (t) t.status = 'blocked';
+      }),
+      ...overrides,
+    });
+  }
+
+  test('does not block a task after a single validation revert', async () => {
+    const tasks = [makeTask({ id: 1, tests: ['bun test'] })];
+    let calls = 0;
+    const deps = makeGuardDeps(tasks, {
+      validateTaskTests: mock(async () => {
+        calls++;
+        if (calls === 1) {
+          tasks[0]!.status = 'in-progress';
+          return { status: 'failed' as const, message: 'bun test: boom' };
+        }
+        tasks[0]!.status = 'complete';
+        return { status: 'passed' as const };
+      }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 5 }), deps);
+
+    expect(deps.blockTask).not.toHaveBeenCalled();
+    expect(tasks[0]!.status).toBe('complete');
+  });
+
+  test('blocks a task after two consecutive validation reverts and moves on to other work', async () => {
+    const tasks = [
+      makeTask({ id: 1, priority: 1, tests: ['bun test test/a.test.ts'] }),
+      makeTask({ id: 2, priority: 2 }),
+    ];
+    const deps = makeGuardDeps(tasks, {
+      validateTaskTests: mock(async (o: any) => {
+        if (o.task.id === 1) {
+          // Mirrors the real revert: back to in-progress, which an unguarded
+          // loop re-picks ahead of all pending work, forever.
+          tasks[0]!.status = 'in-progress';
+          return { status: 'failed' as const, message: 'bun test test/a.test.ts: 1 fail' };
+        }
+        tasks[1]!.status = 'complete';
+        return { status: 'passed' as const };
+      }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 10 }), deps);
+
+    expect(deps.blockTask).toHaveBeenCalledTimes(1);
+    const call = (deps.blockTask as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0].taskId).toBe(1);
+    expect(call[0].tasksFilePath).toBe('/projects/myapp/.cairn/tasks.json');
+    expect(call[0].dataDir).toBe('/projects/myapp/.cairn');
+    expect(call[0].note).toContain('validation');
+    expect(call[0].note).toContain('bun test test/a.test.ts');
+    expect(tasks[0]!.status).toBe('blocked');
+    // Two iterations burned on the stuck task, then the loop moved on and
+    // finished task 2 — not a livelock.
+    expect(tasks[1]!.status).toBe('complete');
+    expect(deps.spawnClaude).toHaveBeenCalledTimes(3);
+  });
+
+  test('resets the consecutive-revert counter when a task validates clean', async () => {
+    const tasks = [makeTask({ id: 1, tests: ['bun test'] })];
+    const sequence = ['failed', 'passed', 'failed'] as const;
+    let i = 0;
+    const deps = makeGuardDeps(tasks, {
+      validateTaskTests: mock(async () => {
+        const status = sequence[i++] ?? 'passed';
+        if (status === 'failed') {
+          tasks[0]!.status = 'in-progress';
+          return { status: 'failed' as const, message: 'bun test: boom' };
+        }
+        return { status: 'passed' as const };
+      }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 3 }), deps);
+
+    // fail, pass (resets), fail — never two in a row, so no block.
+    expect(deps.blockTask).not.toHaveBeenCalled();
+    expect(tasks[0]!.status).toBe('in-progress');
+  });
+
+  test('logs the block to the iteration log', async () => {
+    const tasks = [makeTask({ id: 7, tests: ['bun test'] })];
+    const appended: string[] = [];
+    const deps = makeGuardDeps(tasks, {
+      validateTaskTests: mock(async () => {
+        tasks[0]!.status = 'in-progress';
+        return { status: 'failed' as const, message: 'bun test: boom' };
+      }),
+      appendFileSync: mock((_p: string, content: string) => { appended.push(content); }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 4 }), deps);
+
+    expect(appended.some(l => l.includes('BLOCKED') && l.includes('#7'))).toBe(true);
+  });
+
+  // --- Blocked-aware final summary ---
+
+  function makeSummaryDeps(tasks: Task[], logs: string[], overrides: Partial<RunRunDeps> = {}): RunRunDeps {
+    return makeRunDeps({
+      existsSync: mock((p: string) => {
+        if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
+        if (typeof p === 'string' && p.endsWith('.cairn_complete')) return true;
+        return false;
+      }),
+      readTasksFile: mock(() => ({ data: { tasks }, repaired: false, restored: false })),
+      log: mock((msg: string) => { logs.push(String(msg)); }),
+      ...overrides,
+    });
+  }
+
+  test('final summary reports blocked tasks instead of ALL TASKS COMPLETE', async () => {
+    const logs: string[] = [];
+    const tasks = [makeTask({ id: 1, status: 'blocked' }), makeTask({ id: 2, status: 'complete' })];
+
+    await runRun(makeRunOpts(), makeSummaryDeps(tasks, logs));
+
+    expect(logs.some(l => l.includes('Tasks blocked: 1'))).toBe(true);
+    expect(logs.some(l => l.includes('ALL TASKS COMPLETE'))).toBe(false);
+  });
+
+  test('final summary still reports ALL TASKS COMPLETE when nothing is blocked', async () => {
+    const logs: string[] = [];
+    const tasks = [makeTask({ id: 1, status: 'complete' })];
+
+    await runRun(makeRunOpts(), makeSummaryDeps(tasks, logs));
+
+    expect(logs.some(l => l.includes('Status: ALL TASKS COMPLETE'))).toBe(true);
+    expect(logs.some(l => l.includes('Tasks blocked'))).toBe(false);
+  });
+
+  test('completion ntfy warns instead of celebrating when tasks are blocked', async () => {
+    const config = makeTestConfig({ narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
+    const logs: string[] = [];
+    const tasks = [makeTask({ id: 1, status: 'blocked' })];
+    const deps = makeSummaryDeps(tasks, logs);
+
+    await runRun(makeRunOpts({ config }), deps);
+
+    const ntfyCall = (deps.sendNtfy as ReturnType<typeof mock>).mock.calls[0];
+    expect(ntfyCall[0]).toContain('blocked');
+    expect(ntfyCall[2]).toMatchObject({ tags: 'warning', title: 'Cairn - Blocked' });
+  });
+
+  test('counts blocked tasks in the summary even when the loop stops without the completion flag', async () => {
+    const logs: string[] = [];
+    const tasks = [makeTask({ id: 1, status: 'blocked' })];
+    const deps = makeRunDeps({
+      readTasksFile: mock(() => ({ data: { tasks }, repaired: false, restored: false })),
+      selectNextTask: mock(() => null),
+      log: mock((msg: string) => { logs.push(String(msg)); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(logs.some(l => l.includes('Tasks blocked: 1'))).toBe(true);
   });
 
   // --- Tasks file read for task list ---
