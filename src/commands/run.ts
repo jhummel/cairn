@@ -14,7 +14,7 @@ import { archiveCompletedTasks as defaultArchiveCompletedTasks, type ArchiveResu
 import { captureGitSha as defaultCaptureGitSha, runPostTaskReview as defaultRunPostTaskReview, type RunPostTaskReviewOpts } from '../post-task-reviewer';
 import { loadPersonalInstructions } from '../personal-instructions';
 import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnapshotTasksFile, TasksFileError, type TasksFile } from '../tasks-file';
-import { tempFilePath, allTempFilePaths } from '../utils';
+import { tempFilePath } from '../utils';
 import { BRAND, LEGACY } from '../brand';
 
 export interface SystemPromptInput {
@@ -356,7 +356,6 @@ const PATH_ADDITIONS = [
 ];
 
 // Suffixes (prefix-less) of the run-scoped temp files removed at loop exit.
-// Cleanup covers BOTH prefixes — a legacy-named leftover is just as stale.
 const TEMP_FILE_SUFFIXES = ['complete', 'prev_notes', 'completed_ids'];
 
 /**
@@ -436,10 +435,8 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   try {
     // 6. Main iteration loop
     for (let iteration = 1; iteration <= maxIterations; iteration++) {
-      // a. Check for the completion flag. Both prefixes count: an agent running
-      // an older prompt may still have written .ralph_complete.
-      // remove once all projects migrated — allTempFilePaths -> tempFilePath.
-      if (allTempFilePaths(dataDir, 'complete').some((p) => deps.existsSync(p))) {
+      // a. Check for the completion flag.
+      if (deps.existsSync(tempFilePath(dataDir, 'complete'))) {
         deps.log('Completion flag found. All tasks complete!');
         completedByFlag = true;
         deps.appendFileSync(iterationLogPath, `Iteration ${iteration}: COMPLETION FLAG FOUND\n`);
@@ -695,13 +692,12 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
 
     // Clean up temp files
     for (const suffix of TEMP_FILE_SUFFIXES) {
-      for (const filePath of allTempFilePaths(dataDir, suffix)) {
-        if (deps.existsSync(filePath)) {
-          try {
-            deps.unlinkSync(filePath);
-          } catch {
-            // ignore cleanup errors
-          }
+      const filePath = tempFilePath(dataDir, suffix);
+      if (deps.existsSync(filePath)) {
+        try {
+          deps.unlinkSync(filePath);
+        } catch {
+          // ignore cleanup errors
         }
       }
     }

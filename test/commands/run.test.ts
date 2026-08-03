@@ -807,18 +807,20 @@ describe('runRun', () => {
     expect(deps.spawnClaude).not.toHaveBeenCalled();
   });
 
-  test('breaks loop when only the legacy .ralph_complete flag exists', async () => {
+  test('does not break loop when only a legacy .ralph_complete flag exists', async () => {
     const existsSync = mock((p: string) => {
       if (typeof p === 'string' && p.endsWith('.ralph_complete')) return true;
       if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
       return false;
     });
 
-    const deps = makeRunDeps({ existsSync });
+    const task = makeTask();
+    const deps = makeRunDeps({ existsSync, selectNextTask: mock(() => task) });
 
-    await runRun(makeRunOpts(), deps);
+    await runRun(makeRunOpts({ maxIterations: 1 }), deps);
 
-    expect(deps.spawnClaude).not.toHaveBeenCalled();
+    // Only the current-prefix flag is probed, so the loop runs normally.
+    expect(deps.spawnClaude).toHaveBeenCalled();
   });
 
   // --- Task selection ---
@@ -1094,7 +1096,7 @@ describe('runRun', () => {
     expect(unlinkCalls.some(p => p.endsWith('.cairn_completed_ids'))).toBe(true);
   });
 
-  test('cleans up legacy-prefixed temp files on exit', async () => {
+  test('does not sweep legacy-prefixed temp files on exit', async () => {
     const unlinkCalls: string[] = [];
     const existsSync = mock((p: string) => {
       if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
@@ -1110,9 +1112,10 @@ describe('runRun', () => {
 
     await runRun(makeRunOpts(), deps);
 
-    expect(unlinkCalls.some(p => p.endsWith('.ralph_complete'))).toBe(true);
-    expect(unlinkCalls.some(p => p.endsWith('.ralph_prev_notes'))).toBe(true);
-    expect(unlinkCalls.some(p => p.endsWith('.ralph_completed_ids'))).toBe(true);
+    // Cleanup only names the current prefix; legacy leftovers are never probed.
+    expect(unlinkCalls.some(p => p.endsWith('.ralph_complete'))).toBe(false);
+    expect(unlinkCalls.some(p => p.endsWith('.ralph_prev_notes'))).toBe(false);
+    expect(unlinkCalls.some(p => p.endsWith('.ralph_completed_ids'))).toBe(false);
   });
 
   // --- CAIRN_TASK_CONTEXT env ---
