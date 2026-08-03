@@ -3,31 +3,12 @@
   "project": "cairn-cli-tool",
   "tasks": [
     {
-      "id": 59,
-      "priority": 9,
-      "title": "lib/cairn_narrate_server.py — drop RALPH_ env fallbacks",
-      "description": "Remove both markers in lib/cairn_narrate_server.py. At ~line 216, simplify the --socket default to os.environ.get('CAIRN_NARRATE_SOCKET', DEFAULT_SOCKET) — drop the RALPH_NARRATE_SOCKET leg. At ~lines 228-238, drop the RALPH_ANTHROPIC_API_KEY lookup and its stderr warning, leaving the CAIRN_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY chain. KEEP the comment explaining why the prefixed name exists (the loop blanks ANTHROPIC_API_KEY to force Max-plan usage) and that it mirrors resolveAnthropicApiKeyChain() in src/config.ts. There is no dedicated test file for this script; verify with `python3 -m py_compile lib/cairn_narrate_server.py` plus the full suite. Note: this silences narration in any long-lived shell still exporting only RALPH_ANTHROPIC_API_KEY — that is expected and the user is aware. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "lib/cairn_narrate_server.py"
-      ],
-      "tests": [
-        "bun test"
-      ],
-      "dependencies": [],
-      "model": "sonnet",
-      "completedAt": "2026-08-03T17:01:23.553Z",
-      "completedBy": "iteration-9",
-      "notes": "# Task #59 — lib/cairn_narrate_server.py: drop RALPH_ env fallbacks\n\n## Outcome\n\nBoth `remove once all projects migrated` markers in `lib/cairn_narrate_server.py`\nare gone. `grep -n \"RALPH\" lib/cairn_narrate_server.py` → no matches.\n\n## Changes\n\n1. **`--socket` default (~line 216, was a two-line `default=`)** — collapsed to\n   `os.environ.get(\"CAIRN_NARRATE_SOCKET\", DEFAULT_SOCKET)`, dropping the\n   `RALPH_NARRATE_SOCKET` leg. The marker comment above it is deleted along with\n   the code it described.\n\n2. **API key resolution (~lines 225-241)** — dropped the\n   `RALPH_ANTHROPIC_API_KEY` lookup and its `[cairn] Using legacy\n   RALPH_ANTHROPIC_API_KEY...` stderr warning. Chain is now just\n   `CAIRN_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY`. Per the task instructions,\n   **kept** the explanatory comment (now trimmed to drop the \"legacy\" framing):\n   why the prefixed name exists (main loop blanks `ANTHROPIC_API_KEY` to force\n   Max-plan usage before spawning `claude`) and that it mirrors\n   `resolveAnthropicApiKeyChain()` in `src/config.ts`. Removed the\n   `remove once all projects migrated` marker line since the fallback it\n   flagged is gone.\n\n## Verification\n\n- `python3 -m py_compile lib/cairn_narrate_server.py` → OK, no syntax errors.\n- `grep -n \"RALPH\" lib/cairn_narrate_server.py` → empty.\n- `bun test` → **838 pass, 0 fail, 31 files** — same count as task #58's run\n  (this file has no dedicated test suite, as the task description noted, so no\n  count change expected).\n- Did **not** modify `cairn.json`'s `healthCheck` and did **not** run\n  `./install.sh`, per task instructions.\n- Did not touch any of the excluded paths (tasks.completed.json,\n  .cairn_iterations.log, .cairn_tasks_snapshot.json, reviews/round-*.md,\n  .ralph_task_*_notes.md, audit/).\n\n## Notes for future tasks\n\n- `test/legacy-markers.test.ts` still passed (part of the 838), confirming no\n  other line in this file references the old name without justification —\n  there was none to begin with after this change.\n- No discovered tasks this iteration — the task matched the codebase exactly,\n  no unrelated bugs or missing functionality surfaced.\n"
-    },
-    {
       "id": 60,
       "priority": 10,
       "title": "Delete the cairn migrate command",
       "description": "Delete src/commands/migrate.ts (1 marker, ~337 lines) and test/commands/migrate.test.ts (~500 lines). Remove the Commander registration from src/index.ts: the `import { runMigrate } from './commands/migrate'` (~line 14) and the whole '--- Native migrate command ---' block (~lines 186-200), which also carries a LEGACY.dataDir reference in its description string. Verify no other file imports runMigrate or references the 'migrate' command name in a way that breaks — check test/index.test.ts's command-registration tests, which may assert 'migrate' is present. Rationale: nothing on this machine remains on the .ralph/ layout, so the command has no work to do; it stays recoverable from git history if an old clone ever surfaces. Do NOT modify cairn.json's healthCheck and do NOT run ./install.sh. Do not touch .cairn/tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, .cairn/reviews/round-*.md, .ralph_task_*_notes.md, or audit/.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "src/commands/migrate.ts",
         "test/commands/migrate.test.ts",
@@ -39,7 +20,10 @@
         "bun test"
       ],
       "dependencies": [],
-      "model": "sonnet"
+      "model": "sonnet",
+      "completedAt": "2026-08-03T17:05:24.189Z",
+      "completedBy": "iteration-10",
+      "notes": "# Task #60 — Delete the cairn migrate command\n\n## Outcome\n\n`cairn migrate` is gone from the CLI. `src/commands/migrate.ts` and\n`test/commands/migrate.test.ts` are deleted; `src/index.ts` no longer imports\nor registers it. Fully recoverable from git history if an old `.ralph/`\nclone ever needs it again.\n\n## Changes\n\n1. **Deleted `src/commands/migrate.ts`** (~337 lines, carried the file's one\n   `remove once all projects migrated` marker — removed along with the code).\n2. **Deleted `test/commands/migrate.test.ts`** (~500 lines / ~27 tests).\n3. **`src/index.ts`**:\n   - Removed `import { runMigrate } from './commands/migrate'`.\n   - Removed the `LEGACY` import (was only used by the migrate command's\n     description string — `BRAND` alone is still used elsewhere in the file).\n   - Removed the whole `--- Native migrate command ---` block (the\n     `program.command('migrate')` registration, ~lines 184-197).\n\n## Verification\n\n- `grep -rn \"runMigrate\\|commands/migrate\" src test` → no matches.\n- `grep -n \"LEGACY\\|migrate\" src/index.ts` → no matches.\n- `bun build --target=bun src/index.ts --outfile /tmp/cairn-taskcheck` → builds\n  clean (did **not** touch `cairn.json`'s `healthCheck` or run `./install.sh`,\n  per task instructions).\n- `bun test test/index.test.ts` → 30 pass, 0 fail. Checked beforehand: this\n  file has **no** assertions on the `migrate` command name (only status,\n  edit, logs, run, narrate, plan, init, summarize are checked), so no edits\n  were needed there — the task description's \"may assert\" concern didn't\n  materialize.\n- `bun test` → **811 pass, 0 fail, 30 files** (down from 838/31 in the prior\n  iteration — the drop is exactly the ~27 tests in the deleted\n  `migrate.test.ts` file, as expected).\n- `bun test test/legacy-markers.test.ts` → 5 pass, still green (the deleted\n  file's marker is simply gone now, nothing left to flag).\n\n## Notes for future tasks\n\n- Left informational comments referencing `cairn migrate` untouched in\n  `src/commands/init.ts` (lines ~12, ~328), `src/commands/run.ts` (a couple of\n  comments), `src/brand.ts`, and `CLAUDE.md`'s dedicated migrate section —\n  none of these are in this task's file scope, and none are functionally\n  broken (they're prose describing behavior of a command that used to exist,\n  not code that calls it). A future cleanup task could scrub these mentions\n  if the machine-wide legacy-layout removal continues, but that's out of\n  scope here.\n- `test/config.test.ts:557` (\"ignores a ralph.json left behind by an\n  unmigrated project\") is unrelated — it tests `loadConfig`'s legacy-file\n  fallback, not the migrate command, and still passes.\n- No discovered tasks this iteration — task matched the codebase exactly.\n"
     },
     {
       "id": 61,

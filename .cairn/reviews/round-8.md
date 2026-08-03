@@ -305,3 +305,165 @@ None detected in the task's own file-migration scope. All five call sites named 
 
 ### Verdict
 HAS_RISKS
+
+---
+
+## Task #57: Comment-only legacy caveat removal (post-task-reviewer, index, edit)
+Reviewed: 2026-08-03T16:50:03.179Z
+
+### Coverage
+```
+Task Requirements
+├── [PARTIAL] src/post-task-reviewer.ts (~126-129) — "(which may be the legacy .ralph/)"
+│              caveat + marker dropped, reviewFileRule-derived-from-dataDir rule preserved
+│              verbatim — verified at src/post-task-reviewer.ts:125-127
+├── [DONE]    src/post-task-reviewer.ts (~138) — "Edit(.ralph/reviews/**)" example fixed to
+│              "Edit(.cairn/reviews/**)" — verified at src/post-task-reviewer.ts:136
+├── [PARTIAL] src/post-task-reviewer.ts (~147) — ".ralph/" mention fixed to ".cairn/" as
+│              literally instructed, but the edit breaks the sentence's logic — see Regression
+│              Risks — verified at src/post-task-reviewer.ts:145
+├── [DONE]    src/index.ts (~38-40) — "projects still on the legacy layout" caveat + marker
+│              dropped, findDataDir(projectRoot) call untouched — verified at src/index.ts:37-38
+├── [DONE]    src/commands/edit.ts (~19-21) — "a project still on ralph.json" caveat + marker
+│              dropped, findConfigFile(projectRoot) call untouched — verified at
+│              src/commands/edit.ts:19
+├── [DONE]    TDD: test/commands/edit.test.ts's two ralph.json-target-"config" tests deleted
+│              (titles differ slightly from the task's paraphrase but are unambiguously the
+│              "resolves legacy ralph.json" pair) — verified via `git show HEAD^:...` diff
+├── [DONE]    TDD: test/post-task-reviewer.test.ts's "allowlist rule follows the resolved
+│              data dir (legacy .ralph/)" test deleted — verified in diff
+├── [DONE]    Cosmetic .ralph fixture paths left in place in both test files (task 64 scope) —
+│              verified via grep, all remaining hits are fixture data / unrelated tests
+├── [DONE]    Did NOT modify cairn.json's healthCheck — `git show HEAD -- cairn.json` is empty;
+│              value matches the pre-existing pinned throwaway outfile unchanged
+└── [DONE]    Did NOT run ./install.sh — no evidence of dist/binary changes in this commit
+```
+
+### Files Changed
+- src/post-task-reviewer.ts — comment-only: dropped the legacy-caveat sentence + marker above `absDataDir`; fixed the `.ralph/reviews/**` relative-path example to `.cairn/`; changed "a project that actually lives in `.ralph/`" to "a project that actually lives in `.cairn/`" (see Regression Risks — this one breaks the sentence).
+- src/index.ts — comment-only: dropped the legacy-layout caveat + marker above `findDataDir(projectRoot)`.
+- src/commands/edit.ts — comment-only: dropped the ralph.json caveat + marker above `findConfigFile(projectRoot)`.
+- test/commands/edit.test.ts — deleted the two `target "config"` tests exercising a leftover `ralph.json`.
+- test/post-task-reviewer.test.ts — deleted the `allowlist rule follows the resolved data dir (legacy .ralph/)` test.
+- .cairn/tasks.json, .cairn/.cairn_tasks_snapshot.json, .cairn/.cairn_iterations.log, .cairn/tasks.completed.json — task 57 archived/marked complete via `cairn task complete`; not a direct edit of a forbidden path.
+
+### Gaps
+None in scope terms — every named edit and deletion happened. One correctness gap: see Regression Risks below (the ~line 147 comment fix, while literally what the task asked for, produces a self-contradictory sentence).
+
+### Regression Risks
+- **`src/post-task-reviewer.ts:143-146` — the fixed comment is now logically broken.** Before this task the sentence read: *"Hardcoding a directory name here would grant an allowlist for e.g. `.cairn/reviews/**` on a project that actually lives in `.ralph/`, and every reviewer write would be silently denied..."* — a deliberate mismatch example (hardcoded `.cairn/` path vs. a project actually on `.ralph/`) that illustrates exactly why the rule must be *derived* rather than hardcoded. This task's instruction ("fix the '.ralph/' mention (~line 147) to '.cairn/'") was applied literally, producing: *"...grant an allowlist for e.g. `.cairn/reviews/**` on a project that actually lives in `.cairn/`, and every reviewer write would be silently denied..."* — hardcoding `.cairn/reviews/**` for a project that actually lives in `.cairn/` is **not** a mismatch and would **not** cause a silent denial, so the sentence no longer supports its own conclusion. Confirmed via `git show 1651067^:src/post-task-reviewer.ts` — the pre-task text used `.ralph/` specifically as the "actual" (mismatched) location, not as a stray legacy reference. This is a case where the task description itself was wrong for this one spot; the agent followed it faithfully but the result is now incorrect documentation committed to the codebase. Low severity (comment-only, no runtime effect), but worth a follow-up fix — either restore the `.ralph/` contrast or rewrite the example to name two genuinely different paths (e.g. contrast against a project rooted in a different directory).
+- Everything else checked out clean:
+  - `bun test test/commands/edit.test.ts test/post-task-reviewer.test.ts test/index.test.ts` → 73 pass, 0 fail — matches notes exactly.
+  - `bun test` (full suite) → 849 pass, 0 fail, 31 files — matches notes exactly, consistent with the 852→849 delta (3 deleted tests, no other regressions).
+  - `bun test test/legacy-markers.test.ts` → 5 pass — marker-proximity rules still hold after removing the two markers.
+  - `git show 1651067 -- cairn.json` → empty diff; `healthCheck` unchanged in this commit (unlike task 56's commit, flagged in the previous review entry).
+  - `grep -n "remove once all projects migrated" src/post-task-reviewer.ts src/index.ts src/commands/edit.ts` → no matches; all three named markers removed.
+  - Cosmetic `.ralph` fixture paths in `test/commands/edit.test.ts` (`beforeEach` dataDir) and `test/post-task-reviewer.test.ts` (unrelated tests) left untouched, as instructed — confirmed via grep, all remaining hits belong to tests other than the ones this task targeted.
+
+### Verdict
+HAS_GAPS
+
+---
+
+## Task #58: src/utils.ts — collapse data-dir tier and delete temp-file resolvers
+Reviewed: 2026-08-03T16:57:08.168Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Delete dataDirNameAt and warnIfLegacyDataDir outright
+├── [PARTIAL] findDataDir(projectRoot) keeps name/signature — but implemented as an
+│            unconditional `return join(projectRoot, BRAND.dataDir)` rather than the
+│            literal "plain existence check on join(projectRoot, BRAND.dataDir)" the
+│            description asked for. Verified equivalent for today's callers: findDataDir
+│            has exactly one caller (src/index.ts:39), which uses the returned path
+│            directly rather than branching on existence, so no current behavior differs —
+│            but flagging since the instruction wasn't followed literally
+├── [DONE] findProjectRoot upward walk tests BRAND.dataDir directly via
+│            statSync(join(dir, BRAND.dataDir)).isDirectory() — verified at src/utils.ts:77
+├── [DONE] CAIRN_PROJECT_ROOT stays priority #1; git-root/cwd fallbacks unchanged —
+│            verified by reading the full current function body, not just the diff
+├── [DONE] Legacy note dropped from findProjectRoot doc comment
+├── [DONE] findTempFilePath and allTempFilePaths deleted entirely
+├── [DONE] Pre-delete grep verification performed — re-ran independently:
+│            `grep -rn "findTempFilePath|allTempFilePaths" src/ test/` → zero matches
+│            anywhere (not even in utils.ts/utils.test.ts, since they're now gone there too)
+├── [DONE] tempFilePath + 'Runtime temp files' banner kept, dual-read framing removed
+├── [DONE] LEGACY/warnLegacyOnce imports dropped — only `BRAND` imported in src/utils.ts
+├── [DONE] All 7 "remove once all projects migrated" markers removed from src/utils.ts —
+│            verified: 0 matches
+├── [DONE] TDD: test/utils.test.ts legacy-fallback describes and the
+│            findTempFilePath/allTempFilePaths blocks deleted, replaced with positive
+│            ("never resolves to legacy") assertions
+├── [DONE] TDD: test/index.test.ts's two named tests ('falls back to an existing legacy
+│            .ralph/ data dir', 'points completedTasksPath at a legacy .ralph/ data dir')
+│            replaced with inverted assertions
+├── [DONE] cairn.json's healthCheck untouched — still the pinned throwaway-outfile value
+├── [DONE] Changed-files list contains only .cairn/tasks.json (bookkeeping), src/utils.ts,
+│            test/utils.test.ts, test/index.test.ts — none of the forbidden paths
+│            (tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json,
+│            reviews/round-*.md, .ralph_task_*_notes.md, audit/) appear
+└── [DONE] Out-of-scope test deletion disclosed and justified: also removed
+             'prefers .cairn/ when both layouts exist' from test/index.test.ts (not one of
+             the two named tests) — reasonable, since "prefers X over Y" is meaningless once
+             Y is no longer a candidate at all
+```
+
+### Files Changed
+- `src/utils.ts` — `dataDirNameAt`/`warnIfLegacyDataDir` deleted; `findDataDir` collapsed to a one-liner; `findProjectRoot`'s walk now checks `BRAND.dataDir` inline with `isDirectory()` preserved (guards against a stray `.cairn` *file*); `findTempFilePath`/`allTempFilePaths` deleted; `tempFilePath` and the banner comment kept, reworded; `LEGACY`/`warnLegacyOnce` no longer imported.
+- `test/utils.test.ts` — `findProjectRoot — dual-read data directory discovery` describe block (7 tests) deleted, with the `isDirectory()`-guard coverage and the "does not treat a legacy .ralph/ as a project root" case rehomed into the main `findProjectRoot` describe; `findDataDir`'s two legacy tests replaced with one inverted assertion; `runtime temp file paths` renamed to `tempFilePath` with the `findTempFilePath`/`allTempFilePaths` sub-blocks removed.
+- `test/index.test.ts` — the two named tests replaced with inverted assertions; `prefers .cairn/ when both layouts exist` also deleted (out-of-scope but justified, see above).
+- `.cairn/tasks.json` — task 58 marked complete via `cairn task complete`; not a direct edit of a forbidden path.
+
+### Gaps
+- Minor, disclosed by the agent itself in its notes: `findDataDir`'s rewrite doesn't literally implement "a plain existence check" — it's an unconditional join with no `statSync`/`existsSync` call. Functionally equivalent today (single caller, used for path-building not existence-branching), but a future caller wanting an actual existence check from this helper wouldn't get one. Same class of deviation task #52 made for `findNarrationSocketPath`/`findNarrationPidFile`, both times disclosed rather than hidden.
+
+### Regression Risks
+None detected. Verified independently rather than trusting the task notes:
+- `grep -rn "findTempFilePath\|allTempFilePaths\|dataDirNameAt\|warnIfLegacyDataDir" src/ test/` → zero matches anywhere.
+- `grep -n "remove once all projects migrated" src/utils.ts` → zero matches.
+- `bun test test/utils.test.ts test/index.test.ts` → 50 pass, 0 fail.
+- `bun test` (full suite) → 838 pass, 0 fail, 31 files — matches the count claimed in the task notes exactly, consistent with the 849→838 delta (net 11 tests removed across both files).
+- `cairn.json`'s `healthCheck` field unchanged; still points at the pinned throwaway outfile (`git status --short` shows no diff to cairn.json).
+- `grep -n "findDataDir(" src/` confirms exactly one production caller (`src/index.ts:39`), supporting the Gaps assessment above.
+- Read the full current `src/utils.ts` (not just the diff) — `findProjectRoot`'s `CAIRN_PROJECT_ROOT` priority, git-root fallback, and cwd fallback are byte-for-byte unchanged from before this task; only the walk's inner existence test was inlined.
+- No forbidden files (tasks.completed.json, .cairn_iterations.log, .cairn_tasks_snapshot.json, reviews/round-*.md, .ralph_task_*_notes.md, audit/) appear in the diff.
+
+### Verdict
+HAS_GAPS
+
+---
+
+## Task #59: lib/cairn_narrate_server.py — drop RALPH_ env fallbacks
+Reviewed: 2026-08-03T17:05:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] --socket default collapsed to os.environ.get('CAIRN_NARRATE_SOCKET', DEFAULT_SOCKET); RALPH_NARRATE_SOCKET leg gone
+├── [DONE] RALPH_ANTHROPIC_API_KEY lookup + stderr warning removed; chain is now CAIRN_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY
+├── [DONE] Explanatory comment kept (Max-plan blanking rationale + "mirrors resolveAnthropicApiKeyChain() in src/config.ts")
+├── [DONE] Both `remove once all projects migrated` markers removed (grep confirms zero RALPH/marker hits in the file)
+├── [DONE] Verified with python3 -m py_compile (file inspected — no dangling references, sys still used elsewhere) and full bun test suite
+├── [DONE] cairn.json healthCheck untouched, ./install.sh not run
+├── [DONE] Excluded/forbidden paths not directly hand-edited (their changes are normal task-lifecycle archival, not agent edits)
+└── [GAP] README.md:163 still documents the removed RALPH_NARRATE_SOCKET fallback as live behavior — now stale/incorrect
+```
+
+### Files Changed
+- lib/cairn_narrate_server.py — `--socket` default simplified to the single-leg `CAIRN_NARRATE_SOCKET` chain; `RALPH_ANTHROPIC_API_KEY` lookup and its stderr warning deleted, leaving `CAIRN_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY`; explanatory comment retained per instructions, trimmed of "legacy" framing
+- .cairn/tasks.json, .cairn/tasks.completed.json, .cairn/.cairn_iterations.log, .cairn/.cairn_tasks_snapshot.json — normal `cairn task complete` archival side effects, not direct edits
+
+### Gaps
+- `README.md` line 163 reads: "the narration server (`lib/cairn_narrate_server.py`) reads `CAIRN_NARRATE_SOCKET`, falling back to the legacy `RALPH_NARRATE_SOCKET`, as the default for its `--socket` argument" — this is now false; the fallback leg was removed by this task. The task description scoped changes to `lib/cairn_narrate_server.py` only and didn't mention README, so this wasn't a missed instruction, but it's a real, verifiable documentation/behavior mismatch introduced by this task that nothing in the round currently owns. Worth a follow-up task before the round closes.
+
+### Regression Risks
+None detected.
+- `grep -n "RALPH" lib/cairn_narrate_server.py` → zero matches.
+- `python3 -m py_compile lib/cairn_narrate_server.py` — file inspected end-to-end (lines 208-239); no syntax errors, no dangling `if not api_key:` branches, `sys` import still has 8 other live call sites in the file so it wasn't orphaned by the removed warning's `sys.stderr` reference.
+- `bun test` (full suite) → 838 pass, 0 fail, 31 files — matches the count in the task notes exactly (this file has no dedicated test suite, so no count change was expected).
+- `cairn.json`'s `healthCheck` unchanged (no diff to cairn.json in this task's changes).
+- `test/config.test.ts` still references `RALPH_ANTHROPIC_API_KEY` — that covers the independent `resolveAnthropicApiKeyChain()` in `src/config.ts` (already stripped of its own legacy leg back in task #51), unrelated to this Python script; not a regression from this task.
+
+### Verdict
+HAS_GAPS
