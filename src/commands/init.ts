@@ -24,10 +24,6 @@ export const TEMP_IGNORE_SUFFIXES = [
 
 export const GITIGNORE_CURRENT_HEADER =
   '# Runtime temp files (tasks.json and planning-notes.md are tracked)';
-/** remove once all projects migrated — header and its ignoreBlock both go. */
-export const GITIGNORE_LEGACY_HEADER =
-  '# Legacy names — still written by older runs and read as a fallback' +
-  ' (remove once all projects migrated)';
 
 /** `prefix` + each suffix, one per line, newline-terminated. */
 export function ignoreBlock(prefix: string): string {
@@ -37,8 +33,12 @@ export function ignoreBlock(prefix: string): string {
 const GITIGNORE_CONTENT =
   `${GITIGNORE_CURRENT_HEADER}\n` +
   ignoreBlock(BRAND.tempPrefix) +
-  `${GITIGNORE_LEGACY_HEADER}\n` +
-  ignoreBlock(LEGACY.tempPrefix) +
+  // A permanent exception, not a compatibility leftover: buildSystemPrompt still
+  // hands every agent a legacy-prefixed `task_<id>_notes.md` as its scratch file
+  // (see CLAUDE.md, "The temp-file prefix — a second naming tier"). Drop this
+  // line and each iteration leaves a scratch file for the agent's own commit to
+  // pick up.
+  `${LEGACY.tempPrefix}task_*_notes.md\n` +
   'instructions.md\n';
 
 export interface PromptInterface {
@@ -116,9 +116,8 @@ export function parseBooleanInput(input: string, defaultValue: boolean): boolean
 }
 
 /**
- * Get default config values for prompts. Loads from an existing cairn.json (or
- * legacy ralph.json — remove once all projects migrated) if present, otherwise
- * uses sensible defaults. Auto-detects health check if not set.
+ * Get default config values for prompts. Loads from an existing cairn.json if
+ * present, otherwise uses sensible defaults. Auto-detects health check if not set.
  */
 export function getConfigDefaults(projectRoot: string): ConfigDefaults {
   const config = loadConfig(projectRoot);

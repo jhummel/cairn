@@ -66,19 +66,36 @@ describe('initCoreFiles', () => {
     const gitignorePath = path.join(dataDir, '.gitignore');
     expect(fs.existsSync(gitignorePath)).toBe(true);
     const content = fs.readFileSync(gitignorePath, 'utf8');
-    expect(content).toContain('.ralph_complete');
-    expect(content).toContain('.ralph_iterations.log');
-    expect(content).toContain('.ralph_prev_notes');
-    expect(content).toContain('.ralph_task_meta');
-    expect(content).toContain('.ralph_completed_ids');
-    expect(content).toContain('instructions.md');
-    // Runtime temp files are now written with the .cairn_ prefix — without these
-    // lines every new temp file would show up as untracked/committed noise.
-    expect(content).toContain('.cairn_complete');
-    expect(content).toContain('.cairn_iterations.log');
-    expect(content).toContain('.cairn_prev_notes');
-    expect(content).toContain('.cairn_completed_ids');
-    expect(content).toContain('.cairn_tasks_snapshot.json');
+    // Exact list, ordered: one line per current-prefix temp file, then the single
+    // surviving legacy line, then instructions.md. Asserted exactly so a stray
+    // legacy leftover can't hide behind a substring match.
+    const entries = content.split('\n').filter((l) => l !== '' && !l.startsWith('#'));
+    expect(entries).toEqual([
+      '.cairn_complete',
+      '.cairn_iterations.log',
+      '.cairn_prev_notes',
+      '.cairn_task_meta',
+      '.cairn_completed_ids',
+      '.cairn_tasks_snapshot.json',
+      '.cairn_task_*_notes.md',
+      '.ralph_task_*_notes.md',
+      'instructions.md',
+    ]);
+  });
+
+  test('keeps ignoring the legacy notes scratch file — agents are still handed that name', () => {
+    // Not a compatibility leftover: buildSystemPrompt still tells every agent to
+    // write .ralph_task_<id>_notes.md. Un-ignore it and each iteration leaves a
+    // scratch file for the agent's own commit to sweep up.
+    const dataDir = path.join(tmpDir, '.ralph');
+    initCoreFiles(tmpDir, dataDir);
+    const content = fs.readFileSync(path.join(dataDir, '.gitignore'), 'utf8');
+    expect(content).toContain('.ralph_task_*_notes.md');
+    // ...and nothing else under the legacy prefix survives.
+    const legacyLines = content
+      .split('\n')
+      .filter((l) => l.startsWith('.ralph_') && l !== '.ralph_task_*_notes.md');
+    expect(legacyLines).toEqual([]);
   });
 
   test('prints Created: .ralph/.gitignore', () => {
@@ -767,24 +784,6 @@ describe('writeCairnJson', () => {
     expect(written.old).toBeUndefined();
   });
 
-  test('does not touch an existing legacy ralph.json', () => {
-    fs.writeFileSync(path.join(tmpDir, 'ralph.json'), '{"legacy": true}');
-    const config = {
-      projectName: 'new-app',
-      projectDescription: '',
-      healthCheck: '',
-      defaultTestCommand: '',
-      implementationFile: 'IMPLEMENTATION.md',
-      truncateText: true,
-      summarize: { claudeMdPattern: '' },
-      narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
-    };
-    writeCairnJson(tmpDir, config);
-    expect(fs.existsSync(path.join(tmpDir, 'cairn.json'))).toBe(true);
-    const legacy = JSON.parse(fs.readFileSync(path.join(tmpDir, 'ralph.json'), 'utf8'));
-    expect(legacy).toEqual({ legacy: true });
-  });
-
   test('JSON is pretty-printed with 2-space indent', () => {
     const config = {
       projectName: 'x',
@@ -1011,14 +1010,15 @@ describe('installNarrationHooks', () => {
     }
   });
 
-  test('hook scripts point at the cairn-tts socket, not the legacy ralph-tts one', async () => {
+  test('hook scripts point at the cairn-tts socket', async () => {
+    // The hooks are the socket's only clients, and findNarrationSocketPath reads
+    // narrate.sh to decide where to bind — so this line is the authoritative one.
     const rl = createMockPrompt(['y']);
     await installNarrationHooks(tmpDir, true, rl);
     const hooksDir = path.join(tmpDir, '.claude', 'hooks');
     for (const hook of ['narrate.sh', 'speak.sh', 'notify.sh']) {
       const content = fs.readFileSync(path.join(hooksDir, hook), 'utf8');
       expect(content).toContain('/tmp/cairn-tts.sock');
-      expect(content).not.toContain('/tmp/ralph-tts.sock');
     }
   });
 

@@ -5,7 +5,6 @@ import { BRAND, LEGACY } from '../brand';
 import {
   TEMP_IGNORE_SUFFIXES,
   GITIGNORE_CURRENT_HEADER,
-  GITIGNORE_LEGACY_HEADER,
   NARRATION_HOOKS,
   installAgents,
   installSlashCommands,
@@ -22,6 +21,16 @@ import {
  * scanning, no walking upward, and no commit — every rename is staged and left
  * for the user to review. Running it twice is a no-op.
  */
+
+/**
+ * Header for the legacy half of a migrated data dir's .gitignore. Lives here
+ * rather than alongside GITIGNORE_CURRENT_HEADER in `init` because a fresh
+ * `cairn init` no longer emits a legacy block at all — only migration, which by
+ * definition starts from a pre-rename project, still needs one.
+ */
+const GITIGNORE_LEGACY_HEADER =
+  '# Legacy names — still written by older runs and read as a fallback' +
+  ' (remove once all projects migrated)';
 
 /** The four temp files that carry live cross-run state and must follow the rename. */
 const STATEFUL_TEMP_SUFFIXES = [
