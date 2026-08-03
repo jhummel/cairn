@@ -410,7 +410,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     try {
       narrationPid = await deps.startNarrationServer({
         pythonPath: process.env.CAIRN_NARRATE_PYTHON!,
-        scriptPath: path.join(process.env.CAIRN_LIB_DIR!, 'ralph_narrate_server.py'),
+        scriptPath: path.join(process.env.CAIRN_LIB_DIR!, 'cairn_narrate_server.py'),
         voice: config.narration.voice,
         socketPath: narrationSocketPath,
       });
@@ -450,7 +450,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
           try {
             narrationPid = await deps.startNarrationServer({
               pythonPath: process.env.CAIRN_NARRATE_PYTHON!,
-              scriptPath: path.join(process.env.CAIRN_LIB_DIR!, 'ralph_narrate_server.py'),
+              scriptPath: path.join(process.env.CAIRN_LIB_DIR!, 'cairn_narrate_server.py'),
               voice: config.narration.voice,
               socketPath: narrationSocketPath,
             });

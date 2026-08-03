@@ -75,7 +75,7 @@ export async function runNarrate(action: string, opts: RunNarrateOpts = {}): Pro
       try {
         pid = await startServer({
           pythonPath,
-          scriptPath: path.join(libDir, 'ralph_narrate_server.py'),
+          scriptPath: path.join(libDir, 'cairn_narrate_server.py'),
           voice,
           socketPath,
         });
@@ -123,8 +123,8 @@ export async function runNarrate(action: string, opts: RunNarrateOpts = {}): Pro
     }
 
     default: {
-      // One-shot TTS: spawn ralph_narrate.py directly
-      const scriptPath = path.join(libDir, 'ralph_narrate.py');
+      // One-shot TTS: spawn cairn_narrate.py directly
+      const scriptPath = path.join(libDir, 'cairn_narrate.py');
       spawnSyncFn(pythonPath, [scriptPath, action], { stdio: 'inherit' });
       break;
     }

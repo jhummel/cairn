@@ -370,3 +370,7 @@ Iteration 7 completed: 2026-08-03T01:34:33.956Z — SUCCESS
 Iteration 8 started: 2026-08-03T01:35:56.507Z — Task #38: src/commands/task.ts agent-facing usage strings
 Iteration 8 completed: 2026-08-03T01:37:52.552Z — SUCCESS
 Iteration 9 started: 2026-08-03T01:38:57.143Z — Task #39: Agent-facing prompts and reviewer allowlist
+Iteration 9 completed: 2026-08-03T01:41:56.490Z — SUCCESS
+Iteration 10 started: 2026-08-03T01:44:26.680Z — Task #40: Remaining src/ rename sweep
+Iteration 10 completed: 2026-08-03T01:51:33.058Z — SUCCESS
+Iteration 11 started: 2026-08-03T01:53:49.513Z — Task #41: Python narration rename and socket

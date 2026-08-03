@@ -4,8 +4,8 @@ Standalone narration utility — speaks text directly via Kokoro TTS.
 No server needed.
 
 Usage:
-    python3 ralph_narrate.py "text to speak"
-    echo "text" | python3 ralph_narrate.py
+    python3 cairn_narrate.py "text to speak"
+    echo "text" | python3 cairn_narrate.py
 """
 import os
 import sys

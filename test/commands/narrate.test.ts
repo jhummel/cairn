@@ -219,7 +219,7 @@ describe('runNarrate', () => {
 
   // --- one-shot TTS ---
 
-  it('unknown action: spawns ralph_narrate.py with spawnSync', async () => {
+  it('unknown action: spawns cairn_narrate.py with spawnSync', async () => {
     process.env.CAIRN_NARRATE_PYTHON = '/usr/bin/true';
     process.env.CAIRN_LIB_DIR = '/usr/lib/ralph';
 
@@ -241,7 +241,7 @@ describe('runNarrate', () => {
 
     expect(capturedCmd).toBe('/usr/bin/true');
     expect(capturedArgs).toContain('Hello world');
-    expect(capturedArgs.some((a) => a.includes('ralph_narrate.py'))).toBe(true);
+    expect(capturedArgs.some((a) => a.includes('cairn_narrate.py'))).toBe(true);
     expect(capturedOpts.stdio).toBe('inherit');
   });
 
@@ -259,6 +259,6 @@ describe('runNarrate', () => {
     await runNarrate('speak this text', { spawnSyncFn: mockSpawnSync as any });
 
     expect(capturedArgs.some((a) => a.includes('/custom/lib'))).toBe(true);
-    expect(capturedArgs.some((a) => a.includes('ralph_narrate.py'))).toBe(true);
+    expect(capturedArgs.some((a) => a.includes('cairn_narrate.py'))).toBe(true);
   });
 });

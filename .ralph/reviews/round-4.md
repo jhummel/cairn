@@ -295,3 +295,93 @@ None detected.
 
 ### Verdict
 CLEAN
+
+---
+
+## Task #39: Agent-facing prompts and reviewer allowlist
+Reviewed: 2026-08-03T01:43:35Z
+
+### Coverage
+Task Requirements
+├── [DONE] buildSystemPrompt() Step 1 — `ralph task start <id> --iteration N` → `cairn task start ...` (verified: source line, prior/new test both pass)
+├── [DONE] buildSystemPrompt() Step 5(b) — `ralph task complete <id> --iteration ... --notes-file ...` → `cairn task complete ...`
+├── [DONE] Discovered-task instruction — `use ralph task add --file <path>` → `use cairn task add --file <path>`
+├── [DONE] Prohibition line — `Do NOT use Edit or Write on .ralph/tasks.json directly — the ralph task subcommands...` → `Do NOT use Edit or Write on ${tasksFile} directly — the cairn task subcommands...`, where `tasksFile = path.join(dataDir, 'tasks.json')` and `dataDir` is threaded from `input.dataDir` → `RunOpts.dataDir` → `findDataDir(projectRoot)` in `src/index.ts:38` (task 32's plumbing) — independently traced the call chain, confirmed no hardcoded literal
+├── [DONE] src/agent-prompt.ts:13 — `` run `ralph init` to install default agents `` → `` run `cairn init` ``
+├── [DONE] src/commands/run.ts:66 internal-agent warning — `[ralph] Agent '...'` → `` [${BRAND.name}] Agent '...' ``
+└── [DONE] Reviewer allowlist (task title) — independently read `src/post-task-reviewer.ts:126-152`: `reviewFileRule = \`/${reviewsDir}/**\`` is already derived from `absDataDir` (the resolved data dir), confirming the notes' claim that no code change was needed here
+
+### Files Changed
+- src/commands/run.ts (4 string edits inside `buildSystemPrompt()`, all within the task's stated scope)
+- src/agent-prompt.ts (1 string edit)
+- test/agent-prompt.test.ts (1 updated assertion)
+- test/commands/run.test.ts (4 updated assertions + 3 new tests)
+- .ralph/tasks.json, .ralph/tasks.completed.json, .ralph/.ralph_iterations.log, .ralph/.ralph_tasks_snapshot.json, .ralph/reviews/round-4.md (tool-managed bookkeeping)
+
+### Gaps
+None detected against this task's own scope. Independently verified rather than trusted:
+- Re-derived the `dataDir` provenance chain myself (`src/index.ts:38` `findDataDir(projectRoot)` → `RunOpts.dataDir` → `buildSystemPrompt`'s `input.dataDir` → `tasksFile`) to confirm the "must come from resolved dataDir, not a hardcoded literal" requirement is actually satisfied, not just asserted in the notes.
+- `grep -in ralph src/commands/run.ts src/agent-prompt.ts` after the diff → remaining hits (doc comments citing `ralph_execute.sh`/`ralph_narrate_server.py`, `'ralph plan'` error hint, `/tmp/ralph-tts.sock`, `Ralph Execution Loop Started/Completed` log lines, `Ralph - Complete`/`Ralph - Stopped` ntfy titles, the legacy notes-tempfile comment) are all outside the 3 items this task's description enumerated. Cross-checked `.ralph/tasks.json` directly: task #40 ("Remaining src/ rename sweep") explicitly names `src/commands/run.ts:367 ("ralph plan")`, and task #48 explicitly names `src/commands/run.ts` for the `/tmp/ralph-tts.sock` literal, so those two are tracked. Note: task #40's own `files` array does *not* list `src/commands/run.ts` even though its description text cites a `run.ts:367` line — a latent inconsistency in task #40's scoping, not something task #39 introduced or was responsible for catching (task #39's description didn't mention these strings at all). Flagging only for round-5 planning awareness, not as a gap in this task.
+
+### Regression Risks
+None detected.
+- Independently ran `bun test test/agent-prompt.test.ts test/commands/run.test.ts` in isolation → 111 pass, 5 fail. Confirmed the 5 failures are the same pre-existing narration-related test-isolation flakiness called out in the notes (all in `runRun` narration describe blocks), not caused by this diff — the fix touches only string literals inside `buildSystemPrompt()`/`buildAgentArgs()`, nowhere near narration server lifecycle code.
+- Independently ran full `bun test` → **808 pass, 0 fail, 1588 expect() calls**, exactly matching the notes' claimed count (net +3 over task #38's 805), and confirming the 5 narration tests pass when the full suite runs together.
+- Independently ran `bun build --target=bun src/index.ts --outfile /tmp/task39-health-check` → succeeds, 108 modules, 0.43 MB.
+- Pure string-literal edits inside prompt-building functions; no exports removed, no signature changes, no control flow touched. `BRAND` was already imported in `run.ts` (used by task #38 elsewhere), so no new-import collision risk.
+- The 3 new tests are genuine regression guards, not renamed duplicates: the "resolved dataDir, not hardcoded" test would fail if a future edit reintroduced a `.ralph/`-literal ban string, and the brand-prefix warning test is the first coverage of that `console.warn` path at all.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #40: Remaining src/ rename sweep
+Reviewed: 2026-08-03T01:55:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] status.ts:25/:46 user-visible hints ("ralph init" / "ralph plan") → BRAND.name
+├── [DONE] run.ts:367-ish "ralph plan" hint → BRAND.name (plus 3 adjacent branding strings taken as same-class work)
+├── [DONE] edit.ts — usage string renamed; config-target resolution fixed to use findConfigFile() instead of a hardcoded ralph.json literal (real bug fix, not just cosmetic — verified findConfigFile() still defaults to creating BRAND.configFile when neither file exists, so "open editor to create new config" behavior is preserved)
+├── [DONE] index.ts — program name, version string, init description → BRAND
+├── [DONE] stream-filter.ts — ntfy titles → BRAND.displayName; dead doc-comment references to deleted lib/ralph_stream_filter.py removed rather than mis-renamed (verified the file no longer exists in the repo)
+├── [DONE] file-lock.ts — lock-timeout error message → BRAND.name
+├── [DONE] process.ts — stale "ported from ralph_execute.sh" doc comment removed (file confirmed deleted)
+├── [DONE] tasks-file.ts, task-counter.ts — prose comments renamed (Ralph/ralph → Cairn/cairn)
+├── [DONE] logs.ts, summarize.ts, plan.ts — verified independently via grep: zero remaining "ralph" hits, correctly left untouched
+├── [DONE] task-selector.ts, task-archiver.ts — verified independently: only remaining hits are comments accurately describing the intentional `.ralph_` legacy-fallback behavior from tasks #32/#33, correctly left unchanged
+├── [PARTIAL] narrate.ts — listed in both the task description's module list and the Expected Files list, but received zero changes. All four remaining "ralph" hits (DEFAULT_PID_FILE, DEFAULT_SOCKET_PATH, and two ralph_narrate*.py script-path literals) were deliberately deferred to tasks #41/#48, with a cross-task note attached to #48 flagging the pid-file coupling. This is a reasonable engineering call (tasks #41/#48 own the socket/script-path migration strategy and touching them here risks stepping on that work), but it means an explicitly-scoped file was fully skipped rather than partially covered — worth flagging even though the deferral rationale is sound.
+└── [DONE] TDD — tests updated/added before source changes per task instructions; bun test confirms 814 pass / 0 fail (matches notes exactly, independently re-run for this review)
+
+### Files Changed
+- .ralph/tasks.json (task #40 marked complete + notes; task #48 annotated)
+- src/commands/edit.ts
+- src/commands/run.ts (not in Expected Files, but explicitly called out in task description for the "ralph plan" hint)
+- src/commands/status.ts
+- src/file-lock.ts
+- src/index.ts
+- src/process.ts
+- src/stream-filter.ts
+- src/task-counter.ts
+- src/tasks-file.ts
+- test/commands/edit.test.ts
+- test/commands/run.test.ts
+- test/commands/status.test.ts
+- test/file-lock.test.ts
+- test/index.test.ts
+- test/stream-filter.test.ts
+
+### Gaps
+- src/commands/narrate.ts was explicitly named in scope (task description and Expected Files) but left entirely untouched. The deferral to tasks #41/#48 is defensible given those tasks explicitly own the socket-path/script-path strategy, but it should be tracked as intentional carry-over rather than silently absorbed — the note left on task #48 covers this adequately for now.
+
+### Regression Risks
+None detected. Independently verified:
+- Full suite: `bun test` → 814 pass, 0 fail, 1603 expect() calls (matches task notes).
+- Health check: `bun build --target=bun src/index.ts --outfile ...` succeeds (108 modules, 0.43 MB).
+- `findConfigFile()` fallback chain (cairn.json → legacy ralph.json → default cairn.json) preserves prior edit.ts behavior of opening the editor on a not-yet-existing config path to create one, so `ralph/cairn edit config` is not broken for new projects.
+- No exports removed, no test coverage reduction — net +6 tests, all additive (config-resolution edge cases, brand-name negative assertions, stopped/early-exit ntfy title, lock-timeout message).
+- Exclusion list respected: no historical-record files (tasks.completed.json, .ralph_iterations.log, .ralph_tasks_snapshot.json, reviews/round-*.md, task-notes scratch, audit/) were touched.
+
+### Verdict
+HAS_GAPS

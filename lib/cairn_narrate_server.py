@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Ralph narration server — listens on a Unix socket, summarizes events via
+Cairn narration server — listens on a Unix socket, summarizes events via
 Claude Haiku, and speaks them aloud using Kokoro TTS.
 
 Uses a single worker thread with debounce so rapid events collapse into
 one narration instead of piling up.
 
 Usage:
-    python3 ralph_narrate_server.py [--voice VOICE] [--socket PATH]
+    python3 cairn_narrate_server.py [--voice VOICE] [--socket PATH]
 """
 import os
 import queue
@@ -21,7 +21,7 @@ import sounddevice as sd
 from kokoro import KPipeline
 from anthropic import Anthropic
 
-DEFAULT_SOCKET = "/tmp/ralph-tts.sock"
+DEFAULT_SOCKET = "/tmp/cairn-tts.sock"
 DEFAULT_VOICE = "bf_emma"
 DEBOUNCE_SECONDS = 1.5
 
@@ -179,7 +179,7 @@ def create_server_socket():
 def run_socket_server():
     """Accept loop for the Unix socket server, with auto-recovery."""
     server = create_server_socket()
-    print(f"Ralph narration server listening on {socket_path}", flush=True)
+    print(f"Cairn narration server listening on {socket_path}", flush=True)
 
     while True:
         try:
@@ -208,7 +208,7 @@ def run_socket_server():
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Ralph narration TTS server")
+    parser = argparse.ArgumentParser(description="Cairn narration TTS server")
     parser.add_argument("--voice", default=os.environ.get("CAIRN_NARRATION_VOICE", DEFAULT_VOICE))
     parser.add_argument(
         "--socket",
