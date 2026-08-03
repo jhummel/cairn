@@ -144,7 +144,7 @@ You are a database expert. Focus on migrations and schema design.`);
     const prompt = buildSystemPrompt(makeInput({
       dataDir: '/projects/myapp/.ralph',
     }));
-    expect(prompt).toContain('ralph task start');
+    expect(prompt).toContain('cairn task start');
     expect(prompt).toContain('/projects/myapp/.ralph/tasks.json');
   });
 
@@ -266,19 +266,19 @@ Agent body here.`);
     expect(discoveryIdx).toBeLessThan(criticalIdx);
   });
 
-  // --- ralph task CLI integration ---
+  // --- cairn task CLI integration ---
 
-  test('uses ralph task start with iteration in step 1', () => {
+  test('uses cairn task start with iteration in step 1', () => {
     const prompt = buildSystemPrompt(makeInput({ iteration: 7 }));
-    expect(prompt).toContain('ralph task start');
-    expect(prompt).toMatch(/ralph task start[^\n]*--iteration\s+7/);
+    expect(prompt).toContain('cairn task start');
+    expect(prompt).toMatch(/cairn task start[^\n]*--iteration\s+7/);
   });
 
-  test('uses ralph task complete with --iteration and --notes-file', () => {
+  test('uses cairn task complete with --iteration and --notes-file', () => {
     const prompt = buildSystemPrompt(makeInput({ iteration: 3 }));
-    expect(prompt).toContain('ralph task complete');
-    expect(prompt).toMatch(/ralph task complete[^\n]*--iteration\s+3/);
-    expect(prompt).toMatch(/ralph task complete[^\n]*--notes-file/);
+    expect(prompt).toContain('cairn task complete');
+    expect(prompt).toMatch(/cairn task complete[^\n]*--iteration\s+3/);
+    expect(prompt).toMatch(/cairn task complete[^\n]*--notes-file/);
   });
 
   test('references notes tempfile path under dataDir with id placeholder', () => {
@@ -287,10 +287,10 @@ Agent body here.`);
     expect(prompt).toContain(`${dataDir}/.ralph_task_<id>_notes.md`);
   });
 
-  test('mentions ralph task add --file in DISCOVER AND DOCUMENT block', () => {
+  test('mentions cairn task add --file in DISCOVER AND DOCUMENT block', () => {
     const prompt = buildSystemPrompt(makeInput());
     const discoverIdx = prompt.indexOf('DISCOVER AND DOCUMENT:');
-    const addIdx = prompt.indexOf('ralph task add --file');
+    const addIdx = prompt.indexOf('cairn task add --file');
     expect(discoverIdx).toBeGreaterThanOrEqual(0);
     expect(addIdx).toBeGreaterThan(discoverIdx);
     const criticalIdx = prompt.indexOf('CRITICAL RULES:');
@@ -306,6 +306,33 @@ Agent body here.`);
   test('does NOT contain old "Use Edit to set these fields" phrasing', () => {
     const prompt = buildSystemPrompt(makeInput());
     expect(prompt).not.toContain('Use Edit to set these fields');
+  });
+
+  test('ban on direct tasks.json edits uses the resolved dataDir path, not a hardcoded literal', () => {
+    const dataDir = '/projects/otherapp/.cairn';
+    const prompt = buildSystemPrompt(makeInput({ dataDir, projectRoot: '/projects/otherapp' }));
+    expect(prompt).toContain(`Do NOT use Edit or Write on ${dataDir}/tasks.json directly`);
+    expect(prompt).not.toContain('.ralph/tasks.json directly');
+  });
+
+  test('ban on direct tasks.json edits references cairn task subcommands', () => {
+    const prompt = buildSystemPrompt(makeInput());
+    expect(prompt).toContain('the cairn task subcommands are the only supported path');
+  });
+
+  test('warns with the cairn brand prefix when the specialist agent is marked internal', () => {
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const agents: AgentInfo[] = [
+        { name: 'internal-agent', description: 'Internal', model: 'opus', file: 'internal-agent.md', internal: true },
+      ];
+      buildSystemPrompt(makeInput({ taskAgent: 'internal-agent', agents }));
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[cairn] Agent 'internal-agent' is marked internal")
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 

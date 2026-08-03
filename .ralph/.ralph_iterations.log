@@ -368,3 +368,5 @@ Iteration 6 completed: 2026-08-03T01:27:44.121Z — SUCCESS
 Iteration 7 started: 2026-08-03T01:28:58.508Z — Task #37: Rename sweep: src/commands/init.ts
 Iteration 7 completed: 2026-08-03T01:34:33.956Z — SUCCESS
 Iteration 8 started: 2026-08-03T01:35:56.507Z — Task #38: src/commands/task.ts agent-facing usage strings
+Iteration 8 completed: 2026-08-03T01:37:52.552Z — SUCCESS
+Iteration 9 started: 2026-08-03T01:38:57.143Z — Task #39: Agent-facing prompts and reviewer allowlist

@@ -10,7 +10,7 @@ export function buildAgentArgs(
 
   if (!existsSync(agentPath)) {
     throw new Error(
-      `Agent definition '${name}' not found at ${agentPath} — run \`ralph init\` to install default agents`
+      `Agent definition '${name}' not found at ${agentPath} — run \`cairn init\` to install default agents`
     );
   }
 

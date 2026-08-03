@@ -48,7 +48,7 @@ describe("buildAgentArgs", () => {
 
   test("throws descriptive error when agent file is missing", () => {
     expect(() => buildAgentArgs("missing-agent", "Some agent", tmpDir)).toThrow(
-      `Agent definition 'missing-agent' not found at ${join(tmpDir, ".claude", "agents", "missing-agent.md")} — run \`ralph init\` to install default agents`
+      `Agent definition 'missing-agent' not found at ${join(tmpDir, ".claude", "agents", "missing-agent.md")} — run \`cairn init\` to install default agents`
     );
   });
 });

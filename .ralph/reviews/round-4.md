@@ -230,3 +230,68 @@ None detected.
 
 ### Verdict
 CLEAN
+
+---
+
+## Task #37: Rename sweep: src/commands/init.ts
+Reviewed: 2026-08-03T01:35:19Z
+
+### Coverage
+Task Requirements
+├── [DONE] Data dir creation / console messages use BRAND, not literals — `initCoreFiles` and `createInstructionsFile` now derive `dirName = path.basename(dataDir)` instead of hardcoding `.ralph/`; `writeCairnJson`, `showNextSteps`, `runInit` banner, and `installNarrationHooks` message all switched to `BRAND.*`
+├── [DONE] GITIGNORE_CONTENT lists both `.cairn_*` and legacy `.ralph_*` names — verified directly in current source (lines 10-27): 7 `.cairn_*` entries + 7 `.ralph_*` entries under an explicit "Legacy names" comment
+├── [DONE] NARRATE_SH/SPEAK_SH/NOTIFY_SH SOCKET → `${BRAND.socket}` (resolves to `/tmp/cairn-tts.sock`); :307-area console message updated to "${BRAND.displayName} narration server at ${BRAND.socket}"
+├── [DONE] writeCairnJson writes `BRAND.configFile` (`cairn.json`) instead of `ralph.json`
+├── [DONE] getConfigDefaults uses the dual-read helper — verified directly in `src/config.ts`: `loadConfig` → `findConfigFile` checks `BRAND.configFile` first, falls back to `LEGACY.configFile` with a one-time warning. No code change was needed here and the notes correctly say so.
+├── [DONE] showNextSteps() → "Run 'cairn plan'" via `` `Run '${BRAND.name} plan'` ``
+└── [DONE] 'Initializing Ralph in:' banner → `` `Initializing ${BRAND.displayName} in: ...` ``
+
+### Files Changed
+- src/commands/init.ts (all 7 numbered task items; also updated several doc comments naming `ralph.json`/`.ralph/`/"ralph's commands" for consistency)
+- test/commands/init.test.ts (existing tests retitled/repointed at `.cairn`/`cairn.json` literals; new tests added for `.cairn` dataDir paths, legacy-`ralph.json`-left-untouched, narration socket/message, and cairn.json defaults loading)
+- .ralph/tasks.json, .ralph/tasks.completed.json, .ralph/.ralph_iterations.log, .ralph/.ralph_tasks_snapshot.json, .ralph/reviews/round-4.md (tool-managed bookkeeping)
+
+### Gaps
+None detected. Independently re-grepped `src/commands/init.ts` for `ralph` (case-insensitive): the only 8 remaining hits are the intentional legacy `.ralph_*` gitignore lines (7) and one doc comment naming "legacy ralph.json" — exactly matching the task notes' own scope-check claim. Independently confirmed both claims the notes flagged as "no code change needed" (GITIGNORE_CONTENT already dual-named; getConfigDefaults already dual-read via `loadConfig`/`findConfigFile`) by reading the current source directly rather than trusting the notes.
+
+### Regression Risks
+None detected.
+- Independently ran `bun test test/commands/init.test.ts` → **110 pass, 0 fail** (matches notes' claimed count).
+- Independently ran full `bun test` → **804 pass, 0 fail** (matches notes' claimed count, +9 over task #36's 795).
+- Independently ran `bun build --target=bun src/index.ts --outfile ...` → succeeds, 108 modules, 0.43 MB.
+- `writeCairnJson`'s filename change (`ralph.json` → `cairn.json`) is a genuine behavior change, correctly called out as such in the notes and covered by a new test asserting a pre-existing legacy `ralph.json` is left untouched (not merged, not deleted) — no data-loss risk for projects with an existing legacy config.
+- No exports removed that other modules depend on; `BRAND` import added cleanly, no naming collisions with existing imports.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #38: src/commands/task.ts agent-facing usage strings
+Reviewed: 2026-08-03T01:40:00Z
+
+### Coverage
+Task Requirements
+├── [DONE] All ~20 agent-facing `ralph task <subcommand>: ...` stderr strings renamed to `cairn task <subcommand>: ...` — covers `start`, `complete`, `note`, `set-status`, `add` (including its two literal-string validation-failure messages), `show`, `next-id`
+├── [DONE] Subcommand group description at (now) line 341 — `'Manage tasks in .ralph/tasks.json'` → `` `Manage tasks in ${BRAND.dataDir}/tasks.json` `` (renders `.cairn/tasks.json`), via new `BRAND` import
+└── [DONE] TDD — test/commands/task.test.ts's existing `ralph task add` / `ralph task next-id` assertions updated in lockstep to the `cairn task` literal; one net-new test added (`registerTaskCommands` describe block) that wires a real `Command()`, calls `registerTaskCommands`, and asserts `task.description() === 'Manage tasks in .cairn/tasks.json'` — this is the only test in the suite that exercises the Commander wiring layer directly rather than the underlying `task*` functions, so it's genuine new coverage, not a rename of an existing assertion
+
+### Files Changed
+- src/commands/task.ts (BRAND import, ~20 stderr string renames, subcommand group description)
+- test/commands/task.test.ts (3 renamed assertions, 1 new test)
+- .ralph/tasks.json, .ralph/tasks.completed.json, .ralph/.ralph_iterations.log, .ralph/.ralph_tasks_snapshot.json (tool-managed bookkeeping)
+
+### Gaps
+None detected. Independently verified, not just trusted from notes:
+- `grep -n -i ralph src/commands/task.ts test/commands/task.test.ts` → the only remaining hit is the test file's `beforeEach` tmpdir prefix string (`'ralph-task-test-'`), a cosmetic local fixture name, not agent-facing and outside this task's scope.
+- Read the full post-diff `registerTaskCommands` block (lines ~335-430) — the seven subcommand `.description()` calls (`start`, `complete`, `note`, `set-status`, `add`, `next-id`, `show`) never contained literal `'ralph task ...'` usage examples to begin with (they're generic phrases like "Mark a task as in-progress"), so the task description's framing ("usage strings... appear in command descriptions, help text") slightly overstates where the literals actually lived — but every instance that did exist (all in stderr error messages, plus the one group description) was found and renamed.
+
+### Regression Risks
+None detected.
+- Independently ran `bun test test/commands/task.test.ts` → **32 pass, 0 fail, 96 expect() calls** (matches notes' claimed count).
+- Independently ran full `bun test` → **805 pass, 0 fail, 1584 expect() calls** (matches notes' claimed count, +1 over task #38's own baseline of 804 from task #37).
+- No exports removed or changed signature; `BRAND` import added cleanly with no naming collisions.
+- Pure string-literal rename plus one description change — no control-flow, validation, or exit-code behavior touched, so no risk to callers (the orchestrator's `ralph task ...` CLI invocations still work identically; only the printed/described text changed).
+
+### Verdict
+CLEAN

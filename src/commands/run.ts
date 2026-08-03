@@ -68,7 +68,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
     const agentInfo = agents.find(a => a.name === taskAgent);
     if (agentInfo) {
       if (agentInfo.internal) {
-        console.warn(`[ralph] Agent '${taskAgent}' is marked internal and cannot be used as a task specialist — falling back to generalist prompt.`);
+        console.warn(`[${BRAND.name}] Agent '${taskAgent}' is marked internal and cannot be used as a task specialist — falling back to generalist prompt.`);
       } else {
         const agentFilePath = path.join(projectRoot, '.claude', 'agents', agentInfo.file);
         if (fs.existsSync(agentFilePath)) {
@@ -123,18 +123,18 @@ SUBAGENT STRATEGY:
 
 YOUR WORKFLOW:
 Your assigned task is provided in the user prompt. Do NOT read tasks.json to find your task — it's already been extracted for you.
-1. Run: ralph task start <id> --iteration ${iteration}
+1. Run: cairn task start <id> --iteration ${iteration}
 2. If the task has files listed, focus on those files. Otherwise explore the codebase to understand it.
 3. Implement the task COMPLETELY. No placeholders, no stubs, no TODOs. Incomplete implementations waste an entire future iteration redoing the same work.
 ${testInstruction}
 5. Mark the task complete:
    (a) Write your completion notes to ${notesFile} using the Write tool (substitute <id> with the task ID)
-   (b) Run: ralph task complete <id> --iteration ${iteration} --notes-file ${notesFile}
+   (b) Run: cairn task complete <id> --iteration ${iteration} --notes-file ${notesFile}
 6. If '${tasksFile}' has no remaining pending/in-progress tasks, create the file '${completeFlag}'
 7. Make a focused git commit with message format: '[${commitPrefix}] Task #<id>: <title>'
 
 DISCOVER AND DOCUMENT:
-- If you discover bugs or missing functionality UNRELATED to your task, use ralph task add --file <path> to append a new task (the CLI validates the payload before merging). Include a 'directory' field indicating where the work should happen. Max 3 discovered tasks per iteration.
+- If you discover bugs or missing functionality UNRELATED to your task, use cairn task add --file <path> to append a new task (the CLI validates the payload before merging). Include a 'directory' field indicating where the work should happen. Max 3 discovered tasks per iteration.
 - Do NOT supply an id — the CLI assigns one for you and prints it ('assigned id: <n>'). New tasks need at minimum: priority, title, description, directory, status ('pending'), files (array), dependencies (array), tests (array).
 - If you learn something operational about a module (config quirk, undocumented dependency), add a brief note to the directory-level CLAUDE.md.
 - Keep CLAUDE.md strictly operational (build commands, config quirks, gotchas). No status updates, no progress notes, no task history.
@@ -143,7 +143,7 @@ CRITICAL RULES:
 - Work on EXACTLY ONE task per iteration — the one assigned in the prompt
 - Set status to 'in-progress' BEFORE starting implementation
 - Mark the task complete in ${tasksFile} BEFORE creating ${completeFlag}
-- Do NOT use Edit or Write on .ralph/tasks.json directly — the ralph task subcommands are the only supported path.
+- Do NOT use Edit or Write on ${tasksFile} directly — the cairn task subcommands are the only supported path.
 - Be thorough with notes — help the next agent understand what you did
 - Keep responses concise. Use Edit for surgical changes — do NOT Write entire large files in one shot.`;
 
