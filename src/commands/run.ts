@@ -388,6 +388,20 @@ const TEMP_FILE_SUFFIXES = ['complete', 'prev_notes', 'completed_ids'];
  */
 const REVERT_BLOCK_THRESHOLD = 2;
 
+/**
+ * Consecutive iterations a task may be selected as 'pending' and left 'pending'
+ * before it is forced to 'blocked'.
+ *
+ * The agent never calling `cairn task start` is a no-op iteration: the task
+ * stays pending, so the loop re-selects it next time and every iteration still
+ * reports SUCCESS. The usual cause is environmental (a `permissions.deny` rule
+ * for `cairn task`), so retrying cannot help. Fixed at 3 on purpose, same
+ * reasoning as REVERT_BLOCK_THRESHOLD: three identical no-op iterations are
+ * unambiguous, and a misconfigured value would re-hide the failure. Not
+ * configurable.
+ */
+const STALL_BLOCK_THRESHOLD = 3;
+
 /** Squash a validation message into a single readable line for a task note. */
 function summarizeFailure(message: string | undefined): string {
   if (!message) return 'unknown command';
@@ -476,6 +490,9 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   // per-run on purpose: a livelock only matters inside a single run, so this
   // resets naturally on restart and needs no schema/Task field.
   const consecutiveReverts = new Map<number, number>();
+  // taskId -> consecutive iterations that left the task sitting in 'pending'.
+  // In-memory and per-run for the same reason as consecutiveReverts.
+  const consecutiveStalls = new Map<number, number>();
   // Tasks this run forced to 'blocked' — the summary's fallback count if the
   // final tasks.json read fails.
   const blockedByGuard = new Set<number>();
@@ -553,6 +570,9 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       }
 
       const taskDir = task.directory ?? '';
+      // Snapshot at selection time — the stall guard compares against this, not
+      // against task.status, which must not be read back after the agent runs.
+      const selectedStatus = task.status;
 
       // Set CAIRN_TASK_CONTEXT env var
       process.env.CAIRN_TASK_CONTEXT = task.title;
@@ -674,32 +694,62 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         consecutiveReverts.delete(task.id);
       }
 
-      // l. Post-task review (if enabled and task completed)
-      if (config.review?.postTask) {
-        // Re-read task status from tasks.json (agent may have updated it)
-        let updatedTaskStatus = 'unknown';
-        try {
-          const result = deps.readTasksFile(tasksFilePath, { dataDir });
-          if (result.repaired || result.restored) corruptionEvents++;
-          const updatedTask = (result.data.tasks ?? []).find((t: Task) => t.id === task.id);
-          if (updatedTask) {
-            updatedTaskStatus = updatedTask.status;
-          }
-        } catch {
-          // If we can't read, skip review
+      // k3. Re-read task status from tasks.json (the agent may have updated it).
+      // Unconditional on purpose: both the stall guard below and the post-task
+      // review gate need it, and gating it on review.postTask would silently
+      // disable the guard on every project that has review turned off.
+      let updatedTaskStatus = 'unknown';
+      try {
+        const result = deps.readTasksFile(tasksFilePath, { dataDir });
+        if (result.repaired || result.restored) corruptionEvents++;
+        const updatedTask = (result.data.tasks ?? []).find((t: Task) => t.id === task.id);
+        if (updatedTask) {
+          updatedTaskStatus = updatedTask.status;
         }
+      } catch {
+        // Unreadable: 'unknown' leaves the guard neutral and skips the review.
+      }
 
-        if (updatedTaskStatus === 'complete') {
-          await deps.runPostTaskReview({
-            projectRoot,
-            dataDir,
-            task,
-            taskStatus: updatedTaskStatus,
-            beforeSha,
-            config,
-            streamOpts,
-          });
+      // k4. Same-task stall guard. A task selected as 'pending' that is *still*
+      // pending afterwards means the agent never ran `cairn task start` — a
+      // no-op iteration that reports SUCCESS and gets re-selected forever.
+      // Anything else observed (in-progress, complete, blocked) is real
+      // progress and resets the count; an unreadable file is neutral.
+      if (updatedTaskStatus === 'pending') {
+        if (selectedStatus === 'pending') {
+          const stalls = (consecutiveStalls.get(task.id) ?? 0) + 1;
+          consecutiveStalls.set(task.id, stalls);
+
+          if (stalls >= STALL_BLOCK_THRESHOLD) {
+            const note = `Blocked by ${BRAND.name} after ${stalls} consecutive iterations in which the agent never moved the task out of 'pending'. The usual cause is a permissions.deny rule for 'cairn task' in .claude/settings.local.json — which is NOT bypassed by --dangerously-skip-permissions, so the agent silently cannot run 'cairn task start'/'complete' and every iteration still reports SUCCESS.`;
+            try {
+              deps.blockTask({ tasksFilePath, dataDir, taskId: task.id, note });
+              blockedByGuard.add(task.id);
+              deps.log(`Task #${task.id} blocked after ${stalls} consecutive iterations that left it 'pending' — the agent is likely unable to run 'cairn task start'. Moving on.`);
+              deps.appendFileSync(iterationLogPath, `Iteration ${iteration}: Task #${task.id} BLOCKED after ${stalls} consecutive iterations still 'pending'\n`);
+            } catch (err) {
+              deps.log(`Failed to block task #${task.id}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+            // Start over, so a human fixing the permissions rule mid-run gets a
+            // fresh set of attempts rather than an instant re-block.
+            consecutiveStalls.delete(task.id);
+          }
         }
+      } else if (updatedTaskStatus !== 'unknown') {
+        consecutiveStalls.delete(task.id);
+      }
+
+      // l. Post-task review (if enabled and task completed)
+      if (config.review?.postTask && updatedTaskStatus === 'complete') {
+        await deps.runPostTaskReview({
+          projectRoot,
+          dataDir,
+          task,
+          taskStatus: updatedTaskStatus,
+          beforeSha,
+          config,
+          streamOpts,
+        });
       }
 
       // m. Archive completed tasks

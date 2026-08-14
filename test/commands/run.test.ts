@@ -1276,6 +1276,171 @@ describe('runRun', () => {
     expect(appended.some(l => l.includes('BLOCKED') && l.includes('#7'))).toBe(true);
   });
 
+  // --- Same-task stall guard ---
+
+  test('blocks a task after three consecutive iterations that never move it out of pending', async () => {
+    const tasks = [makeTask({ id: 1, priority: 1 }), makeTask({ id: 2, priority: 2 })];
+    let selected: Task | null = null;
+    const deps = makeGuardDeps(tasks, {
+      selectNextTask: mock((ts: Task[]) => {
+        selected = ts.find(t => t.status === 'in-progress') ?? ts.find(t => t.status === 'pending') ?? null;
+        return selected;
+      }),
+      spawnClaude: mock(async () => {
+        // Task 1's agent is blocked from running `cairn task start` (the real
+        // bug: a permissions.deny rule), so the task never leaves 'pending' and
+        // the loop re-picks it forever. Task 2's agent behaves normally.
+        const t = selected;
+        if (t && t.id === 2) t.status = 'complete';
+        return { exitCode: 0 };
+      }),
+    });
+
+    // Default config — no review.postTask, proving the guard does not depend on
+    // post-task review being enabled.
+    await runRun(makeRunOpts({ maxIterations: 10 }), deps);
+
+    expect(deps.blockTask).toHaveBeenCalledTimes(1);
+    const call = (deps.blockTask as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0].taskId).toBe(1);
+    expect(call[0].tasksFilePath).toBe('/projects/myapp/.cairn/tasks.json');
+    expect(call[0].dataDir).toBe('/projects/myapp/.cairn');
+    expect(call[0].note).toContain('pending');
+    expect(call[0].note).toContain('permissions.deny');
+    expect(tasks[0]!.status).toBe('blocked');
+    // Three iterations burned on the stuck task, then the loop moved on and
+    // finished task 2 — 3 iterations instead of the full run.
+    expect(tasks[1]!.status).toBe('complete');
+    expect(deps.spawnClaude).toHaveBeenCalledTimes(4);
+  });
+
+  test('an intervening in-progress status resets the stall counter', async () => {
+    const tasks = [makeTask({ id: 1 })];
+    let iter = 0;
+    const deps = makeGuardDeps(tasks, {
+      spawnClaude: mock(async () => {
+        iter++;
+        // Iteration 2's agent runs `cairn task start`; the task then sits in
+        // 'in-progress' for the rest of the run, which is normal, not a stall.
+        if (iter === 2) tasks[0]!.status = 'in-progress';
+        return { exitCode: 0 };
+      }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 6 }), deps);
+
+    expect(deps.blockTask).not.toHaveBeenCalled();
+    expect(tasks[0]!.status).toBe('in-progress');
+  });
+
+  test('an intervening complete status resets the stall counter to zero', async () => {
+    const tasks = [makeTask({ id: 1 })];
+    let iter = 0;
+    let blockedAtIter = -1;
+    const deps = makeGuardDeps(tasks, {
+      spawnClaude: mock(async () => {
+        iter++;
+        if (iter === 2) tasks[0]!.status = 'complete';
+        return { exitCode: 0 };
+      }),
+      // Runs at the end of the iteration, after the guard has observed
+      // 'complete': models the task being re-opened mid-run.
+      archiveCompletedTasks: mock(async () => {
+        if (iter === 2) tasks[0]!.status = 'pending';
+        return { archivedCount: 0, prevNotes: null };
+      }),
+      blockTask: mock((o: { taskId: number }) => {
+        blockedAtIter = iter;
+        const t = tasks.find(x => x.id === o.taskId);
+        if (t) t.status = 'blocked';
+      }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 8 }), deps);
+
+    // iter 1 counts, iter 2 observes 'complete' and resets, iters 3-5 count
+    // fresh to the threshold. Without the reset it would have blocked at 4.
+    expect(deps.blockTask).toHaveBeenCalledTimes(1);
+    expect(blockedAtIter).toBe(5);
+  });
+
+  test('a failed post-iteration tasks.json read neither increments nor resets the stall counter', async () => {
+    const tasks = [makeTask({ id: 1 })];
+    let iter = 0;
+    let afterSpawn = false;
+    let blockedAtIter = -1;
+    const deps = makeGuardDeps(tasks, {
+      readTasksFile: mock(() => {
+        if (afterSpawn) {
+          afterSpawn = false;
+          // Iteration 3's post-iteration re-read fails — neutral, so neither an
+          // increment nor a reset.
+          if (iter === 3) throw new Error('unreadable');
+        }
+        return { data: { tasks }, repaired: false, restored: false };
+      }),
+      spawnClaude: mock(async () => {
+        iter++;
+        afterSpawn = true;
+        return { exitCode: 0 };
+      }),
+      blockTask: mock((o: { taskId: number }) => {
+        blockedAtIter = iter;
+        const t = tasks.find(x => x.id === o.taskId);
+        if (t) t.status = 'blocked';
+      }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 6 }), deps);
+
+    // 1 and 2 count, 3 is neutral, 4 reaches the threshold. An increment would
+    // have blocked at 3; a reset would have pushed the block out to 6.
+    expect(deps.blockTask).toHaveBeenCalledTimes(1);
+    expect(blockedAtIter).toBe(4);
+  });
+
+  test('logs the stall block to the iteration log', async () => {
+    const tasks = [makeTask({ id: 9 })];
+    const appended: string[] = [];
+    const deps = makeGuardDeps(tasks, {
+      appendFileSync: mock((_p: string, content: string) => { appended.push(content); }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 5 }), deps);
+
+    expect(appended.some(l => l.includes('BLOCKED') && l.includes('#9'))).toBe(true);
+  });
+
+  test('the hoisted status re-read still feeds the post-task review gate', async () => {
+    const tasks = [makeTask({ id: 1 })];
+    const deps = makeGuardDeps(tasks, {
+      spawnClaude: mock(async () => {
+        tasks[0]!.status = 'complete';
+        return { exitCode: 0 };
+      }),
+    });
+
+    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    await runRun(makeRunOpts({ config, maxIterations: 3 }), deps);
+
+    expect(deps.runPostTaskReview).toHaveBeenCalledTimes(1);
+    const reviewCall = (deps.runPostTaskReview as ReturnType<typeof mock>).mock.calls[0][0];
+    expect(reviewCall.taskStatus).toBe('complete');
+    expect(deps.blockTask).not.toHaveBeenCalled();
+  });
+
+  test('the stall guard still fires when post-task review is enabled', async () => {
+    const tasks = [makeTask({ id: 3 })];
+    const deps = makeGuardDeps(tasks);
+
+    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    await runRun(makeRunOpts({ config, maxIterations: 6 }), deps);
+
+    expect(deps.blockTask).toHaveBeenCalledTimes(1);
+    expect((deps.blockTask as ReturnType<typeof mock>).mock.calls[0][0].taskId).toBe(3);
+    expect(deps.runPostTaskReview).not.toHaveBeenCalled();
+  });
+
   // --- Blocked-aware final summary ---
 
   function makeSummaryDeps(tasks: Task[], logs: string[], overrides: Partial<RunRunDeps> = {}): RunRunDeps {
