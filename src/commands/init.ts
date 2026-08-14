@@ -11,6 +11,7 @@ import {
   GIT_INSPECTION_RULES,
   buildCommandRules,
   mergeClaudeSettings,
+  removeSettingsRules,
   type PermissionRules,
 } from '../claude-settings';
 
@@ -476,6 +477,27 @@ export function installAgents(
  * deny-by-default unless allowlisted (there is nobody to prompt), so the
  * reviewer's scoped `--allowedTools` already prevented task-state mutation.
  */
+/**
+ * Deny rules a previous version of `cairn init` seeded, which re-running init
+ * must now retract.
+ *
+ * They are not merely obsolete, they are actively destructive: a project-wide
+ * deny binds every Claude session in the project — including `cairn run`'s own
+ * execution agents, which it is NOT bypassed by `--dangerously-skip-permissions`
+ * — so every agent's `cairn task start`/`complete` call is silently blocked.
+ * Tasks never leave `pending`, and the loop re-runs the same task indefinitely
+ * while reporting SUCCESS. `.claude/settings.local.json` is gitignored, so
+ * nothing in `git status` hints at the cause. Re-running `cairn init` is the
+ * only repair path a user can reach, so it has to do the repair.
+ */
+export const LEGACY_CAIRN_TASK_DENY_RULES: readonly string[] = [
+  'Bash(cairn task start:*)',
+  'Bash(cairn task complete:*)',
+  'Bash(cairn task set-status:*)',
+  'Bash(cairn task add:*)',
+  'Bash(cairn task note:*)',
+];
+
 export function buildInitPermissionRules(
   config: Pick<CairnConfig, 'healthCheck' | 'defaultTestCommand'>,
 ): PermissionRules {
@@ -495,8 +517,14 @@ export function buildInitPermissionRules(
  * confirmation. Returns the rules actually added — empty when the user declined,
  * when everything was already present, or when the existing file was unreadable.
  *
- * `opts.skipUnchanged` is not consulted: merging is inherently additive, so a
- * rule that is already present is never rewritten and never reported.
+ * Also strips `LEGACY_CAIRN_TASK_DENY_RULES` — a project seeded by the previous
+ * version of init has a broken `cairn run` until they are gone. Removals are
+ * reported but not returned: the return value feeds init's "what did I write"
+ * summary, and a retraction is not something written.
+ *
+ * `opts.skipUnchanged` is not consulted: the merge is additive and the removal
+ * targets a fixed, Cairn-authored rule set, so nothing the user wrote is ever
+ * rewritten, and a file needing neither is not touched at all.
  */
 export async function installClaudeSettings(
   projectRoot: string,
@@ -510,13 +538,17 @@ export async function installClaudeSettings(
   log('');
   log('Seed .claude/settings.local.json with permission rules?');
   log('  (Allows read-only git inspection plus your health check and test commands.');
-  log('   Existing rules are kept — nothing is removed or rewritten.)');
+  log('   Your own rules are kept and never rewritten. The only thing removed is a');
+  log('   legacy "cairn task" deny block seeded by an older cairn init, which breaks');
+  log('   cairn run.)');
 
   const write = await promptBoolean(rl, 'Write permission rules?', true);
   if (!write) return [];
 
+  let removal;
   let result;
   try {
+    removal = removeSettingsRules(projectRoot, { deny: [...LEGACY_CAIRN_TASK_DENY_RULES] });
     result = mergeClaudeSettings(projectRoot, rules);
   } catch (err) {
     if (err instanceof ClaudeSettingsError) {
@@ -528,9 +560,17 @@ export async function installClaudeSettings(
     throw err;
   }
 
+  const removed = [...removal.removedAllow, ...removal.removedDeny];
+  if (removed.length > 0) {
+    log('  Removed a legacy deny block from .claude/settings.local.json:');
+    for (const rule of removed) log(`    deny:  ${rule}`);
+    log('    These blocked cairn run agents from recording task state, so the loop');
+    log('    re-ran one task forever while reporting success.');
+  }
+
   const added = [...result.addedAllow, ...result.addedDeny];
   if (added.length === 0) {
-    log('  .claude/settings.local.json already has every rule.');
+    if (removed.length === 0) log('  .claude/settings.local.json already has every rule.');
     return [];
   }
 

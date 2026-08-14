@@ -276,3 +276,168 @@ None detected. Diff is confined to CLAUDE.md; no code, schema, or test file touc
 
 ### Verdict
 CLEAN
+
+---
+
+## Task #74: src/commands/init.ts — retire migrate-era comments and un-export three symbols
+Reviewed: 2026-08-03T22:36:37Z
+
+### Coverage
+```
+Task Requirements
+├── (1) [DONE] TEMP_IGNORE_SUFFIXES doc comment — `cairn migrate` justification
+│             ("two lists would silently drift apart") dropped, replaced with a
+│             one-line factual comment (init.ts:10)
+├── (2) [DONE] InstallOptions doc comment rewritten to describe skipUnchanged/log
+│             by current behavior, not by naming a dead caller (init.ts:322-327).
+│             Verified against live callers: only `runInit` invokes the three
+│             installers (installSlashCommands/installAgents/writeNarrationHooks),
+│             always with default opts — grepped src/ and test/commands/init.test.ts
+│             for `skipUnchanged`/`opts.log`/`{ log:` and found no caller ever
+│             passes either field, matching what the new comment claims (it
+│             describes the mechanism, not a specific consumer)
+├── (3) [DONE] GITIGNORE_CONTENT comment — dangling CLAUDE.md pointer ("The
+│             temp-file prefix — a second naming tier") dropped; confirmed that
+│             section string no longer exists anywhere in the live CLAUDE.md.
+│             Substantive point preserved: the NOTES_TEMP_PREFIX-spelled scratch
+│             line is a permanent exception, not a compatibility leftover, and
+│             removing it lets the scratch file get swept into the agent's own
+│             commit (init.ts:32-36)
+└── [DONE] Un-export TEMP_IGNORE_SUFFIXES / GITIGNORE_CURRENT_HEADER / ignoreBlock
+              — all three now module-private (init.ts:10-26). Re-ran
+              `grep -rn "TEMP_IGNORE_SUFFIXES\|GITIGNORE_CURRENT_HEADER\|ignoreBlock"
+              src/ test/` independently: every hit is inside src/commands/init.ts
+              itself, none in test/. No test referenced the private symbols, so
+              no test rewrite was required — test/commands/init.test.ts was
+              correctly left untouched.
+```
+
+TDD note: the task's TDD instruction was "confirm the test file is green before you start, then fix any break by testing generated output rather than re-exporting" — since the un-export required no behavioral change (nothing outside the file consumed the symbols) there was no red state to drive; the notes' claim that no test changes were needed checks out against an independent grep, so this isn't a TDD-process gap, just a task where the RED step never had anything to be red about.
+
+Verified independently, not just from the implementer's notes: ran the two-symbol/one-function grep myself (matches the notes exactly — no external consumers); read `init.ts:1-40` and `:320-457` directly to confirm the three comments and the un-export; grepped for `skipUnchanged`/`opts.log`/`{ log:` across `src/` and `test/commands/init.test.ts` to confirm the new InstallOptions comment doesn't overclaim; grepped CLAUDE.md for "second naming tier" (zero hits, confirms the dangling pointer is legitimately dead); ran `bun test test/commands/init.test.ts` directly (111 pass / 0 fail) and the full `bun test` (821 pass / 0 fail, 29 files, matches the round-9 baseline).
+
+### Files Changed
+- src/commands/init.ts
+- .cairn/tasks.json / .cairn/tasks.completed.json / .cairn/.cairn_tasks_snapshot.json / .cairn/.cairn_iterations.log / .cairn/reviews/round-9.md (task bookkeeping only)
+
+### Gaps
+None detected.
+
+### Regression Risks
+None detected. `cairn.json`'s `healthCheck` was not modified and `./install.sh` was not run — both correctly left user-managed per the round's pin/unpin procedure (the implementer's notes mention a one-off `--target=bun` sanity compile to `/tmp/cairn-task74-check`, which is a local check only and does not touch `cairn.json` or the installed binary). No exports removed that had any live external consumer — confirmed via independent grep, not just trust in the notes. Full test suite unchanged at 821 pass / 0 fail.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #76: Retire the dead PathProbeDeps seam in narration.ts and settle findDataDir
+Reviewed: 2026-08-03T22:46:22Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] narration.ts: PathProbeDeps interface deleted entirely — grepped
+│             src/ and test/ for "PathProbeDeps" and "_deps" post-diff: zero hits
+├── [DONE] findNarrationSocketPath(projectRoot?, _deps) → findNarrationSocketPath(projectRoot?)
+│             — unread param removed, projectRoot param and its resolution logic
+│             (hook file → BRAND.socket fallback) left intact
+├── [DONE] findNarrationPidFile(_deps) → findNarrationPidFile() — unread param removed,
+│             body unchanged (unconditional BRAND.pidFile), doc comment now says
+│             "compose" instead of implying a probe
+├── [DONE] ONE decision applied consistently, no third state — DELETE was chosen
+│             (task's recommended default) for both narration.ts resolvers; no
+│             leftover unread parameter anywhere
+├── [DONE] Narration test titles rewritten to describe what is actually asserted —
+│             "returns the current brand socket when it is already live" and
+│             "returns the current brand pid file when it exists" (titles that
+│             claimed liveness coverage that never existed) are gone; replacement
+│             titles ("falls back to...", "returns the current brand pid file")
+│             make no liveness claim
+├── [DONE] findDataDir (utils.ts:36) — kept as unconditional `join`, doc comment
+│             corrected to say it COMPOSES a path rather than resolving/probing for
+│             one that's "expected to already exist"
+├── [DONE] Sibling findDataDir test titles retitled from probe language ("resolves
+│             to .cairn when it exists") to compose language ("composes <root>/.cairn
+│             when the directory already exists") — same fix pattern applied here too
+├── [DONE] CRITICAL: RunRunDeps.findNarrationSocketPath untouched — verified live in
+│             src/commands/run.ts:298 (`(projectRoot: string) => string`), and
+│             test/commands/run.test.ts:1611 "binds the narration server to the
+│             resolved socket, not a hardcoded one" passes (confirmed via full run)
+├── [DONE] findNarrationSocketPath's projectRoot parameter preserved — signature is
+│             `(projectRoot?: string)`, not zero-arg
+├── [DONE] StartNarrationDeps left alone — confirmed present, unmodified at
+│             narration.ts:55 (checkHealth/sleep), only PathProbeDeps was touched
+├── [DONE] cairn.json healthCheck not modified, ./install.sh not run — confirmed via
+│             `git diff HEAD~1 HEAD -- cairn.json install.sh` (empty)
+└── [PARTIAL] TDD (tests adjusted first, then source) — commit is a single squashed
+              commit, so red-before-green isn't independently verifiable from git
+              history the way it was for e.g. task #71's 5-red claim; the final
+              state is consistent with TDD having been followed (test titles/
+              assertions match the new contract, no `exists`-predicate residue) but
+              this is inferred from the end state, not confirmed step-by-step
+```
+
+Verified independently, not just from the commit message: grepped `src/` and `test/` for `PathProbeDeps` and `_deps` (zero hits, confirms full removal, no third state); read `src/commands/run.ts:274-303` directly to confirm `RunRunDeps.findNarrationSocketPath` and `StartNarrationDeps` (narration.ts:55) are both untouched; located and read `test/commands/run.test.ts:1611-1631` ("binds the narration server...") to confirm it mocks `findNarrationSocketPath` independently of the deleted `PathProbeDeps` seam and still asserts `toHaveBeenCalledWith(opts.projectRoot)`; ran `bun test test/narration.test.ts test/utils.test.ts` directly (43 pass / 0 fail) and the full `bun test` (817 pass / 0 fail, 29 files); ran `git diff HEAD~1 HEAD -- cairn.json install.sh` (no output — neither file touched).
+
+### Files Changed
+- src/narration.ts
+- src/utils.ts
+- test/narration.test.ts
+- test/utils.test.ts
+
+### Gaps
+None against the task's explicit requirements. The TDD-process step (tests-first) is unverifiable from the single commit in git history — noted above as [PARTIAL] for transparency, not because the resulting code/test state shows any defect. The end state is fully consistent with TDD having been followed correctly.
+
+### Regression Risks
+None detected. `PathProbeDeps` had no callers outside the two resolvers and their tests (confirmed by grep), so removing it cannot break any external consumer. The six narration test cases that were dropped (rather than retitled) were exclusively exercising the discarded `exists` predicate — since neither resolver ever read it, those cases were provably equivalent to their surviving siblings once the parameter is gone, so no distinct behavior lost coverage. `RunRunDeps.findNarrationSocketPath` (the seam explicitly required to survive) is unchanged and its guarding test (`test/commands/run.test.ts:1611`) passes. `findDataDir`'s behavior is byte-for-byte unchanged — only its doc comment and test titles moved. Full suite (817 pass / 0 fail) matches expectations with no drop from the round-9 baseline. `cairn.json`/`install.sh` untouched, consistent with the round's pin/unpin procedure.
+
+### Verdict
+CLEAN
+
+---
+
+## Task #75: Repair the self-contradictory allowlist comment in post-task-reviewer.ts
+Reviewed: 2026-08-03T22:41:00Z
+
+### Coverage
+```
+Task Requirements
+├── [DONE] Rewrite comment at :142-150 so the illustration demonstrates a genuine
+│             mismatch/silent-denial, not a match — now contrasts a hardcoded
+│             `${projectRoot}/${BRAND.dataDir}` guess against a caller's actually-
+│             resolved dataDir that diverges from it (nested project found by walking
+│             upward, or a CAIRN_PROJECT_ROOT override) — verified both mechanisms
+│             (findProjectRoot's upward walk, CAIRN_PROJECT_ROOT env var) are real,
+│             live code paths in src/utils.ts and src/index.ts, not fabricated
+├── [DONE] Neighboring comment ~:135-140 (absolute path / shell cwd-at-evaluation-time,
+│             2026-07-11 incident) left byte-for-byte intact
+├── [DONE] absDataDir note ~:125-127 left byte-for-byte intact
+├── [DONE] Comment-only change — reviewFileRule computation (`/${reviewsDir}/**`,
+│             reviewsDir from absDataDir from path.resolve(projectRoot, dataDir))
+│             is byte-for-byte unchanged; diff confirms only comment lines touched
+├── [DONE] `bun test test/post-task-reviewer.test.ts` green before and after
+│             (33 pass → 34 pass, 0 fail both times) — reproduced independently
+├── [DONE] Regression test added: "allowlist rule follows the actual dataDir even
+│             when it diverges from projectRoot/BRAND.dataDir" — passes a dataDir
+│             nested under spawnTmpDir/nested/actual-project/.cairn while projectRoot
+│             stays spawnTmpDir, then asserts the granted rule excludes the wrong
+│             hardcoded guess, includes the rule built from the actual dataDir, and
+│             the prompt's stdin targets the same actual round-3.md path — this is
+│             precisely the invariant the comment claims and #57 broke undetected
+└── [DONE] Full suite green: 822 pass / 0 fail / 29 files (821 baseline + 1 new test)
+              — reproduced independently
+```
+
+### Files Changed
+- `src/post-task-reviewer.ts` (comment only, lines ~142-150)
+- `test/post-task-reviewer.test.ts` (one new test + `BRAND` import)
+
+### Gaps
+None detected.
+
+### Regression Risks
+None detected. Mechanism (`reviewFileRule`, `reviewsDir`, `buildPostTaskReviewUserPrompt` call) is untouched — diff is comment-only plus an additive test. `cairn.json`'s `healthCheck` was not modified and `./install.sh` was not run, per the round's pin/unpin procedure. Independently reproduced both `bun test test/post-task-reviewer.test.ts` (34 pass) and full `bun test` (822 pass, 0 fail, 29 files), matching the implementer's reported numbers exactly.
+
+### Verdict
+CLEAN

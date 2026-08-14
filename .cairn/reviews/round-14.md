@@ -91,3 +91,118 @@ as its own task chain for future rounds.
 
 ### Verdict
 CLEAN
+
+---
+
+## Task #86: Delete CAIRN_TASK_DENY_RULES from init's permission seeding
+Reviewed: 2026-08-14T19:45:00Z
+
+### Verification performed
+
+- Ran `bun test test/commands/init.test.ts` myself: **134 pass, 0 fail**, 278 expect() calls —
+  matches the completed-task notes exactly.
+- Ran `bun test` (full suite) myself: **887 pass, 0 fail** across 30 files, 1782 expect() calls —
+  matches the notes exactly (888 → 887, a net -1 from merging two deny-assertion tests into one,
+  not a coverage loss — confirmed the merged test still pins the same invariant).
+- Grepped `src/`, `CLAUDE.md`, `README.md` for `CAIRN_TASK_DENY_RULES`, `deny task-state
+  mutations`, and the `--dangerously-skip-permissions` false-exemption claim: the only surviving
+  `--dangerously-skip-permissions` mentions are accurate ones (the real flag passed by
+  `run.ts`/`summarize.ts`, the new stall-guard note text in `run.ts:724`, and CLAUDE.md's
+  corrected paragraph) — the false claim itself is gone from every file it previously appeared in.
+- Read the full commit (`git show 59505c6 --stat` / diff) directly rather than trusting the diff
+  text alone: confirms `CAIRN_TASK_DENY_RULES` and its doc comment are fully deleted from
+  `src/commands/init.ts` (not just emptied), the `deny: [...]` line is gone from
+  `buildInitPermissionRules`, and the prompt copy in `installClaudeSettings` no longer claims
+  denial of task-state mutation.
+- Confirmed `mergeClaudeSettings`'s generic deny plumbing was left alone as instructed: `git diff
+  HEAD~1 HEAD -- src/claude-settings.ts` is empty.
+- Confirmed the CRITICAL GUARD was honored: `git diff HEAD~1 HEAD -- cairn.json` is empty, and
+  `healthCheck` remains pinned to the throwaway outfile.
+- Read `test/commands/init.test.ts`'s `installClaudeSettings` fixture (`config = { healthCheck:
+  'bun run build', defaultTestCommand: 'bun test' }`) to confirm the two tests not explicitly
+  named in the task ("returns the rules it added", "reports the file and each rule it wrote"),
+  which were repointed from asserting `Bash(cairn task start:*)` to `Bash(bun run build:*)`, are
+  legitimate substitutions — that allow rule is genuinely produced by the same fixture, so the
+  tests still exercise "added/reported rules include health-check-derived ones" as intended.
+- Could not directly observe a red→green TDD sequence from git history: this landed as a single
+  squashed commit with no intermediate failing-test commit, consistent with every prior task in
+  this round. The task notes claim 3 of the 4 named assertions failed pre-implementation and were
+  confirmed failing before the deletion; I could not independently reproduce that (would require
+  checking out the pre-image test file against the pre-image source), but the claim is
+  self-consistent with the diff shape (all three named assertions changed from asserting deny
+  content to asserting its absence) and is taken on the notes' word, per this round's established
+  precedent for squashed commits.
+- **Found a gap not caught by the task's own notes**: grepped for the deny rules' documentation
+  footprint end-to-end. `README.md:92` (added by task #84, not touched by this commit) still
+  reads `- **Deny** — the five mutating \`cairn task\` subcommands (\`start\`, \`complete\`,
+  \`set-status\`, \`add\`, \`note\`).` — this is now factually false: `cairn init` no longer
+  seeds any deny rules. The surrounding paragraph on README.md:94 ("Without these rules, a fresh
+  project denies them outright in headless mode") is also now describing a mechanism that no
+  longer exists. The task's own notes address this exact class of staleness for CLAUDE.md
+  explicitly (calling it a "bonus fix" for "the exact false claim that caused the 60-iteration
+  stall") but never mention checking README.md, which documents the identical content and is now
+  equally wrong.
+
+### Coverage
+Task Requirements
+├── [DONE] TDD: invert the four named assertions first — confirmed present in the diff (deny-
+│         equality test, never-blanket-deny test, exactly-five-deny-rules test, runInit
+│         deny-seeded test all replaced with absence assertions); ordering claim taken on the
+│         notes' word per this round's precedent for squashed commits (see Verification above)
+├── [DONE] New assertions: `buildInitPermissionRules` returns no deny (absent or empty) — `rules.deny
+│         ?? []` equals `[]`; allow list unchanged — confirmed the "writes the git inspection and
+│         config-derived allow rules" test is untouched by the diff
+├── [DONE] Remove `CAIRN_TASK_DENY_RULES` const and its entire doc comment, including the false
+│         `--dangerously-skip-permissions` claim — confirmed byte-gone from `init.ts`
+├── [DONE] Remove `deny: [...CAIRN_TASK_DENY_RULES]` from `buildInitPermissionRules` — confirmed
+├── [DONE] Fix the user-facing prompt copy in `installClaudeSettings` — old two-line copy
+│         claiming deny-of-task-mutation replaced with a line describing only what's actually
+│         written (git inspection + health-check/test-command allow rules)
+├── [DONE] Leave `mergeClaudeSettings`'s generic deny plumbing alone — confirmed
+│         `src/claude-settings.ts` has zero diff in this commit
+└── [GAP]  Documentation consistency for the deleted feature was only partially completed.
+          CLAUDE.md was corrected (a good, self-initiated bonus fix beyond the task's declared
+          file scope). README.md — which documents the *identical* deny-rule content, added by
+          task #84 specifically to describe this now-deleted behavior — was missed and still
+          asserts the deny rules exist.
+
+### Files Changed
+- src/commands/init.ts — `CAIRN_TASK_DENY_RULES` and its doc comment deleted; `deny: [...]` line
+  removed from `buildInitPermissionRules`; prompt copy in `installClaudeSettings` corrected
+- test/commands/init.test.ts — 4 named assertions inverted/merged, plus 2 unnamed tests
+  repointed from a deny-rule string to an equivalent allow-rule string
+- CLAUDE.md — not in Expected Files; self-initiated correction of the same false claim
+  (mechanism #3 and its "two facts" bullets removed, replaced with an accurate paragraph); this
+  was the right call since the file is loaded into every future agent's context and the old text
+  directly reintroduces the bug this task exists to fix
+- .cairn/tasks.json, .cairn/tasks.completed.json, .cairn/state.json,
+  .cairn/.cairn_iterations.log — task-lifecycle bookkeeping (task #86 archived); expected loop
+  mechanics, not a concern
+
+### Gaps
+- **README.md is stale.** `README.md:90-94` (Workflow > 1. Initialize, added by task #84) still
+  documents a "Deny" bullet listing the five `cairn task` subcommands and a paragraph explaining
+  why the deny rules exist — both now false, since `buildInitPermissionRules` no longer emits any
+  `deny` content at all. A user reading the README after this change would be told to expect
+  behavior (`cairn init` denying `cairn task start`/`complete`/etc.) that will not happen. This is
+  the same class of staleness the task's own "bonus fix" correctly caught and fixed in CLAUDE.md,
+  just missed in README.md. Not in the task's declared Expected Files, but it's a direct,
+  immediate consequence of this exact change and — per this round's own established precedent
+  (the task's own bonus CLAUDE.md fix, and task #83/#84's pattern of keeping docs in sync with
+  code within the same round) — should have been caught here or filed as an explicit follow-up
+  task. No follow-up task for this was found in the current `.cairn/tasks.json`.
+
+### Regression Risks
+- Behavioral regression risk in the code itself: none detected. `mergeClaudeSettings`'s generic
+  deny support is untouched, no exports were removed (`buildInitPermissionRules`,
+  `installClaudeSettings` keep their signatures), and the two tests repointed to a different
+  allow-rule string still assert the same underlying invariant against the same fixture. Full
+  suite passes (887/887, matches notes).
+- Documentation regression: `README.md` now actively misinforms users about a security-relevant
+  permission-seeding behavior (claiming a deny list exists when it doesn't) — see Gaps. This
+  doesn't break any test (README has no lint/assertion harness in this repo, consistent with how
+  task #84 itself was assessed), but it is a real, live inaccuracy in shipped user documentation
+  as of this commit.
+
+### Verdict
+HAS_GAPS

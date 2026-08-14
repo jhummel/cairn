@@ -477,3 +477,5 @@ Cairn Execution Loop Started: 2026-08-14T18:58:12.917Z
 Iteration 1 started: 2026-08-14T18:58:12.925Z — Task #85: Add same-task stall guard to the run loop
 Iteration 1 completed: 2026-08-14T19:02:39.274Z — SUCCESS
 Iteration 2 started: 2026-08-14T19:07:33.095Z — Task #86: Delete CAIRN_TASK_DENY_RULES from init's permission seeding
+Iteration 2 completed: 2026-08-14T19:10:33.727Z — SUCCESS
+Iteration 3 started: 2026-08-14T19:12:03.532Z — Task #87: Init migration: strip a legacy cairn task deny block on re-run

@@ -1,104 +1,111 @@
 ## Context
 
-Round 9 (the Ralph→Cairn compatibility-removal round) is finished. Verified this session:
+Round 13 shipped `cairn init`'s permission seeding (tasks #80–#84). It wrote `.claude/settings.local.json` with two things: an **allow** list (read-only git inspection + the project's health check and test commands), which was the actual fix for the real problem — health checks and reviewer tests failing on missing permissions — and a **deny** list, `CAIRN_TASK_DENY_RULES` (`src/commands/init.ts:481`), covering the five mutating `cairn task` subcommands. The deny block was speculative hardening bolted onto the work that was needed, not a response to any observed incident.
 
-- **Removal is genuinely complete.** `grep -rni ralph src/ lib/ install.sh agents/ commands/` returns exactly three hits: `src/brand.ts:41` (`NOTES_TEMP_PREFIX = '.ralph_'`) and its two explanatory comments in `src/commands/run.ts` (362, 708). That is the permanent notes-scratch exception and nothing else.
-- **Suite green**: `bun test` → 799 pass / 0 fail across 29 files. `bun run build` → clean (108 modules).
-- **Post-round manual steps are done.** `cairn.json`'s `healthCheck` is back to `bun run build`; the binary is unpinned and rebuilt from the current tree; `~/.local/bin/ralph` has been removed (only `cairn` remains).
-- **Task #66 was stuck `in-progress` and has been set to `complete` by the user.** It still sits in `tasks.json` — archival happens inside the run loop, so the next `cairn run` will move it to `tasks.completed.json` on its first iteration. State is `{ nextTaskId: 69, round: 9 }`.
+The first `cairn run` in another repo after that change failed in a way that looked like three separate bugs:
 
-### Why #66 got stuck — and why it is a class of bug, not a one-off
+- `tasks.json` never drained — every task stayed `pending`
+- No `reviews/round-16.md` was ever written
+- `.cairn_tasks_snapshot.json` showed as permanently modified
 
-`src/test-validator.ts` ran a task's root-relative `tests` entries from `<root>/<task.directory>`. For #66 (`directory: "src"`), `bun test test/config.test.ts` matched nothing, exited 1, and the stderr matched none of `CANT_RUN_PATTERNS` — so `isCantRunError()` returned false, it was classified as a real test failure, and a finished task was reverted to `in-progress`. Because `selectNextTask` (`src/task-selector.ts:48`) returns any `in-progress` task ahead of all pending work, the loop re-picked #66 every iteration: a livelock across three iterations. Iteration 18 only escaped because the agent deliberately broke the one-task rule to go fix the cwd bug (#68) instead.
+All three are one root cause. The deny rules are written into a **project-wide** settings file, so they bind *every* Claude session in the project — including `cairn run`'s own execution agents. Those agents could do the work but could not record it:
 
-Task #68 fixed the cwd for both `runHealthCheck` and `validateTaskTests` by pinning them to `projectRoot`. Correct for `healthCheck` (one project-wide string in `cairn.json`); **too blunt for task `tests`**, and it left three things unaddressed — see Goals.
+- `cairn task start` / `complete` → denied → task stays `pending`
+- The loop re-reads `tasks.json`, sees `pending`, hands the same task to a fresh agent → **60 iterations on task #147 across two runs**, every one reporting SUCCESS
+- `run.ts:692` gates the post-task reviewer on `updatedTaskStatus === 'complete'` → never fires → no round file
+- Archival at `run.ts:706` finds nothing complete → `tasks.json` stays full
 
-### Measurements taken this session (these drive the design)
+Iteration 1 genuinely implemented #147 (commits `e8231e4`, `556474c`); iterations 2–60 were handed the finished task back. Tasks #148+ were never reached. The snapshot issue is unrelated and cosmetic: it was committed in the same commit that added the ignore rule, and `.gitignore` does not apply to already-tracked files.
 
-Run from `<root>/src` with a root-relative command:
+**Why this was invisible:** `.claude/settings.local.json` is gitignored (globally, via `~/.config/git/ignore`). It never appears in a diff, is never committed, and differs per machine and per repo. Nothing in `git status` could have shown it.
 
-| Command | Exit | Behavior |
+### The false premise
+
+Both `init.ts:477-479` and CLAUDE.md asserted:
+
+> `cairn run`'s execution agents are unaffected: they run with `--dangerously-skip-permissions`
+
+**This is false.** `--dangerously-skip-permissions` suppresses *prompting*; it does not override an explicit deny. The same false belief is recorded in round 13's Rejected Alternatives ("denies are bypassed under `--dangerously-skip-permissions`") — it was never tested, and it propagated into a design decision.
+
+### Empirical findings (this session)
+
+Nine headless `claude -p` probes. Tests 2, 6, 7, 8 were confounded and are recorded so they are not re-run as evidence.
+
+| # | Setup | Result |
 |---|---|---|
-| `npm test` | 0 | npm walks **up**, finds root `package.json`, runs the full 799-test suite |
-| `bun run build` | 0 | same upward walk; script paths resolve from the manifest's dir, not cwd |
-| `bun test test/config.test.ts` | 1 | filter matched nothing — `Tests need ".test", "_test_"...` |
-| `bun build --compile src/index.ts` | 1 | `FileNotFound opening root directory "src"` |
+| 1 | project deny + `--dangerously-skip-permissions` | **BLOCKED** — root cause confirmed |
+| 2 | scoped `--allowedTools`, then `echo` | ran — **confounded**, `echo` is side-effect-free and auto-approved |
+| 3 | deny via per-agent `--settings <file>`, no project deny | BLOCKED — per-agent deny is possible |
+| 4 | no project deny + `--dangerously-skip-permissions` | ran — removing the block restores the loop |
+| 5 | `--settings` with **inline JSON** | BLOCKED — no temp file needed |
+| 6, 7 | writes outside cwd | **confounded** — blocked by the Bash *sandbox*, not by permissions |
+| 8 | as 6, inside cwd but under `/tmp` | **confounded** — `/tmp` → `/private/tmp` symlink |
+| 8b | non-allowlisted Bash write inside cwd, real path | **BLOCKED** |
+| 9b | `Write` outside the granted `Edit(...)` scope | **BLOCKED** — *"non-interactive so I can't prompt"* |
 
-Conclusion: **manifest-driven commands already self-resolve via upward walk**; only **path-argument** commands break, and only because the path was written root-relative. Neither failing stderr matches `CANT_RUN_PATTERNS` (`src/test-validator.ts:19`) — `filenotfound` has no space, so the existing `'not found'` pattern misses it.
+**The governing rule: in headless `-p`, anything with side effects is deny-by-default unless allowlisted, because there is nobody to prompt.** Only side-effect-free commands pass. Test 2 proved nothing about `cairn task set-status`, which writes `tasks.json` and would be refused exactly as `touch` was in 8b.
 
-### Round-8 review gaps still outstanding
-
-`.cairn/reviews/round-8.md` closed with several `HAS_GAPS` verdicts. Re-verified against the current tree; these are still live:
-
-- **`CLAUDE.md` documents a health check that does not exist.** The Conventions bullet claims *"The health check must pass `--target=bun`"*, and the pin/unpin section repeats that command twice more. The real build is `bun run build` → `bun build --compile src/index.ts --outfile dist/cairn`. Round 9 explicitly **rejected** the `--target=bun` form because it emits a plain bundle and would let a compile-step failure pass the check.
-- **`CLAUDE.md` lost the CREATE-vs-RESOLVE standing rule** (task #65's flagged gap). `findDataDir`/`findConfigFile` descriptions were deleted wholesale rather than rewritten. Both functions are live (`src/utils.ts:36`, `src/config.ts:12`), and `src/brand.ts`'s own doc comment still points readers to CLAUDE.md for a rule that no longer appears there.
-- **`src/commands/init.ts` describes deleted machinery.** Lines 12 and 328 discuss `cairn migrate` in present tense; the `GITIGNORE_CONTENT` comment cites a CLAUDE.md section ("The temp-file prefix — a second naming tier") that #65 deleted. `TEMP_IGNORE_SUFFIXES`, `GITIGNORE_CURRENT_HEADER`, and `ignoreBlock` are exported solely for migrate — **verified zero consumers in `src/` or `test/` outside `init.ts`**, so they can be made module-private.
-- **`src/post-task-reviewer.ts:143-146` is self-contradictory.** Task #57 applied a literal instruction that broke the sentence: it now warns that hardcoding `.cairn/reviews/**` "on a project that actually lives in `.cairn/`" causes silent denial. That is not a mismatch, so the comment no longer supports its own conclusion — and the invariant it guards is load-bearing.
-- **`src/narration.ts` carries a dead injection seam.** `PathProbeDeps` is unused (`_deps` at :37 and :52), and two test titles imply a liveness check that is no longer performed. `src/utils.ts:36` `findDataDir` is likewise an unconditional join. Note the `RunRunDeps.findNarrationSocketPath` seam (`test/commands/run.test.ts:1434`) is a **different** seam and must survive.
-- **`commands/generate-tasks.md:120` contradicts the code.** It still tells the planner *"tests: array of test commands to verify the task (run from the task's directory)"*, which #68 made false.
+**Therefore the deny rules were never load-bearing.** The reviewer's scoped `--allowedTools` (`post-task-reviewer.ts:163-171`) already prevented task-state mutation. The deny block defended a locked door, and the lock it added caught the only agents with a legitimate need to pass.
 
 ## Goals
 
-A pure cleanup/consolidation round. No new features.
-
-1. **Make a wrong cwd non-fatal.** Fix the cwd resolution *and* the misclassification *and* the livelock — three independent layers, so that no single one of them can silently revert finished work again.
-2. **Make the docs describe the code that exists** — CLAUDE.md's health check and standing rule, and `generate-tasks.md`'s test-cwd contract.
-3. **Delete the last references to machinery removed in round 9** — migrate-era comments and exports, the broken reviewer comment, the dead narration seam.
+1. Restore the loop — unblock this repo and every repo `cairn init` has poisoned
+2. Delete the deny rules at the source so newly initialized repos are never affected
+3. Add a tripwire so a stalled loop announces itself in ~3 iterations, not 60
+4. Correct CLAUDE.md — the false premise is what made this invisible for a full round
 
 ## Approach
 
-### The three-layer fix for the stuck-task bug
+**Delete `CAIRN_TASK_DENY_RULES` outright.** Keep the allow rules, which were the genuine fix. This returns the permission model to the configuration that ran cleanly for 12 rounds, plus the allows.
 
-**Layer 1 — classifier (`src/test-validator.ts`).** Broaden `isCantRunError`: add `filenotfound`, bun's non-matching-filter message, and a zero-tests-ran check. A command that ran no tests is never a real failure. This is the highest-value change in the round and is valuable *independent* of the cwd work: with it, any future cwd or environment mistake degrades to "note it, don't revert" instead of reverting completed work.
+Explicitly *not* doing the per-agent `--settings` scoping that Tests 3 and 5 proved feasible. It works, but it would preserve a guarantee we already have by default, at the cost of new machinery on every reviewer and planner spawn. Recorded under Rejected Alternatives with the evidence, so it can be revived if headless defaults ever change.
 
-**Layer 2 — per-command cwd resolution (`src/test-validator.ts`).** Default the cwd to the task directory; scan each command for path-shaped arguments; if any fail to resolve from the task dir but do resolve from the project root, run **that command** from the root. Deterministic pre-flight, decided before anything runs.
+**The enforcement story, corrected.** After this round there are two real mechanisms, not three:
 
-- Resolve **per command, not per task** — a task can legitimately mix `["npm test", "npx tsc -p tsconfig.json"]`.
-- Running manifest-driven commands from the task dir is *strictly better* than root: in a multi-service repo they find the service's own `package.json`; in a single-package repo they walk up to root and behave identically. There is no case where root-cwd wins for that shape.
-- Keep the resolver private to `test-validator.ts`. `health-check.ts` stays root-only — #68 was right there.
+1. **The per-agent system prompt** ban — the only guard on execution agents, which run under `--dangerously-skip-permissions` and are constrained by nothing else. This was always true; the doc obscured it.
+2. **Per-agent `--allowedTools` scoping**, effective *because* headless mode is deny-by-default (8b, 9b). This covers the reviewer and planner. The reviews-dir write scoping is genuinely real — 9b confirms it.
 
-**Layer 3 — break the livelock (`src/commands/run.ts`).** Count consecutive validation reverts per task, in memory, for the duration of the run. At 2, set the task `blocked` with an explanatory note and let the loop move on.
+The third mechanism (project-wide deny rules) is deleted. `writeTasksFile()`'s atomic-replace-and-validate is unchanged and orthogonal.
 
-- `blocked` is already fully plumbed: `src/tasks-schema.json`, `src/types.ts:23` validation, `cairn task set-status`, the `status` display (`1 blocked`), and `selectNextTask` already ignores blocked tasks. The only new code is the counter and the summary.
-- **The completion flag needs attention.** `src/commands/run.ts:131` tells agents to create the flag when `tasks.json` has "no remaining pending/in-progress tasks." A `blocked` task is neither — so the flag fires and the run prints "All tasks complete!" with a blocked task sitting there. The run summary must report blocked tasks distinctly, or layer 3 trades a visible livelock for a silent drop.
+**No chicken-and-egg.** The fix that unblocks a poisoned repo is a config edit, not code — delete the `deny` block from `.claude/settings.local.json` and the loop works immediately (Test 4). No build, no binary, no loop involvement. The deadlock exists only if you try to fix it *with* the loop. Because the file is gitignored and machine-local, the hand-edit needs no coordination.
 
-### This is a self-modifying round — pin per CLAUDE.md's procedure
+**Stall guard.** Mirror the existing `REVERT_BLOCK_THRESHOLD` pattern in `run.ts`: if the same task is selected N consecutive iterations with no status change, block it, log loudly, move on. In-memory per-run counter, matching the precedent that a livelock only matters within a single run. This is the change that converts a silent 60-iteration burn into a visible error, and it is independent of the permission fix — see Open Questions on sequencing.
 
-Tasks 1–3 change `test-validator.ts` and the run loop, and `healthCheck: bun run build` writes `dist/cairn` — the live binary every agent shells out to for `cairn task complete`. A bad intermediate build would go live mid-round and corrupt task bookkeeping. Follow the standard procedure:
+**Self-modifying round.** This round edits Cairn itself, and `~/.local/bin/cairn` symlinks straight to `dist/cairn` while `healthCheck` is `bun run build`. CLAUDE.md's pin/unpin procedure applies: pin the binary and redirect the health check to a throwaway outfile before starting.
 
-- Freeze `~/.local/bin/cairn` (copy aside, not a link).
-- Redirect `healthCheck` to `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck` — the real command with only the outfile changed, uncommitted and round-only.
-- Restore both manually after the round.
-
-**The trap to avoid:** task 5 documents the health-check command *while it is pinned to a throwaway value*. Its description must say explicitly: document the **real** value (`bun run build`), and do **NOT** touch `cairn.json`'s `healthCheck` — it is user-managed for the round. This is exactly the failure round 9 hit, where the pin got swept into task #56's commit and became permanent git history.
-
-### Standing conventions carried forward
-
-- **TDD within each task** — write/adjust the test, watch it fail, make it pass. Test updates fold into the source task they cover, never a separate task.
-- **Test assertions stay literal** (`'.cairn'`, `'cairn.json'`) rather than importing `BRAND`.
-- **History is never rewritten.** `tasks.completed.json`, `.cairn_iterations.log`, `.cairn_tasks_snapshot.json`, `reviews/round-*.md`, `.ralph_task_*_notes.md`, and `audit/` keep their existing content, including `ralph` references.
+**Round-specific hazard.** No task may run `cairn init` or `installClaudeSettings` against the project root. This round edits init's settings writer; exercising it against the real root rewrites the deny block into `.claude/settings.local.json` mid-round and re-breaks the loop from that iteration on — with no git diff to show for it, producing a failure identical to the one just debugged. Existing init tests are all `mkdtempSync`-isolated (`test/commands/init.test.ts:36`+); the new migration task is the one that must be told explicitly.
 
 ## Rejected Alternatives
 
 **This session:**
 
-- **Option (a): declare tests root-relative everywhere and just fix the doc.** Rejected on the measurements above — manifest-driven commands get strictly better behavior from the task directory, and pinning to root permanently punishes multi-service repos (karaoke-platform, the reservation projects) where `npm test` in a service dir is the natural thing a planner writes.
-- **Try-then-fall-back cwd** (run in the task dir, re-run at root on failure). Rejected — it double-runs the suite (slow, side-effecting), and it cannot distinguish "wrong cwd" from "real failure," which is precisely the discrimination that already failed and caused this bug.
-- **An explicit per-task `testCwd` field** (or `tests` entries as objects). Rejected — pushes the burden onto task generation, adds schema surface, and does nothing for task files already generated in other projects.
-- **Give `healthCheck` the same per-directory resolver.** Rejected — it is a single project-wide string in `cairn.json`, not a per-task value. #68's root-only fix stands.
-- **Persist the revert counter as a `Task` field.** Rejected — would need `types.ts`, `tasks-schema.json`, and `generate-tasks.md` changes for no benefit; a livelock only matters within a single run, so an in-memory per-run counter is sufficient and resets naturally on restart.
-- **Fix only the cwd bug, skip the classifier.** Rejected — the classifier miss is the general failure. Any wrong cwd, missing dep, or environment problem whose stderr happens not to match six hardcoded substrings will silently revert finished work. The cwd fix closes one instance; the classifier closes the class.
-- **Skip the pin because "the changes are small."** Rejected — every agent shells out to `cairn task` against the live `dist/cairn`. The blast radius of a bad mid-round build is corrupted task bookkeeping, not a failed build.
+- **Per-agent deny via `--settings`** (inline JSON on reviewer + planner spawns). Proven to work (Tests 3, 5) and was the plan until 8b/9b showed headless mode is already deny-by-default. Rejected as machinery preserving a guarantee we get for free. Revive only if headless defaults change.
+- **Keeping the deny rules and exempting the loop some other way.** Rejected — deny wins on merge with no carve-out mechanism, and the premise that the reviewer needs this containment is disproven.
+- **Manual removal only, no init migration.** Rejected — any repo initialized during the round-13 window stays silently broken, and the symptom is a loop that reports SUCCESS forever.
+- **A `cairn doctor` command** for known-bad config states. Deferred — larger scope than this round; revisit if a second such state appears.
+- **Halting the entire run on a same-task stall** rather than blocking the task and continuing. Rejected in favor of block-and-continue, matching `REVERT_BLOCK_THRESHOLD` precedent; a stall is recoverable and the remaining tasks are usually independent.
+- **Dropping test execution from the reviewer's remit** so it needs no Bash grant at all. Moot once the deny rules are gone — the grant was never the problem.
+
+**Corrected from round 13:**
+
+- ~~"Grant broad `Bash(*)` with targeted denies — rejected because denies are bypassed under `--dangerously-skip-permissions`"~~ — **the stated reason was false** (Test 1: deny beats skip-permissions). The conclusion still stands on its other grounds: the reviewer needs no breadth. Keeping broad-allow rejected; the reasoning is replaced.
+- **Blanket `Bash(cairn task:*)` deny.** Still rejected, now moot — it would break `cairn task next-id`, which task generation requires, and deny admits no exception. Retained because it documents why a "just deny everything" reflex fails.
 
 **Carried forward (still relevant):**
 
-- **Truly runtime-configurable brand name.** Rejected on a bootstrap trap — discovery walks up looking for the data dir, so if both the dir name and the config filename come from config, no fixed anchor remains. Near-zero payoff. `brand.ts` stays a frozen constant.
-- **Renaming `.ralph_task_*_notes.md`.** Rejected permanently — write-and-sweep scratch that is never read back, and 24 are committed history in karaoke-platform. It stays under `NOTES_TEMP_PREFIX` forever; this is a documented exception, not a leftover.
-- **Never normalize a resolved API key onto plain `ANTHROPIC_API_KEY`.** The loop deliberately blanks that name per-spawn to force Max-plan usage. The invariant now lives in `lib/cairn_narrate_server.py` (~line 224), which is the single remaining implementation of the resolution chain.
-- **`BRAND` constants in test assertions.** Rejected as partly tautological — a wrong `brand.ts` value would still pass.
-- **Mixed test style** (literals for contracts, `BRAND` for incidentals). Rejected — per-test judgment for little gain.
-- **Splitting a self-modifying round into batches with stop/rebuild/restart between each.** Rejected — 4–5 manual cycles, every boundary a chance to get ordering wrong. Pinning achieves the same safety with two setup commands.
-- **Redirecting the health check without also pinning the binary.** Rejected — any stray `bun run build` silently un-freezes it. The pin makes the guarantee structural rather than conventional.
+- **Grant `Bash(find:*)`, `Bash(cat:*)`, `Bash(ls:*)`, `Bash(rg:*)`, `Bash(grep:*)`, `Bash(head:*)`, `Bash(wc:*)`.** Rejected — redundant with `Read`/`Glob`/`Grep`, and `find` is not read-only (`-delete`, `-exec rm`).
+- **Write rules to `.claude/settings.json` (committed, team-wide).** Rejected — Cairn should not edit a git-tracked file affecting every teammate's plain `claude` sessions.
+- **Cairn writes to global git excludes.** Rejected — reaching outside the repo is too invasive for an init step.
+- **Truly runtime-configurable brand name.** Rejected on a bootstrap trap — discovery walks up looking for the data dir, so no fixed anchor would remain. `brand.ts` stays frozen.
+- **Renaming `.ralph_task_*_notes.md`.** Rejected permanently — write-and-sweep scratch never read back; 24 are committed history in karaoke-platform.
+- **Declaring task `tests` root-relative everywhere.** Rejected in round 12 — manifest-driven commands behave better from the task directory via upward walk.
+- **Try-then-fall-back cwd** for test validation. Rejected — double-runs the suite, cannot distinguish "wrong cwd" from "real failure."
+- **An explicit per-task `testCwd` field.** Rejected — pushes burden onto task generation, does nothing for existing task files.
+- **Giving `healthCheck` the per-directory resolver.** Rejected — it is a single project-wide string. Root-only is correct.
+- **Persisting the revert counter as a `Task` field.** Rejected — a livelock only matters within a single run.
+- **Never normalize a resolved API key onto plain `ANTHROPIC_API_KEY`.** The loop blanks that name per-spawn to force Max-plan usage (`lib/cairn_narrate_server.py` ~line 224).
+- **`BRAND` constants in test assertions.** Rejected as partly tautological.
+- **Splitting a self-modifying round into batches with stop/rebuild/restart.** Rejected — many manual cycles, every boundary a chance to get ordering wrong.
 - **Rewriting archives during a sweep.** Rejected — falsifies history.
 - **Per-task review files (`reviews/task-<id>.md`).** Not adopted; escape hatch if per-round files grow too long.
 - **Agent-managed `state.json`** — rejected; no atomicity guarantee.
@@ -113,36 +120,29 @@ Tasks 1–3 change `test-validator.ts` and the run loop, and `healthCheck: bun r
 
 ## Rough Task Outline
 
-**MANUAL pre-round (user):**
-- `cairn task complete 66` ✅ done (still awaiting archival by the next run loop)
-- `rm ~/.local/bin/ralph` ✅ done
-- Freeze `~/.local/bin/cairn` → `~/.local/bin/cairn-frozen` (real copy, not a link)
-- `cairn.json` `healthCheck` → `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck` (uncommitted, round-only)
+**MANUAL pre-round (user) — required, in this order:**
 
-**Validation & loop correctness** — 1 and 2 both touch `src/test-validator.ts`, so they must run in order.
+1. Strip the `deny` block from `.claude/settings.local.json` in this repo. Unblocks the loop immediately; gitignored, so no commit or coordination.
+2. `git rm --cached .cairn/.cairn_tasks_snapshot.json`
+3. Pin the binary and set `cairn.json` `healthCheck` → `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck` (uncommitted, round-only).
+4. Do the same to the other affected repo: strip its `deny` block, `cairn task complete 147`, `git rm --cached` its snapshot. Tasks #148+ then flow — including #148, the renderer half of the `joinNext` fix.
 
-1. **`src/test-validator.ts` — broaden `isCantRunError`.** Add `filenotfound`, bun's non-matching-filter stderr, and a zero-tests-ran check to `CANT_RUN_PATTERNS`/the classifier. TDD against `test/test-validator.test.ts`. *(dir: `src`)*
-2. **`src/test-validator.ts` — per-command cwd resolution.** Default to the task directory; detect root-relative path arguments and run those commands from the project root. Resolver stays private to this module; `health-check.ts` unchanged. TDD. *(dir: `src`, deps: 1, agent: `planner`)*
-3. **`src/commands/run.ts` — consecutive-revert guard + summary.** In-memory per-task revert counter; at 2, set `blocked` with a note and continue. Make the run summary distinguish blocked tasks from "all complete," including when the completion flag fired. TDD against `test/commands/run.test.ts`. *(dir: `src`, agent: `planner`)*
-4. **`commands/generate-tasks.md:120` — rewrite the `tests` description** to match the resolver: commands run from the task's directory, with root-relative path arguments detected and run from the project root, so either form works. *(dir: `commands`, deps: 2)*
+**Round tasks** (each TDD — test written and failing before implementation, per project convention):
 
-**Docs truth-up**
+- **Stall guard** — `src/commands/run.ts`. If the same task is selected N consecutive iterations with no status change, block it with a diagnostic note and continue. In-memory per-run counter mirroring `REVERT_BLOCK_THRESHOLD` (`run.ts:656-675`). Tests in `test/commands/run.test.ts`. *Sequenced first — it is the tripwire for everything after it.*
+- **Delete the deny rules** — `src/commands/init.ts`. Invert the existing assertions at `test/commands/init.test.ts:1287+`, watch them fail, then remove `CAIRN_TASK_DENY_RULES` and its use in `buildInitPermissionRules`. Delete the false `--dangerously-skip-permissions` rationale in the doc comment at `init.ts:466-480`.
+- **Init migration** — `src/commands/init.ts`. On re-run, detect and strip a legacy `deny` block containing the five `cairn task` rules from an existing `settings.local.json`, preserving all other keys and any unrelated user deny entries. Report what was removed. ⚠️ Task description must state: **temp dirs only; never exercise this against the project root.**
+- **Correct the enforcement story** — `CLAUDE.md`. Remove enforcement mechanism #3 and the false skip-permissions exemption. Replace with the two real mechanisms and the headless deny-by-default rule that makes #2 work. Note that execution agents are constrained only by their system prompt. Include the Test 1 / 8b / 9b findings so the premise is not re-derived from intuition.
+- **Snapshot ignore hygiene** — `src/commands/init.ts` (or docs). Decide whether init should detect a tracked-but-ignored snapshot and warn. Small; drop if it complicates the migration task.
 
-5. **`CLAUDE.md` truth-up.** Fix the `--target=bun` claim in all three places (Conventions bullet, pin/unpin intro, pin/unpin step 2) to `bun run build` / `bun build --compile src/index.ts --outfile dist/cairn`. Restore the `findDataDir`/`findConfigFile` descriptions and the CREATE-vs-RESOLVE standing rule deleted by #65. **Must document the real `healthCheck` value, not the round's pinned throwaway; must not edit `cairn.json`.** *(dir: project root)*
+Directories: everything is `src/commands/` plus `test/`, except the CLAUDE.md task at the repo root. No cross-service work.
 
-**Dead references to removed machinery**
-
-6. **`src/commands/init.ts` — migrate-era cleanup.** Fix the present-tense `cairn migrate` comments at :12 and :328; drop the pointer to the deleted CLAUDE.md section in the `GITIGNORE_CONTENT` comment; make `TEMP_IGNORE_SUFFIXES`, `GITIGNORE_CURRENT_HEADER`, and `ignoreBlock` module-private (verified zero consumers in `src/` or `test/` outside this file). *(dir: `src`)*
-7. **`src/post-task-reviewer.ts:143-146` — repair the allowlist comment.** Restore a genuine mismatch example, or rewrite so the illustration actually supports the silent-denial conclusion. Comment-only; the `reviewFileRule`-derived-from-`reviewsDir` mechanism must not change. *(dir: `src`)*
-8. **`src/narration.ts` + `src/utils.ts` — retire the dead probe seam.** Delete the unused `PathProbeDeps` seam (`_deps` at :37, :52) or restore real existence checks; fix the two misleading test titles in `test/narration.test.ts`; decide the same question for `findDataDir` (`src/utils.ts:36`). **The `RunRunDeps.findNarrationSocketPath` seam (`test/commands/run.test.ts:1434`) is a different seam and must survive.** *(dir: `src`)*
-
-**MANUAL post-round:**
-- Restore `healthCheck` to `bun run build`; `./install.sh`; `rm ~/.local/bin/cairn-frozen`.
-- Verify `cairn --version` and confirm the archival of #66 happened on the round's first iteration.
-- Smoke-test the fix in a multi-service repo: a task with `directory: src/services/<svc>` and `tests: ["npm test"]` should run that service's suite, not the root's.
+**MANUAL post-round:** re-run `./install.sh`, restore `healthCheck` to `bun run build`.
 
 ## Open Questions
 
-1. **Should the pin/unpin procedure stay in `CLAUDE.md` long-term?** Carried from round 9, still unresolved. Leaning yes — it is generic guidance for any self-modifying round, not tied to the rename. Task 5 touches that section, so this is the natural moment to decide.
-2. **What counts as a "path-shaped argument" for task 2's resolver?** Anything containing `/`, or also bare filenames like `foo.test.ts`? A too-narrow rule misses `bun test config.test.ts`; a too-broad one misclassifies flags and package names. Task 2 should settle this explicitly and pin it with tests.
-3. **Should the revert threshold be 2, or configurable?** Fixed at 2 in the outline. A `cairn.json` knob is easy to add later if 2 proves wrong, but adding it now is speculative.
+- **Should the stall guard ship as its own round, before the permission fix?** Sequenced first within this round as a compromise. A separate round means the permission-fix round runs with a proven tripwire underneath it; the cost is an extra pin/unpin cycle. Unresolved — user's call before task generation.
+- **Stall threshold: hardcoded or configurable?** `REVERT_BLOCK_THRESHOLD` is hardcoded and `cairn.json` already has `review.maxIterations` nearby. Leaning hardcoded at 3 for consistency; not settled.
+- **Does "no status change" fully capture a stall?** A task legitimately in `in-progress` across iterations is normal. The signal is *selected repeatedly while still `pending`* — i.e. the agent never even called `cairn task start`. Worth pinning down the exact predicate during task generation.
+- **How many other repos were initialized during the round-13 window?** Two known (this one, plus the `joinNext` repo). If there are more, the init migration is the only thing that will reach them.
+- **Does the reviewer need a regression test** proving it *cannot* mutate task state, now that the deny rules are gone and the guarantee rests on headless defaults? A test asserting the absence of `cairn task` in its `--allowedTools` would catch a future widening.

@@ -3,13 +3,15 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 
 /**
- * Merge Cairn's permission rules into a project's `.claude/settings.local.json`.
+ * Merge Cairn's permission rules into a project's `.claude/settings.local.json`,
+ * and retract rules an older Cairn seeded there.
  *
  * This file is not Cairn's to own: a user may have accumulated rules in it
  * through ordinary `claude` usage long before Cairn ever ran. Every operation
- * here is therefore strictly additive — unknown keys round-trip untouched, the
- * user's own spelling of a rule is never rewritten, and a file we cannot parse
- * is left exactly as found rather than replaced with something we can.
+ * here is therefore minimal — unknown keys round-trip untouched, the user's own
+ * spelling of a rule is never rewritten, a file we cannot parse is left exactly
+ * as found rather than replaced with something we can, and removal takes out
+ * only the exact rules it was handed.
  */
 
 export class ClaudeSettingsError extends Error {
@@ -31,6 +33,15 @@ export interface MergeResult {
   addedAllow: string[];
   /** Rules actually appended to `permissions.deny`, in supplied order. */
   addedDeny: string[];
+  /** Absolute path of the settings file this call targeted. */
+  settingsPath: string;
+}
+
+export interface RemovalResult {
+  /** Entries deleted from `permissions.allow`, in the spelling found on disk. */
+  removedAllow: string[];
+  /** Entries deleted from `permissions.deny`, in the spelling found on disk. */
+  removedDeny: string[];
   /** Absolute path of the settings file this call targeted. */
   settingsPath: string;
 }
@@ -196,6 +207,32 @@ function selectNewRules(existing: unknown[], incoming: string[]): string[] {
 }
 
 /**
+ * Split `existing` into the entries that match one of `targets` (by canonical
+ * form) and the entries that survive. Matched entries are reported in the exact
+ * spelling found on disk, so a caller can tell the user what it actually took
+ * out of their file rather than the spelling it happened to search for.
+ */
+function partitionRules(
+  existing: unknown[],
+  targets: string[]
+): { kept: unknown[]; removed: string[] } {
+  const doomed = new Set(targets.map(canonicalizeRule));
+
+  const kept: unknown[] = [];
+  const removed: string[] = [];
+  for (const entry of existing) {
+    // A stray non-string cannot match a rule; keep it rather than drop it —
+    // removal must never be a chance to tidy up the user's file.
+    if (typeof entry === 'string' && doomed.has(canonicalizeRule(entry))) {
+      removed.push(entry);
+    } else {
+      kept.push(entry);
+    }
+  }
+  return { kept, removed };
+}
+
+/**
  * Atomic replace, mirroring `writeTasksFile()` in `src/tasks-file.ts`: stage to
  * a per-process, per-call unique temp path, then rename over the target so a
  * reader never observes a partial file and two writers never share a staging
@@ -262,4 +299,56 @@ export function mergeClaudeSettings(projectRoot: string, rules: PermissionRules)
   writeSettingsAtomic(settingsPath, `${JSON.stringify(next, null, 2)}\n`);
 
   return { created: existing === null, addedAllow, addedDeny, settingsPath };
+}
+
+/**
+ * Subtract `rules` from `<projectRoot>/.claude/settings.local.json` — the
+ * migration counterpart to `mergeClaudeSettings`, for retracting rules an older
+ * version of Cairn seeded.
+ *
+ * Rules are matched by canonical form, so a rule seeded as `Bash(cmd:*)` is
+ * still found after the user rewrote it as `Bash(cmd *)`. Nothing else in the
+ * file is touched: unrelated entries keep their order and spelling, unknown keys
+ * round-trip, and a list emptied by removal has its key deleted rather than left
+ * behind as `[]` — an empty `deny` we authored is noise in a file we don't own.
+ *
+ * No-ops without writing when the file is absent, when no rule matches, or when
+ * handed an empty rule set. Throws `ClaudeSettingsError` — without touching the
+ * file — if the existing settings cannot be parsed or have an unexpected shape.
+ */
+export function removeSettingsRules(projectRoot: string, rules: PermissionRules): RemovalResult {
+  const settingsPath = claudeSettingsPath(projectRoot);
+  const empty: RemovalResult = { removedAllow: [], removedDeny: [], settingsPath };
+
+  const existing = readSettings(settingsPath);
+  if (existing === null) return empty;
+
+  const permissions = (existing.permissions as Record<string, unknown> | undefined) ?? undefined;
+  const currentAllow = (permissions?.allow as unknown[] | undefined) ?? [];
+  const currentDeny = (permissions?.deny as unknown[] | undefined) ?? [];
+
+  const allow = partitionRules(currentAllow, rules.allow ?? []);
+  const deny = partitionRules(currentDeny, rules.deny ?? []);
+
+  if (allow.removed.length === 0 && deny.removed.length === 0) return empty;
+
+  // Spread preserves every key we do not recognize, at both the top level and
+  // inside `permissions` — same contract as the additive path.
+  const next: Record<string, unknown> = { ...existing };
+  const nextPermissions: Record<string, unknown> = { ...(permissions ?? {}) };
+
+  for (const [key, split] of [
+    ['allow', allow],
+    ['deny', deny],
+  ] as const) {
+    if (split.removed.length === 0) continue;
+    if (split.kept.length > 0) nextPermissions[key] = split.kept;
+    else delete nextPermissions[key];
+  }
+  next.permissions = nextPermissions;
+
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  writeSettingsAtomic(settingsPath, `${JSON.stringify(next, null, 2)}\n`);
+
+  return { removedAllow: allow.removed, removedDeny: deny.removed, settingsPath };
 }

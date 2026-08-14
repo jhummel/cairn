@@ -1505,6 +1505,164 @@ describe('installClaudeSettings', () => {
   });
 });
 
+// --- installClaudeSettings: legacy deny-block migration ---
+//
+// An older `cairn init` seeded five `cairn task` deny rules. Because a
+// project-wide deny binds `cairn run`'s own execution agents, such a project
+// can never record a task completion — the loop re-runs one task forever. The
+// settings file is gitignored, so nothing in `git status` reveals it; re-running
+// `cairn init` is the only repair path.
+describe('installClaudeSettings — legacy cairn task deny migration', () => {
+  let tmpDir: string;
+  let stdoutLines: string[];
+  let consoleSpy: ReturnType<typeof spyOn>;
+
+  const config = { healthCheck: 'bun run build', defaultTestCommand: 'bun test' };
+
+  const LEGACY_DENY = [
+    'Bash(cairn task start:*)',
+    'Bash(cairn task complete:*)',
+    'Bash(cairn task set-status:*)',
+    'Bash(cairn task add:*)',
+    'Bash(cairn task note:*)',
+  ];
+
+  function settingsPath(): string {
+    return path.join(tmpDir, '.claude', 'settings.local.json');
+  }
+
+  function readSettings(): any {
+    return JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+  }
+
+  function seed(settings: unknown): void {
+    fs.mkdirSync(path.join(tmpDir, '.claude'), { recursive: true });
+    fs.writeFileSync(settingsPath(), JSON.stringify(settings, null, 2));
+  }
+
+  beforeEach(() => {
+    // Temp dir only — see the hazard note on the suite above.
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-settings-migrate-test-'));
+    stdoutLines = [];
+    consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
+      stdoutLines.push(args.join(' '));
+    });
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  test('strips a deny block containing only the legacy rules', async () => {
+    seed({ permissions: { deny: LEGACY_DENY } });
+
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+
+    expect(readSettings().permissions).not.toHaveProperty('deny');
+  });
+
+  test('keeps unrelated user deny rules while stripping the legacy ones', async () => {
+    seed({ permissions: { deny: ['Bash(rm -rf:*)', ...LEGACY_DENY, 'Read(./secrets/**)'] } });
+
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+
+    expect(readSettings().permissions.deny).toEqual(['Bash(rm -rf:*)', 'Read(./secrets/**)']);
+  });
+
+  test('reports each removed rule and why it mattered', async () => {
+    seed({ permissions: { deny: LEGACY_DENY } });
+
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+
+    const output = stdoutLines.join('\n');
+    for (const rule of LEGACY_DENY) expect(output).toContain(rule);
+    expect(output).toContain('Removed');
+  });
+
+  test('reports removals even when there is nothing left to add', async () => {
+    // Everything init would add is already present, so the additive merge is a
+    // no-op — the removal must still be performed and reported.
+    seed({
+      permissions: {
+        allow: [
+          'Bash(git diff:*)',
+          'Bash(git log:*)',
+          'Bash(git show:*)',
+          'Bash(git status:*)',
+          'Bash(git rev-parse:*)',
+          'Bash(bun run build:*)',
+          'Bash(bun test:*)',
+        ],
+        deny: LEGACY_DENY,
+      },
+    });
+
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+
+    expect(readSettings().permissions).not.toHaveProperty('deny');
+    expect(stdoutLines.join('\n')).toContain('Removed');
+  });
+
+  test('matches the spaced spelling of the legacy rules', async () => {
+    seed({ permissions: { deny: ['Bash(cairn task start *)', 'Bash(cairn task complete *)'] } });
+
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+
+    expect(readSettings().permissions).not.toHaveProperty('deny');
+  });
+
+  test('leaves an already-clean file with no deny key', async () => {
+    seed({ permissions: { allow: ['Bash(ls:*)'] }, model: 'opus' });
+
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+
+    const settings = readSettings();
+    expect(settings.permissions).not.toHaveProperty('deny');
+    expect(settings.permissions.allow[0]).toBe('Bash(ls:*)');
+    expect(settings.model).toBe('opus');
+    expect(stdoutLines.join('\n')).not.toContain('Removed');
+  });
+
+  test('no-ops cleanly when the settings file does not exist', async () => {
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+
+    expect(readSettings().permissions).not.toHaveProperty('deny');
+    expect(stdoutLines.join('\n')).not.toContain('Removed');
+  });
+
+  test('refuses a malformed file rather than rewriting it', async () => {
+    fs.mkdirSync(path.join(tmpDir, '.claude'), { recursive: true });
+    fs.writeFileSync(settingsPath(), '{ not json');
+
+    const added = await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+
+    expect(added).toEqual([]);
+    expect(fs.readFileSync(settingsPath(), 'utf8')).toBe('{ not json');
+    expect(stdoutLines.join('\n')).toContain('Refusing to modify');
+  });
+
+  test('declining the prompt removes nothing', async () => {
+    seed({ permissions: { deny: LEGACY_DENY } });
+
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['n']));
+
+    expect(readSettings().permissions.deny).toEqual(LEGACY_DENY);
+  });
+
+  test('is idempotent — a second run reports no further removals', async () => {
+    seed({ permissions: { deny: LEGACY_DENY } });
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+    const first = fs.readFileSync(settingsPath(), 'utf8');
+    stdoutLines = [];
+
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+
+    expect(fs.readFileSync(settingsPath(), 'utf8')).toBe(first);
+    expect(stdoutLines.join('\n')).not.toContain('Removed');
+  });
+});
+
 describe('showNextSteps', () => {
   test('prints cairn plan suggestion', () => {
     const lines: string[] = [];

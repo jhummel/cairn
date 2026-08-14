@@ -86,14 +86,13 @@ Prompts you for each `cairn.json` property with sensible defaults, then creates:
 
 Re-running `cairn init` on an existing project lets you update any field — existing values are shown as defaults so you only change what you need.
 
-`cairn init` then offers (default: yes, skippable) to seed `.claude/settings.local.json` with a permission baseline:
-
-- **Allow** — read-only git inspection (`git diff`, `log`, `show`, `status`, `rev-parse`), plus rules derived from your `healthCheck` and `defaultTestCommand`.
-- **Deny** — the five mutating `cairn task` subcommands (`start`, `complete`, `set-status`, `add`, `note`).
+`cairn init` then offers (default: yes, skippable) to seed `.claude/settings.local.json` with a permission baseline — **allow** rules for read-only git inspection (`git diff`, `log`, `show`, `status`, `rev-parse`) plus rules derived from your `healthCheck` and `defaultTestCommand`. No deny rules are seeded.
 
 This exists because agents that verify a task actually landed — chiefly the post-task reviewer — need to run tests and inspect git history, but otherwise run under normal permissions (not `--dangerously-skip-permissions`). Without these rules, a fresh project denies them outright in headless mode.
 
-Existing settings are **merged, not replaced**: `permissions.allow` and `permissions.deny` are unioned with whatever is already there, and every other key in the file is left untouched. If you already have settings from plain `claude` usage, you won't lose them.
+Existing settings are **merged, not replaced**: `permissions.allow` is unioned with whatever is already there, and every other key in the file is left untouched. If you already have settings from plain `claude` usage, you won't lose them.
+
+**One exception, and it is a repair.** An older `cairn init` seeded `deny` rules for the five mutating `cairn task` subcommands (`start`, `complete`, `set-status`, `add`, `note`). That was a bug: a project-wide deny binds *every* Claude session in the project, including `cairn run`'s own execution agents — it is not bypassed by `--dangerously-skip-permissions` — so agents were silently blocked from recording their own task state, and the loop re-ran a single task indefinitely while reporting success. Since `.claude/settings.local.json` is gitignored, nothing in `git status` reveals it. Re-running `cairn init` now strips exactly those five rules (and drops the `deny` key if that empties it). Any other deny rule you wrote yourself is kept.
 
 Cairn deliberately does not edit `.gitignore` or your global git config — add `.claude/settings.local.json` to your own `.gitignore` yourself. Claude Code only auto-ignores that file when Claude Code itself creates it.
 

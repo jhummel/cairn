@@ -7,6 +7,7 @@ import {
   claudeSettingsPath,
   canonicalizeRule,
   mergeClaudeSettings,
+  removeSettingsRules,
 } from '../src/claude-settings';
 
 // CRITICAL: every test operates inside a throwaway temp dir. Pointing this
@@ -347,5 +348,238 @@ describe('mergeClaudeSettings — suffix-equivalent dedupe', () => {
     // Bash(rm:*) is in the deny list, not the allow list — it is still new to allow.
     expect(result.addedAllow).toEqual(['Bash(rm:*)']);
     expect(result.addedDeny).toEqual([]);
+  });
+});
+
+// --- removeSettingsRules ---
+//
+// The migration counterpart to mergeClaudeSettings: it strips rules a previous
+// version of `cairn init` seeded, and must be every bit as conservative about
+// the rest of the user's file as the additive path is.
+
+const LEGACY_DENY = [
+  'Bash(cairn task start:*)',
+  'Bash(cairn task complete:*)',
+  'Bash(cairn task set-status:*)',
+  'Bash(cairn task add:*)',
+  'Bash(cairn task note:*)',
+];
+
+describe('removeSettingsRules — no-op cases', () => {
+  it('reports nothing removed and creates no file when settings are absent', () => {
+    const result = removeSettingsRules(projectRoot, { deny: LEGACY_DENY });
+
+    expect(result.removedAllow).toEqual([]);
+    expect(result.removedDeny).toEqual([]);
+    expect(result.settingsPath).toBe(settingsFile());
+    expect(fs.existsSync(settingsFile())).toBe(false);
+  });
+
+  it('leaves an already-clean file byte-for-byte untouched', () => {
+    const raw = JSON.stringify(
+      { permissions: { allow: ['Bash(git diff:*)'], deny: ['Bash(rm:*)'] }, model: 'opus' },
+      null,
+      2
+    );
+    writeSettings(raw);
+
+    const result = removeSettingsRules(projectRoot, { deny: LEGACY_DENY });
+
+    expect(result.removedDeny).toEqual([]);
+    expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe(raw);
+  });
+
+  it('leaves a file with no permissions key untouched', () => {
+    const raw = JSON.stringify({ model: 'opus' }, null, 2);
+    writeSettings(raw);
+
+    const result = removeSettingsRules(projectRoot, { deny: LEGACY_DENY });
+
+    expect(result.removedDeny).toEqual([]);
+    expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe(raw);
+  });
+
+  it('removes nothing when handed an empty rule set', () => {
+    const raw = JSON.stringify({ permissions: { deny: LEGACY_DENY } }, null, 2);
+    writeSettings(raw);
+
+    const result = removeSettingsRules(projectRoot, {});
+
+    expect(result.removedDeny).toEqual([]);
+    expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe(raw);
+  });
+});
+
+describe('removeSettingsRules — stripping the legacy cairn task deny block', () => {
+  it('drops the deny key entirely when removal empties it', () => {
+    writeSettings(JSON.stringify({ permissions: { deny: LEGACY_DENY } }, null, 2));
+
+    const result = removeSettingsRules(projectRoot, { deny: LEGACY_DENY });
+
+    expect(result.removedDeny).toEqual(LEGACY_DENY);
+    expect(readSettings().permissions).not.toHaveProperty('deny');
+  });
+
+  it('keeps unrelated user deny rules and removes only the legacy five', () => {
+    writeSettings(
+      JSON.stringify(
+        {
+          permissions: {
+            deny: [
+              'Bash(rm -rf:*)',
+              'Bash(cairn task start:*)',
+              'Read(./secrets/**)',
+              'Bash(cairn task complete:*)',
+              'Bash(cairn task set-status:*)',
+              'Bash(cairn task add:*)',
+              'Bash(cairn task note:*)',
+              'Bash(curl:*)',
+            ],
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const result = removeSettingsRules(projectRoot, { deny: LEGACY_DENY });
+
+    expect(result.removedDeny).toEqual(LEGACY_DENY);
+    expect(readSettings().permissions.deny).toEqual([
+      'Bash(rm -rf:*)',
+      'Read(./secrets/**)',
+      'Bash(curl:*)',
+    ]);
+  });
+
+  it('matches the spaced form and reports the spelling found on disk', () => {
+    writeSettings(
+      JSON.stringify(
+        { permissions: { deny: ['Bash(cairn task start *)', '  Bash(cairn task add:*)  '] } },
+        null,
+        2
+      )
+    );
+
+    const result = removeSettingsRules(projectRoot, { deny: LEGACY_DENY });
+
+    expect(result.removedDeny).toEqual(['Bash(cairn task start *)', '  Bash(cairn task add:*)  ']);
+    expect(readSettings().permissions).not.toHaveProperty('deny');
+  });
+
+  it('never touches the allow list when only deny rules are supplied', () => {
+    writeSettings(
+      JSON.stringify(
+        {
+          permissions: {
+            allow: ['Bash(cairn task start:*)', 'Bash(git diff:*)'],
+            deny: LEGACY_DENY,
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const result = removeSettingsRules(projectRoot, { deny: LEGACY_DENY });
+
+    expect(result.removedAllow).toEqual([]);
+    expect(readSettings().permissions.allow).toEqual([
+      'Bash(cairn task start:*)',
+      'Bash(git diff:*)',
+    ]);
+  });
+
+  it('removes from the allow list too when allow rules are supplied', () => {
+    writeSettings(
+      JSON.stringify({ permissions: { allow: ['Bash(ls:*)', 'Bash(rm:*)'] } }, null, 2)
+    );
+
+    const result = removeSettingsRules(projectRoot, { allow: ['Bash(rm:*)'] });
+
+    expect(result.removedAllow).toEqual(['Bash(rm:*)']);
+    expect(readSettings().permissions.allow).toEqual(['Bash(ls:*)']);
+  });
+
+  it('preserves unknown top-level and permissions keys', () => {
+    writeSettings(
+      JSON.stringify(
+        {
+          model: 'opus',
+          hooks: { PreToolUse: [] },
+          permissions: {
+            defaultMode: 'acceptEdits',
+            additionalDirectories: ['../shared'],
+            allow: ['Bash(git diff:*)'],
+            deny: LEGACY_DENY,
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    removeSettingsRules(projectRoot, { deny: LEGACY_DENY });
+
+    const settings = readSettings();
+    expect(settings.model).toBe('opus');
+    expect(settings.hooks).toEqual({ PreToolUse: [] });
+    expect(settings.permissions.defaultMode).toBe('acceptEdits');
+    expect(settings.permissions.additionalDirectories).toEqual(['../shared']);
+    expect(settings.permissions.allow).toEqual(['Bash(git diff:*)']);
+  });
+
+  it('preserves non-string entries the user somehow left in the list', () => {
+    writeSettings(
+      JSON.stringify({ permissions: { deny: [42, 'Bash(cairn task add:*)'] } }, null, 2)
+    );
+
+    const result = removeSettingsRules(projectRoot, { deny: LEGACY_DENY });
+
+    expect(result.removedDeny).toEqual(['Bash(cairn task add:*)']);
+    expect(readSettings().permissions.deny).toEqual([42]);
+  });
+
+  it('writes trailing-newline JSON and leaves no temp file behind', () => {
+    writeSettings(JSON.stringify({ permissions: { deny: LEGACY_DENY } }, null, 2));
+
+    removeSettingsRules(projectRoot, { deny: LEGACY_DENY });
+
+    const raw = fs.readFileSync(settingsFile(), 'utf-8');
+    expect(raw.endsWith('\n')).toBe(true);
+    const leftovers = fs
+      .readdirSync(path.join(projectRoot, '.claude'))
+      .filter((f) => f !== 'settings.local.json');
+    expect(leftovers).toEqual([]);
+  });
+});
+
+describe('removeSettingsRules — malformed input refusal', () => {
+  it('throws and leaves unparseable JSON exactly as found', () => {
+    writeSettings('{ not json');
+
+    expect(() => removeSettingsRules(projectRoot, { deny: LEGACY_DENY })).toThrow(
+      ClaudeSettingsError
+    );
+    expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe('{ not json');
+  });
+
+  it('throws when the top level is not an object', () => {
+    writeSettings('["Bash(cairn task start:*)"]');
+
+    expect(() => removeSettingsRules(projectRoot, { deny: LEGACY_DENY })).toThrow(
+      ClaudeSettingsError
+    );
+    expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe('["Bash(cairn task start:*)"]');
+  });
+
+  it('throws when permissions.deny is not an array', () => {
+    const raw = JSON.stringify({ permissions: { deny: 'Bash(cairn task start:*)' } }, null, 2);
+    writeSettings(raw);
+
+    expect(() => removeSettingsRules(projectRoot, { deny: LEGACY_DENY })).toThrow(
+      ClaudeSettingsError
+    );
+    expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe(raw);
   });
 });

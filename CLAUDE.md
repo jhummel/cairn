@@ -94,6 +94,8 @@ The ban is enforced two ways:
 
 `cairn init` no longer seeds `permissions.deny` rules for the mutating `cairn task` subcommands. A project-wide deny binds *every* Claude session in the project, including `cairn run`'s own execution agents — it is **not** bypassed by `--dangerously-skip-permissions`, and a stale version of this file once claimed otherwise. That false claim caused a real incident: a run loop executed 60 iterations without ever recording a completion, because the deny rule silently blocked every agent's `cairn task start`/`complete` call. The rules were also redundant: in headless `claude -p` mode, anything with side effects is deny-by-default unless allowlisted (there is nobody to prompt), so the reviewer's scoped `--allowedTools` already prevented task-state mutation without a deny list.
 
+Not seeding them is not enough on its own: a project initialized by the older version still carries that deny block, and `.claude/settings.local.json` is gitignored, so the breakage is invisible in `git status`. Re-running `cairn init` therefore *removes* the five legacy rules — `LEGACY_CAIRN_TASK_DENY_RULES` (`src/commands/init.ts`) fed to `removeSettingsRules()` (`src/claude-settings.ts`), matched by `canonicalizeRule` so the spaced spelling is caught too. Removal takes out only those five, drops the `deny` key when that empties it, and leaves any user-authored deny rule alone.
+
 The CLI routes all writes through `writeTasksFile()`, which performs atomic temp-file replacement and validates JSON on every write — making corruption structurally impossible via this path.
 
 ## Pin/unpin procedure for self-modifying rounds
