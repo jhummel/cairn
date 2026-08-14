@@ -12,6 +12,8 @@ import {
   installNarrationHooks,
   installSlashCommands,
   installAgents,
+  buildInitPermissionRules,
+  installClaudeSettings,
   showNextSteps,
   runInit,
   type PromptInterface,
@@ -1282,6 +1284,246 @@ describe('installAgents', () => {
 
 // --- showNextSteps tests ---
 
+// --- buildInitPermissionRules tests ---
+
+describe('buildInitPermissionRules', () => {
+  test('allows the five read-only git inspection subcommands', () => {
+    const rules = buildInitPermissionRules({ healthCheck: '', defaultTestCommand: '' });
+    expect(rules.allow).toContain('Bash(git diff:*)');
+    expect(rules.allow).toContain('Bash(git log:*)');
+    expect(rules.allow).toContain('Bash(git show:*)');
+    expect(rules.allow).toContain('Bash(git status:*)');
+    expect(rules.allow).toContain('Bash(git rev-parse:*)');
+  });
+
+  test('never allows a blanket git rule', () => {
+    // A blanket grant would also authorize commit/push/reset, letting a review
+    // agent rewrite the very work it is inspecting.
+    const rules = buildInitPermissionRules({ healthCheck: '', defaultTestCommand: '' });
+    expect(rules.allow).not.toContain('Bash(git:*)');
+    expect(rules.allow).not.toContain('Bash(git *)');
+  });
+
+  test('derives allow rules from healthCheck and defaultTestCommand', () => {
+    const rules = buildInitPermissionRules({
+      healthCheck: 'npm run type-check',
+      defaultTestCommand: 'npm test',
+    });
+    expect(rules.allow).toContain('Bash(npm run type-check:*)');
+    expect(rules.allow).toContain('Bash(npm test:*)');
+  });
+
+  test('skips empty config values cleanly', () => {
+    const rules = buildInitPermissionRules({ healthCheck: '', defaultTestCommand: '   ' });
+    expect(rules.allow).not.toContain('Bash(:*)');
+    expect(rules.allow?.every((r) => r.startsWith('Bash(git '))).toBe(true);
+  });
+
+  test('splits compound config commands on shell operators', () => {
+    // Claude Code matches each subcommand of a compound command against the
+    // allowlist independently, so a whole-string rule could never match.
+    const rules = buildInitPermissionRules({
+      healthCheck: 'cd src && bun run build',
+      defaultTestCommand: '',
+    });
+    expect(rules.allow).toContain('Bash(cd src:*)');
+    expect(rules.allow).toContain('Bash(bun run build:*)');
+    expect(rules.allow).not.toContain('Bash(cd src && bun run build:*)');
+  });
+
+  test('does not repeat a command shared by healthCheck and defaultTestCommand', () => {
+    const rules = buildInitPermissionRules({
+      healthCheck: 'bun test',
+      defaultTestCommand: 'bun test',
+    });
+    expect(rules.allow?.filter((r) => r === 'Bash(bun test:*)')).toHaveLength(1);
+  });
+
+  test('denies exactly the five task-mutating cairn subcommands', () => {
+    const rules = buildInitPermissionRules({ healthCheck: '', defaultTestCommand: '' });
+    expect(rules.deny).toEqual([
+      'Bash(cairn task start:*)',
+      'Bash(cairn task complete:*)',
+      'Bash(cairn task set-status:*)',
+      'Bash(cairn task add:*)',
+      'Bash(cairn task note:*)',
+    ]);
+  });
+
+  test('never denies cairn task wholesale', () => {
+    // generate-tasks.md requires `cairn task next-id`, and deny beats allow
+    // regardless of specificity — a blanket deny would break task generation
+    // in every project with no way to carve an exception back out.
+    const rules = buildInitPermissionRules({ healthCheck: '', defaultTestCommand: '' });
+    expect(rules.deny).not.toContain('Bash(cairn task:*)');
+    expect(rules.deny).not.toContain('Bash(cairn:*)');
+    for (const rule of rules.deny ?? []) {
+      expect(rule).not.toContain('next-id');
+      expect(rule).not.toContain('show');
+    }
+  });
+});
+
+// --- installClaudeSettings tests ---
+
+describe('installClaudeSettings', () => {
+  // Always a temp projectRoot: this repository's own .claude/settings.local.json
+  // holds hand-accumulated rules that a test must never touch.
+  let tmpDir: string;
+  let stdoutLines: string[];
+  let consoleSpy: ReturnType<typeof spyOn>;
+
+  const config = { healthCheck: 'bun run build', defaultTestCommand: 'bun test' };
+
+  function settingsPath(): string {
+    return path.join(tmpDir, '.claude', 'settings.local.json');
+  }
+
+  function readSettings(): any {
+    return JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-settings-init-test-'));
+    stdoutLines = [];
+    consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
+      stdoutLines.push(args.join(' '));
+    });
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  test('writes the settings file when the user accepts', async () => {
+    const rl = createMockPrompt(['y']);
+    await installClaudeSettings(tmpDir, config, rl);
+    expect(fs.existsSync(settingsPath())).toBe(true);
+  });
+
+  test('defaults to yes on empty input', async () => {
+    const rl = createMockPrompt(['']);
+    await installClaudeSettings(tmpDir, config, rl);
+    expect(fs.existsSync(settingsPath())).toBe(true);
+  });
+
+  test('shows a Y/n hint so the default reads as yes', async () => {
+    const questions: string[] = [];
+    const rl: PromptInterface = {
+      question: async (query: string) => {
+        questions.push(query);
+        return '';
+      },
+      close: () => {},
+    };
+    await installClaudeSettings(tmpDir, config, rl);
+    expect(questions.join('\n')).toContain('[Y/n]');
+  });
+
+  test('writes nothing when the user declines', async () => {
+    const rl = createMockPrompt(['n']);
+    const added = await installClaudeSettings(tmpDir, config, rl);
+    expect(fs.existsSync(settingsPath())).toBe(false);
+    expect(added).toEqual([]);
+  });
+
+  test('writes the git inspection and config-derived allow rules', async () => {
+    const rl = createMockPrompt(['y']);
+    await installClaudeSettings(tmpDir, config, rl);
+    const allow = readSettings().permissions.allow;
+    expect(allow).toContain('Bash(git diff:*)');
+    expect(allow).toContain('Bash(git rev-parse:*)');
+    expect(allow).toContain('Bash(bun run build:*)');
+    expect(allow).toContain('Bash(bun test:*)');
+  });
+
+  test('writes exactly the five deny rules', async () => {
+    const rl = createMockPrompt(['y']);
+    await installClaudeSettings(tmpDir, config, rl);
+    expect(readSettings().permissions.deny).toEqual([
+      'Bash(cairn task start:*)',
+      'Bash(cairn task complete:*)',
+      'Bash(cairn task set-status:*)',
+      'Bash(cairn task add:*)',
+      'Bash(cairn task note:*)',
+    ]);
+  });
+
+  test('returns the rules it added', async () => {
+    const rl = createMockPrompt(['y']);
+    const added = await installClaudeSettings(tmpDir, config, rl);
+    expect(added).toContain('Bash(git diff:*)');
+    expect(added).toContain('Bash(cairn task start:*)');
+  });
+
+  test('reports the file and each rule it wrote', async () => {
+    const rl = createMockPrompt(['y']);
+    await installClaudeSettings(tmpDir, config, rl);
+    const output = stdoutLines.join('\n');
+    expect(output).toContain('.claude/settings.local.json');
+    expect(output).toContain('Bash(git diff:*)');
+    expect(output).toContain('Bash(cairn task start:*)');
+  });
+
+  test('warns that the user must gitignore the settings file themselves', async () => {
+    const rl = createMockPrompt(['y']);
+    await installClaudeSettings(tmpDir, config, rl);
+    const output = stdoutLines.join('\n');
+    expect(output).toContain('WARNING');
+    expect(output).toContain('.gitignore');
+    expect(output).toContain('.claude/settings.local.json');
+  });
+
+  test('does not create or edit a .gitignore', async () => {
+    const rl = createMockPrompt(['y']);
+    await installClaudeSettings(tmpDir, config, rl);
+    expect(fs.existsSync(path.join(tmpDir, '.gitignore'))).toBe(false);
+  });
+
+  test('is idempotent — a second run adds nothing', async () => {
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+    const first = fs.readFileSync(settingsPath(), 'utf8');
+    stdoutLines = [];
+
+    const added = await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+    expect(added).toEqual([]);
+    expect(fs.readFileSync(settingsPath(), 'utf8')).toBe(first);
+    expect(stdoutLines.join('\n')).toContain('already');
+  });
+
+  test('preserves rules the user already had', async () => {
+    fs.mkdirSync(path.join(tmpDir, '.claude'), { recursive: true });
+    fs.writeFileSync(
+      settingsPath(),
+      JSON.stringify({ permissions: { allow: ['Bash(ls:*)'] }, model: 'opus' }, null, 2),
+    );
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+    const settings = readSettings();
+    expect(settings.permissions.allow[0]).toBe('Bash(ls:*)');
+    expect(settings.permissions.allow).toContain('Bash(git diff:*)');
+    expect(settings.model).toBe('opus');
+  });
+
+  test('reports a malformed settings file without throwing or overwriting it', async () => {
+    fs.mkdirSync(path.join(tmpDir, '.claude'), { recursive: true });
+    fs.writeFileSync(settingsPath(), '{ not json');
+    const added = await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+    expect(added).toEqual([]);
+    expect(fs.readFileSync(settingsPath(), 'utf8')).toBe('{ not json');
+    expect(stdoutLines.join('\n')).toContain('Refusing to modify');
+  });
+
+  test('routes reporting through opts.log when provided', async () => {
+    const lines: string[] = [];
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']), {
+      log: (m) => lines.push(m),
+    });
+    expect(lines.join('\n')).toContain('Bash(git diff:*)');
+    expect(stdoutLines).toEqual([]);
+  });
+});
+
 describe('showNextSteps', () => {
   test('prints cairn plan suggestion', () => {
     const lines: string[] = [];
@@ -1379,6 +1621,26 @@ describe('runInit', () => {
     // .claude/commands/ exists (slash commands are always installed),
     // but hooks dir should not exist
     expect(fs.existsSync(path.join(tmpDir, '.claude', 'hooks'))).toBe(false);
+  });
+
+  test('seeds .claude/settings.local.json (prompt defaults to yes)', async () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    const rl = createMockPrompt(allDefaultAnswers());
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    const settingsPath = path.join(tmpDir, '.claude', 'settings.local.json');
+    expect(fs.existsSync(settingsPath)).toBe(true);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    expect(settings.permissions.allow).toContain('Bash(git diff:*)');
+    expect(settings.permissions.deny).toContain('Bash(cairn task start:*)');
+  });
+
+  test('skips the settings file when the user declines', async () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    // 10 config prompts (narration disabled, so voice/ntfy are skipped),
+    // instructions='n', then settings='n'.
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '', 'n', 'n']);
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    expect(fs.existsSync(path.join(tmpDir, '.claude', 'settings.local.json'))).toBe(false);
   });
 
   test('installs slash commands unconditionally', async () => {

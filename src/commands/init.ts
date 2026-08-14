@@ -6,6 +6,13 @@ import { loadConfig, autoDetectHealthCheck } from '../config';
 import { resolveCairnRoot } from '../utils';
 import { seedNextId } from '../task-counter';
 import { BRAND, NOTES_TEMP_PREFIX } from '../brand';
+import {
+  ClaudeSettingsError,
+  GIT_INSPECTION_RULES,
+  buildCommandRules,
+  mergeClaudeSettings,
+  type PermissionRules,
+} from '../claude-settings';
 
 /** Runtime temp-file names to ignore, minus the prefix. */
 const TEMP_IGNORE_SUFFIXES = [
@@ -457,6 +464,108 @@ export function installAgents(
 }
 
 /**
+ * The task-state mutations that must stay out of reach of agents running under
+ * normal permissions — the planner and the post-task reviewer.
+ *
+ * Enumerated one by one, and deliberately NOT collapsed into `Bash(cairn task:*)`:
+ * `commands/generate-tasks.md` needs `cairn task next-id` to allocate IDs, deny
+ * beats allow regardless of specificity, and Claude Code offers no way to carve
+ * an exception back out of a deny. A blanket rule would therefore break task
+ * generation in every initialized project, silently. `next-id` and `show` are
+ * read-only-ish and must stay reachable.
+ *
+ * `cairn run`'s execution agents are unaffected: they run with
+ * `--dangerously-skip-permissions`, which is exactly the intended scoping — the
+ * agent that owns a task may drive its state, the ones reviewing it may not.
+ */
+const CAIRN_TASK_DENY_RULES: readonly string[] = [
+  'Bash(cairn task start:*)',
+  'Bash(cairn task complete:*)',
+  'Bash(cairn task set-status:*)',
+  'Bash(cairn task add:*)',
+  'Bash(cairn task note:*)',
+];
+
+/**
+ * The permission baseline `cairn init` seeds into a project.
+ *
+ * Allow: read-only git inspection, plus whatever the project configured as its
+ * health check and default test command (empty values contribute nothing).
+ */
+export function buildInitPermissionRules(
+  config: Pick<CairnConfig, 'healthCheck' | 'defaultTestCommand'>,
+): PermissionRules {
+  return {
+    allow: [
+      ...GIT_INSPECTION_RULES,
+      ...buildCommandRules([config.healthCheck, config.defaultTestCommand]),
+    ],
+    deny: [...CAIRN_TASK_DENY_RULES],
+  };
+}
+
+/**
+ * Offer to seed the project's `.claude/settings.local.json` permission baseline.
+ *
+ * Prompted rather than silent, and defaulted to yes: these rules apply to every
+ * Claude session in the project, not just Cairn's, so the user gets a visible
+ * confirmation. Returns the rules actually added — empty when the user declined,
+ * when everything was already present, or when the existing file was unreadable.
+ *
+ * `opts.skipUnchanged` is not consulted: merging is inherently additive, so a
+ * rule that is already present is never rewritten and never reported.
+ */
+export async function installClaudeSettings(
+  projectRoot: string,
+  config: Pick<CairnConfig, 'healthCheck' | 'defaultTestCommand'>,
+  rl: PromptInterface,
+  opts: InstallOptions = {},
+): Promise<string[]> {
+  const log = opts.log ?? ((m: string) => console.log(m));
+  const rules = buildInitPermissionRules(config);
+
+  log('');
+  log('Seed .claude/settings.local.json with permission rules?');
+  log('  (Allows read-only git inspection plus your health check and test commands;');
+  log('   denies task-state mutations for planning and review agents. Existing rules');
+  log('   are kept — nothing is removed or rewritten.)');
+
+  const write = await promptBoolean(rl, 'Write permission rules?', true);
+  if (!write) return [];
+
+  let result;
+  try {
+    result = mergeClaudeSettings(projectRoot, rules);
+  } catch (err) {
+    if (err instanceof ClaudeSettingsError) {
+      // The message names the file and explains the manual fix. Init is nearly
+      // done at this point, so report and continue rather than abort.
+      log(`  ${err.message}`);
+      return [];
+    }
+    throw err;
+  }
+
+  const added = [...result.addedAllow, ...result.addedDeny];
+  if (added.length === 0) {
+    log('  .claude/settings.local.json already has every rule.');
+    return [];
+  }
+
+  log(`  ${result.created ? 'Created' : 'Updated'}: .claude/settings.local.json`);
+  for (const rule of result.addedAllow) log(`    allow: ${rule}`);
+  for (const rule of result.addedDeny) log(`    deny:  ${rule}`);
+
+  log('');
+  log('  WARNING: add .claude/settings.local.json to your .gitignore yourself.');
+  log('    Claude Code only excludes that path when Claude Code itself creates the');
+  log("    file, and it writes that entry to your global git excludes — not to this");
+  log('    repository. Cairn does not edit .gitignore or your git config for you.');
+
+  return added;
+}
+
+/**
  * Print next steps after init.
  */
 export function showNextSteps(): void {
@@ -492,6 +601,7 @@ export async function runInit(
 
   await createInstructionsFile(dataDir, rl, spawnSyncFn);
   await installNarrationHooks(projectRoot, config.narration.enabled, rl);
+  await installClaudeSettings(projectRoot, config, rl);
   showNextSteps();
 
   rl.close();

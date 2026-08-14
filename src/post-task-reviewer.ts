@@ -11,50 +11,15 @@ import { getRound } from "./task-counter";
 import type { Task } from "./types";
 import type { CairnConfig } from "./types";
 import { loadPersonalInstructions } from "./personal-instructions";
+import { GIT_INSPECTION_RULES, buildCommandRules } from "./claude-settings";
 
-// Read-only git subcommands the reviewer needs to inspect history beyond the
-// diff text it was handed. Each one is enumerated deliberately: `Bash(git:*)`
-// would also authorize `git commit`, `git push`, and `git reset`, letting the
-// reviewer rewrite the very work it is reviewing.
-const GIT_INSPECTION_RULES = [
-  "Bash(git diff:*)",
-  "Bash(git log:*)",
-  "Bash(git show:*)",
-  "Bash(git status:*)",
-  "Bash(git rev-parse:*)",
-];
-
-// Turn a task's declared `tests` entries into Bash permission rules so the
-// reviewer can actually re-run the task's tests. Granting exactly what the task
-// declared also covers one-off commands (e.g. `npx tsc -p tsconfig.json`) that a
-// static config-derived rule would miss.
-//
-// Compound entries are SPLIT on shell operators rather than emitted whole: Claude
-// Code splits a command on `&&`, `||`, `;`, `|`, `&` and newlines and matches each
-// subcommand against the allowlist independently, so a whole-string rule like
-// `Bash(cd svc && bun test:*)` could never match anything. `cd svc && bun test`
-// therefore yields `Bash(cd svc:*)` plus `Bash(bun test:*)`. This does not widen
-// the grant beyond the declared command — the same per-subcommand split is what
-// stops `Bash(bun test:*)` from authorizing `bun test && rm -rf /`.
+// Grant the reviewer exactly what a task declared in `tests` so it can actually
+// re-run them. Granting the declared command also covers one-off invocations
+// (e.g. `npx tsc -p tsconfig.json`) that a static config-derived rule would miss.
+// The rule mechanics — and the read-only git list — are shared with `cairn init`'s
+// settings.local.json seeding so the two grants can never drift apart.
 function buildTestCommandRules(tests?: string[]): string[] {
-  const rules: string[] = [];
-
-  for (const entry of tests ?? []) {
-    for (const part of entry.split(/&&|\|\||;|\||&|\n/)) {
-      const cmd = part.trim();
-      // Skip blanks (absent/empty tests, trailing operators) so we never emit an
-      // empty `Bash()` rule or a dangling separator. Commas separate rules within
-      // the --allowedTools string and parens delimit each rule, so a command
-      // containing either cannot be expressed as one rule — drop it rather than
-      // emit something that parses as a different, broader grant.
-      if (!cmd || /[(),]/.test(cmd)) continue;
-
-      const rule = `Bash(${cmd}:*)`;
-      if (!rules.includes(rule)) rules.push(rule);
-    }
-  }
-
-  return rules;
+  return buildCommandRules(tests ?? []);
 }
 
 export function buildPostTaskReviewUserPrompt(opts: {

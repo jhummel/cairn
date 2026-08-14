@@ -62,6 +62,57 @@ export function canonicalizeRule(rule: string): string {
   return `Bash(${arg.slice(0, -2)} *)`;
 }
 
+/**
+ * Read-only git subcommands, enumerated one by one. `Bash(git:*)` would also
+ * authorize `git commit`, `git push`, and `git reset` — an agent granted the
+ * blanket rule could rewrite the very work it was asked to inspect. Every
+ * consumer of this list wants inspection only, so there is exactly one list.
+ */
+export const GIT_INSPECTION_RULES: readonly string[] = [
+  'Bash(git diff:*)',
+  'Bash(git log:*)',
+  'Bash(git show:*)',
+  'Bash(git status:*)',
+  'Bash(git rev-parse:*)',
+];
+
+/**
+ * Turn shell commands (a task's declared `tests`, a project's configured health
+ * check) into `Bash(...)` permission rules.
+ *
+ * Compound entries are SPLIT on shell operators rather than emitted whole:
+ * Claude Code splits a command on `&&`, `||`, `;`, `|`, `&` and newlines and
+ * matches each subcommand against the allowlist independently, so a whole-string
+ * rule like `Bash(cd svc && bun test:*)` could never match anything. `cd svc &&
+ * bun test` therefore yields `Bash(cd svc:*)` plus `Bash(bun test:*)`. This does
+ * not widen the grant beyond the declared command — the same per-subcommand
+ * split is what stops `Bash(bun test:*)` from authorizing `bun test && rm -rf /`.
+ *
+ * Results are deduped and returned in first-seen order.
+ */
+export function buildCommandRules(commands: readonly (string | undefined)[]): string[] {
+  const rules: string[] = [];
+
+  for (const entry of commands) {
+    for (const part of (entry ?? '').split(/&&|\|\||;|\||&|\n/)) {
+      const cmd = part.trim();
+      // Skip blanks (absent/empty commands, trailing operators) so we never emit
+      // an empty `Bash()` rule or a dangling separator. Parens delimit a rule and
+      // commas separate rules within a `--allowedTools` string, so a command
+      // containing either cannot be expressed as one rule — drop it rather than
+      // emit something that parses as a different, broader grant. The comma case
+      // only matters for the CLI-string consumer, but the stricter filter is
+      // shared: it can only ever drop a rule, never widen one.
+      if (!cmd || /[(),]/.test(cmd)) continue;
+
+      const rule = `Bash(${cmd}:*)`;
+      if (!rules.includes(rule)) rules.push(rule);
+    }
+  }
+
+  return rules;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
