@@ -479,3 +479,5 @@ Iteration 1 completed: 2026-08-14T19:02:39.274Z — SUCCESS
 Iteration 2 started: 2026-08-14T19:07:33.095Z — Task #86: Delete CAIRN_TASK_DENY_RULES from init's permission seeding
 Iteration 2 completed: 2026-08-14T19:10:33.727Z — SUCCESS
 Iteration 3 started: 2026-08-14T19:12:03.532Z — Task #87: Init migration: strip a legacy cairn task deny block on re-run
+Iteration 3 completed: 2026-08-14T19:16:43.282Z — SUCCESS
+Iteration 4 started: 2026-08-14T19:19:31.955Z — Task #88: Regression test: reviewer's allowedTools grants no cairn task access

@@ -519,6 +519,76 @@ describe("spawnPostTaskReviewer", () => {
     });
   });
 
+  describe("regression: no cairn task access, Edit/Write scoped to reviews dir", () => {
+    // With cairn init no longer seeding project-wide `deny` rules for `cairn
+    // task` subcommands (see CLAUDE.md), containment of the reviewer rests
+    // entirely on this --allowedTools construction plus headless claude -p's
+    // deny-by-default for un-allowlisted side effects. If a future change to
+    // buildTestCommandRules/GIT_INSPECTION_RULES/the allowedTools array ever
+    // widens the reviewer's Bash grants to include a `cairn` invocation, this
+    // must fail immediately.
+    test("--allowedTools grants no cairn task access and no Bash(cairn prefix at all", async () => {
+      const child = createMockChild();
+      let spawnArgs: string[] = [];
+      const mockSpawn = (_cmd: string, args: string[]) => {
+        spawnArgs = args;
+        setTimeout(() => child.emit("close", 0), 10);
+        return child as any;
+      };
+
+      await spawnPostTaskReviewer({
+        projectRoot: spawnTmpDir,
+        dataDir: join(spawnTmpDir, ".cairn"),
+        task: sampleTask,
+        diff: "",
+        log: "",
+        files: [],
+        deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+      });
+
+      const allowed = spawnArgs[spawnArgs.indexOf("--allowedTools") + 1]!;
+      expect(allowed).not.toContain("cairn task");
+      expect(allowed).not.toContain("Bash(cairn");
+    });
+
+    test("Edit/Write grants are scoped to the reviews directory, not a blanket grant", async () => {
+      const child = createMockChild();
+      let spawnArgs: string[] = [];
+      const mockSpawn = (_cmd: string, args: string[]) => {
+        spawnArgs = args;
+        setTimeout(() => child.emit("close", 0), 10);
+        return child as any;
+      };
+
+      await spawnPostTaskReviewer({
+        projectRoot: spawnTmpDir,
+        dataDir: join(spawnTmpDir, ".cairn"),
+        task: sampleTask,
+        diff: "",
+        log: "",
+        files: [],
+        deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+      });
+
+      const allowed = spawnArgs[spawnArgs.indexOf("--allowedTools") + 1]!;
+      const reviewsRule = `/${spawnTmpDir}/.cairn/reviews/**`;
+      expect(allowed).toContain(`Edit(${reviewsRule})`);
+      expect(allowed).toContain(`Write(${reviewsRule})`);
+      // No unscoped Edit/Write grant (e.g. bare "Edit" or "Write", or a grant
+      // covering tasks.json / the project root) is present.
+      expect(allowed).not.toContain("Edit,");
+      expect(allowed).not.toContain("Write,");
+      expect(allowed.split(",")).not.toContain("Edit");
+      expect(allowed.split(",")).not.toContain("Write");
+      expect(allowed).not.toContain("tasks.json");
+      for (const rule of allowed.split(",")) {
+        if (rule.startsWith("Edit(") || rule.startsWith("Write(")) {
+          expect(rule).toContain("/reviews/");
+        }
+      }
+    });
+  });
+
   test("unsets ANTHROPIC_API_KEY in env", async () => {
     const child = createMockChild();
     let spawnOpts: any;
