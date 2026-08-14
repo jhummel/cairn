@@ -466,3 +466,5 @@ Iteration 4 completed: 2026-08-14T10:39:08.465Z — SUCCESS
 Iteration 5 started: 2026-08-14T10:42:17.438Z — Task #81: Add cairn task next-id to the planner's allowedTools
 Iteration 5 completed: 2026-08-14T10:44:01.837Z — SUCCESS
 Iteration 6 started: 2026-08-14T10:45:11.750Z — Task #82: Mark planner, audit-planner and summarizer as internal agents
+Iteration 6 completed: 2026-08-14T10:47:55.496Z — SUCCESS
+Iteration 7 started: 2026-08-14T10:49:49.891Z — Task #83: CLAUDE.md — truth-up the tasks.json enforcement story
