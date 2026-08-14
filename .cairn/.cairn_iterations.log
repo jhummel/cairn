@@ -464,3 +464,5 @@ Iteration 3 completed: 2026-08-14T10:30:17.975Z — SUCCESS
 Iteration 4 started: 2026-08-14T10:32:52.420Z — Task #80: Wire the settings.local.json writer into cairn init
 Iteration 4 completed: 2026-08-14T10:39:08.465Z — SUCCESS
 Iteration 5 started: 2026-08-14T10:42:17.438Z — Task #81: Add cairn task next-id to the planner's allowedTools
+Iteration 5 completed: 2026-08-14T10:44:01.837Z — SUCCESS
+Iteration 6 started: 2026-08-14T10:45:11.750Z — Task #82: Mark planner, audit-planner and summarizer as internal agents

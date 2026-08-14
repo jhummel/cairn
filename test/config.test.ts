@@ -376,6 +376,30 @@ Body text.`
     expect(agents).toHaveLength(1);
     expect(agents[0].internal).toBeFalsy();
   });
+
+  it('marks every bundled non-executor agent as internal (planner, audit-planner, summarizer, post-task-reviewer)', () => {
+    // Regression guard for the bug fixed in task #82: these four agents are
+    // never appropriate as a task executor's specialist prompt (planner talks
+    // to a user, audit-planner is read-only recon, summarizer only writes
+    // IMPLEMENTATION.md, post-task-reviewer only writes review files). If any
+    // of them loses its `internal: true` frontmatter, run.ts's guard in
+    // buildSystemPrompt silently stops firing and its body gets injected
+    // verbatim into a headless executor agent.
+    const realAgentsDir = path.join(__dirname, '..', 'agents');
+    const agentsDir = path.join(tmpDir, '.claude', 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    for (const file of fs.readdirSync(realAgentsDir).filter(f => f.endsWith('.md'))) {
+      fs.copyFileSync(path.join(realAgentsDir, file), path.join(agentsDir, file));
+    }
+
+    const agents = discoverAgents(tmpDir);
+    const internalNames = ['planner', 'audit-planner', 'summarizer', 'post-task-reviewer'];
+    for (const name of internalNames) {
+      const agent = agents.find(a => a.name === name);
+      expect(agent).toBeDefined();
+      expect(agent!.internal).toBe(true);
+    }
+  });
 });
 
 describe('setConfigEnvVars', () => {
