@@ -220,6 +220,9 @@ describe("spawnPostTaskReviewer", () => {
     directory: "src",
   };
 
+  const GIT_RULES =
+    "Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*)";
+
   let spawnTmpDir: string;
 
   beforeEach(() => {
@@ -275,7 +278,8 @@ describe("spawnPostTaskReviewer", () => {
     expect(args).toContain("--verbose");
     expect(args).toContain("--allowedTools");
     expect(args[args.indexOf("--allowedTools") + 1]).toBe(
-      `Read,Glob,Grep,Edit(/${spawnTmpDir}/.cairn/reviews/**),Write(/${spawnTmpDir}/.cairn/reviews/**)`
+      `Read,Glob,Grep,Edit(/${spawnTmpDir}/.cairn/reviews/**),Write(/${spawnTmpDir}/.cairn/reviews/**),` +
+        `${GIT_RULES},Bash(bun test:*)`
     );
     expect(args).toContain("--agents");
     expect(args).toContain("--agent");
@@ -303,7 +307,7 @@ describe("spawnPostTaskReviewer", () => {
 
     const rule = `/${spawnTmpDir}/.cairn/reviews/**`;
     expect(spawnArgs[spawnArgs.indexOf("--allowedTools") + 1]).toBe(
-      `Read,Glob,Grep,Edit(${rule}),Write(${rule})`
+      `Read,Glob,Grep,Edit(${rule}),Write(${rule}),${GIT_RULES},Bash(bun test:*)`
     );
   });
 
@@ -386,6 +390,133 @@ describe("spawnPostTaskReviewer", () => {
     expect(allowed).not.toContain(wrongHardcodedRule);
     expect(allowed).toContain(`/${join(dataDir, "reviews")}/**`);
     expect(stdinData).toContain(join(dataDir, "reviews", "round-3.md"));
+  });
+
+  describe("Bash allowlist rules", () => {
+    async function captureAllowedTools(tests?: string[]): Promise<string> {
+      const child = createMockChild();
+      let spawnArgs: string[] = [];
+      const mockSpawn = (_cmd: string, args: string[]) => {
+        spawnArgs = args;
+        setTimeout(() => child.emit("close", 0), 10);
+        return child as any;
+      };
+
+      await spawnPostTaskReviewer({
+        projectRoot: spawnTmpDir,
+        dataDir: join(spawnTmpDir, ".cairn"),
+        task: { ...sampleTask, tests },
+        diff: "",
+        log: "",
+        files: [],
+        deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+      });
+
+      return spawnArgs[spawnArgs.indexOf("--allowedTools") + 1]!;
+    }
+
+    test("grants the enumerated read-only git subcommands", async () => {
+      const allowed = await captureAllowedTools(["bun test"]);
+      expect(allowed).toContain("Bash(git diff:*)");
+      expect(allowed).toContain("Bash(git log:*)");
+      expect(allowed).toContain("Bash(git show:*)");
+      expect(allowed).toContain("Bash(git status:*)");
+      expect(allowed).toContain("Bash(git rev-parse:*)");
+    });
+
+    test("never grants blanket git access", async () => {
+      const allowed = await captureAllowedTools(["bun test"]);
+      // Bash(git:*) would authorize git commit / git push / git reset.
+      expect(allowed).not.toContain("Bash(git:*)");
+      expect(allowed).not.toContain("Bash(git commit");
+      expect(allowed).not.toContain("Bash(git push");
+      expect(allowed).not.toContain("Bash(git reset");
+    });
+
+    test("grants one prefix rule per declared test command", async () => {
+      const allowed = await captureAllowedTools([
+        "bun test test/foo.test.ts",
+        "npx tsc -p tsconfig.json",
+      ]);
+      expect(allowed).toContain("Bash(bun test test/foo.test.ts:*)");
+      expect(allowed).toContain("Bash(npx tsc -p tsconfig.json:*)");
+    });
+
+    test("splits a compound test command into one rule per subcommand", async () => {
+      // Claude Code matches each subcommand of a compound command independently,
+      // so a whole-string rule could never match.
+      const allowed = await captureAllowedTools(["cd services/api && bun test"]);
+      expect(allowed).toContain("Bash(cd services/api:*)");
+      expect(allowed).toContain("Bash(bun test:*)");
+      expect(allowed).not.toContain("Bash(cd services/api && bun test:*)");
+    });
+
+    test("splits on ||, ;, |, & and newlines too", async () => {
+      const allowed = await captureAllowedTools([
+        "make build || make clean",
+        "lint; typecheck",
+        "bun test | tee out.log",
+        "serve & sleep 1",
+        "step-one\nstep-two",
+      ]);
+      for (const cmd of [
+        "make build",
+        "make clean",
+        "lint",
+        "typecheck",
+        "bun test",
+        "tee out.log",
+        "serve",
+        "sleep 1",
+        "step-one",
+        "step-two",
+      ]) {
+        expect(allowed).toContain(`Bash(${cmd}:*)`);
+      }
+    });
+
+    test("emits no Bash test rules when tests is absent", async () => {
+      const allowed = await captureAllowedTools(undefined);
+      const rule = `/${spawnTmpDir}/.cairn/reviews/**`;
+      expect(allowed).toBe(
+        `Read,Glob,Grep,Edit(${rule}),Write(${rule}),${GIT_RULES}`
+      );
+    });
+
+    test("emits no Bash test rules when tests is empty", async () => {
+      const allowed = await captureAllowedTools([]);
+      const rule = `/${spawnTmpDir}/.cairn/reviews/**`;
+      expect(allowed).toBe(
+        `Read,Glob,Grep,Edit(${rule}),Write(${rule}),${GIT_RULES}`
+      );
+    });
+
+    test("never emits an empty rule or a trailing separator", async () => {
+      const allowed = await captureAllowedTools(["", "   ", "bun test &&", "; ;"]);
+      expect(allowed).not.toContain("Bash()");
+      expect(allowed).not.toContain(",,");
+      expect(allowed.endsWith(",")).toBe(false);
+      expect(allowed).toContain("Bash(bun test:*)");
+    });
+
+    test("deduplicates repeated subcommands", async () => {
+      const allowed = await captureAllowedTools(["bun test", "bun test", "lint && bun test"]);
+      expect(allowed.split("Bash(bun test:*)").length - 1).toBe(1);
+      expect(allowed).toContain("Bash(lint:*)");
+    });
+
+    test("drops commands whose characters would corrupt the rule string", async () => {
+      // Commas separate rules and parens delimit them — a command containing
+      // either cannot be expressed as a single rule.
+      const allowed = await captureAllowedTools([
+        "bun test --filter a,b",
+        "sh -c (echo hi)",
+        "bun test",
+      ]);
+      expect(allowed).not.toContain("a,b");
+      expect(allowed).not.toContain("echo hi");
+      expect(allowed).toContain("Bash(bun test:*)");
+    });
   });
 
   test("unsets ANTHROPIC_API_KEY in env", async () => {
