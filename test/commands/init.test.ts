@@ -1339,28 +1339,15 @@ describe('buildInitPermissionRules', () => {
     expect(rules.allow?.filter((r) => r === 'Bash(bun test:*)')).toHaveLength(1);
   });
 
-  test('denies exactly the five task-mutating cairn subcommands', () => {
+  test('seeds no deny rules', () => {
+    // A project-wide deny on `cairn task` subcommands binds every Claude
+    // session in the project, including `cairn run`'s own execution agents —
+    // it is NOT bypassed by --dangerously-skip-permissions. It was also never
+    // necessary: in headless `claude -p` mode, anything with side effects is
+    // deny-by-default unless allowlisted, so the reviewer's scoped
+    // --allowedTools already prevented task-state mutation.
     const rules = buildInitPermissionRules({ healthCheck: '', defaultTestCommand: '' });
-    expect(rules.deny).toEqual([
-      'Bash(cairn task start:*)',
-      'Bash(cairn task complete:*)',
-      'Bash(cairn task set-status:*)',
-      'Bash(cairn task add:*)',
-      'Bash(cairn task note:*)',
-    ]);
-  });
-
-  test('never denies cairn task wholesale', () => {
-    // generate-tasks.md requires `cairn task next-id`, and deny beats allow
-    // regardless of specificity — a blanket deny would break task generation
-    // in every project with no way to carve an exception back out.
-    const rules = buildInitPermissionRules({ healthCheck: '', defaultTestCommand: '' });
-    expect(rules.deny).not.toContain('Bash(cairn task:*)');
-    expect(rules.deny).not.toContain('Bash(cairn:*)');
-    for (const rule of rules.deny ?? []) {
-      expect(rule).not.toContain('next-id');
-      expect(rule).not.toContain('show');
-    }
+    expect(rules.deny ?? []).toEqual([]);
   });
 });
 
@@ -1438,23 +1425,17 @@ describe('installClaudeSettings', () => {
     expect(allow).toContain('Bash(bun test:*)');
   });
 
-  test('writes exactly the five deny rules', async () => {
+  test('writes no cairn task deny rules', async () => {
     const rl = createMockPrompt(['y']);
     await installClaudeSettings(tmpDir, config, rl);
-    expect(readSettings().permissions.deny).toEqual([
-      'Bash(cairn task start:*)',
-      'Bash(cairn task complete:*)',
-      'Bash(cairn task set-status:*)',
-      'Bash(cairn task add:*)',
-      'Bash(cairn task note:*)',
-    ]);
+    expect(readSettings().permissions.deny ?? []).toEqual([]);
   });
 
   test('returns the rules it added', async () => {
     const rl = createMockPrompt(['y']);
     const added = await installClaudeSettings(tmpDir, config, rl);
     expect(added).toContain('Bash(git diff:*)');
-    expect(added).toContain('Bash(cairn task start:*)');
+    expect(added).toContain('Bash(bun run build:*)');
   });
 
   test('reports the file and each rule it wrote', async () => {
@@ -1463,7 +1444,7 @@ describe('installClaudeSettings', () => {
     const output = stdoutLines.join('\n');
     expect(output).toContain('.claude/settings.local.json');
     expect(output).toContain('Bash(git diff:*)');
-    expect(output).toContain('Bash(cairn task start:*)');
+    expect(output).toContain('Bash(bun run build:*)');
   });
 
   test('warns that the user must gitignore the settings file themselves', async () => {
@@ -1631,7 +1612,7 @@ describe('runInit', () => {
     expect(fs.existsSync(settingsPath)).toBe(true);
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     expect(settings.permissions.allow).toContain('Bash(git diff:*)');
-    expect(settings.permissions.deny).toContain('Bash(cairn task start:*)');
+    expect(settings.permissions.deny ?? []).toEqual([]);
   });
 
   test('skips the settings file when the user declines', async () => {

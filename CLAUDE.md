@@ -87,16 +87,12 @@ Task IDs are allocated by `cairn task next-id`, which reads and increments `stat
 
 Direct `Edit` or `Write` on `tasks.json` is **forbidden** — for *execution agents mutating a live task list mid-round*. That scoping matters: task generation is exempt, and `commands/generate-tasks.md` deliberately instructs the planning session to write `.cairn/tasks.json` with the `Write` tool. The two are not in conflict. The ban protects a task list that a running `cairn run` loop is concurrently reading and mutating through the CLI; task generation authors the file wholesale *between* rounds, when no loop is live and there is no state to race with.
 
-The ban is enforced three ways:
+The ban is enforced two ways:
 
 1. **The per-agent system prompt** explicitly bans it.
 2. **A directory-scoped write allowlist.** The post-task reviewer's only Edit/Write grant is `<dataDir>/reviews/**`, which excludes `tasks.json`. (Its Bash grants are narrow too: the enumerated read-only git subcommands — `diff`, `log`, `show`, `status`, `rev-parse` — never `Bash(git:*)`, plus one prefix rule per subcommand of the task's declared `tests` entries.) Both the git list (`GIT_INSPECTION_RULES`) and the command-to-rule splitter (`buildCommandRules`) live in `src/claude-settings.ts` and are shared with `cairn init`'s permission seeding, so the two grants cannot drift apart. That reviews-directory allowlist rule is derived from the same resolved `reviewsDir` the reviewer's prompt targets (`src/post-task-reviewer.ts`), so the grant and the write path can never name different data dirs — if they did, every reviewer write would be *silently* denied.
-3. **Explicit `permissions.deny` rules** on the five mutating `cairn task` subcommands (`start`, `complete`, `set-status`, `add`, `note`), written into `.claude/settings.local.json` by `cairn init` (`CAIRN_TASK_DENY_RULES` in `src/commands/init.ts`). Without these, granting the reviewer *any* Bash at all would hand it `cairn task set-status` — a way to mutate task state without ever touching the file.
 
-Two facts about the deny rules that are easy to get wrong:
-
-- **They are not enforced under `--dangerously-skip-permissions`**, so they do **not** bind `cairn run`'s execution agents. They bind the reviewer and the planner, which run in normal permission mode. This asymmetry is intended: the agent that *owns* a task may drive its state; the agents reviewing or planning around it may not.
-- **The deny covers the mutating subcommands only.** A blanket `Bash(cairn task:*)` would break `cairn task next-id`, which task generation requires — deny beats allow regardless of specificity, and Claude Code offers no mechanism to carve an exception back out of a deny. `next-id` and `show` must stay reachable.
+`cairn init` no longer seeds `permissions.deny` rules for the mutating `cairn task` subcommands. A project-wide deny binds *every* Claude session in the project, including `cairn run`'s own execution agents — it is **not** bypassed by `--dangerously-skip-permissions`, and a stale version of this file once claimed otherwise. That false claim caused a real incident: a run loop executed 60 iterations without ever recording a completion, because the deny rule silently blocked every agent's `cairn task start`/`complete` call. The rules were also redundant: in headless `claude -p` mode, anything with side effects is deny-by-default unless allowlisted (there is nobody to prompt), so the reviewer's scoped `--allowedTools` already prevented task-state mutation without a deny list.
 
 The CLI routes all writes through `writeTasksFile()`, which performs atomic temp-file replacement and validates JSON on every write — making corruption structurally impossible via this path.
 

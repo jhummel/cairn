@@ -464,33 +464,17 @@ export function installAgents(
 }
 
 /**
- * The task-state mutations that must stay out of reach of agents running under
- * normal permissions — the planner and the post-task reviewer.
- *
- * Enumerated one by one, and deliberately NOT collapsed into `Bash(cairn task:*)`:
- * `commands/generate-tasks.md` needs `cairn task next-id` to allocate IDs, deny
- * beats allow regardless of specificity, and Claude Code offers no way to carve
- * an exception back out of a deny. A blanket rule would therefore break task
- * generation in every initialized project, silently. `next-id` and `show` are
- * read-only-ish and must stay reachable.
- *
- * `cairn run`'s execution agents are unaffected: they run with
- * `--dangerously-skip-permissions`, which is exactly the intended scoping — the
- * agent that owns a task may drive its state, the ones reviewing it may not.
- */
-const CAIRN_TASK_DENY_RULES: readonly string[] = [
-  'Bash(cairn task start:*)',
-  'Bash(cairn task complete:*)',
-  'Bash(cairn task set-status:*)',
-  'Bash(cairn task add:*)',
-  'Bash(cairn task note:*)',
-];
-
-/**
  * The permission baseline `cairn init` seeds into a project.
  *
  * Allow: read-only git inspection, plus whatever the project configured as its
  * health check and default test command (empty values contribute nothing).
+ *
+ * No deny rules are seeded. A project-wide `deny` in `.claude/settings.local.json`
+ * binds every Claude session in the project, including `cairn run`'s own execution
+ * agents — it is NOT bypassed by `--dangerously-skip-permissions`. It was also
+ * never necessary: in headless `claude -p` mode, anything with side effects is
+ * deny-by-default unless allowlisted (there is nobody to prompt), so the
+ * reviewer's scoped `--allowedTools` already prevented task-state mutation.
  */
 export function buildInitPermissionRules(
   config: Pick<CairnConfig, 'healthCheck' | 'defaultTestCommand'>,
@@ -500,7 +484,6 @@ export function buildInitPermissionRules(
       ...GIT_INSPECTION_RULES,
       ...buildCommandRules([config.healthCheck, config.defaultTestCommand]),
     ],
-    deny: [...CAIRN_TASK_DENY_RULES],
   };
 }
 
@@ -526,9 +509,8 @@ export async function installClaudeSettings(
 
   log('');
   log('Seed .claude/settings.local.json with permission rules?');
-  log('  (Allows read-only git inspection plus your health check and test commands;');
-  log('   denies task-state mutations for planning and review agents. Existing rules');
-  log('   are kept — nothing is removed or rewritten.)');
+  log('  (Allows read-only git inspection plus your health check and test commands.');
+  log('   Existing rules are kept — nothing is removed or rewritten.)');
 
   const write = await promptBoolean(rl, 'Write permission rules?', true);
   if (!write) return [];
