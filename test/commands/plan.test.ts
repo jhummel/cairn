@@ -492,7 +492,30 @@ describe('runPlan', () => {
       const args = calls[0].args;
       expect(args).toContain('--allowedTools');
       const idx = args.indexOf('--allowedTools');
-      expect(args[idx + 1]).toBe('Read,Glob,Grep,Write,Edit,Agent');
+      expect(args[idx + 1]).toBe('Read,Glob,Grep,Write,Edit,Agent,Bash(cairn task next-id:*)');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  test('pre-approves cairn task next-id so ID allocation does not prompt mid-generation', () => {
+    const { tmpDir, cairnDir } = makeTempDir(true, true);
+    const { spawnFn, calls } = makeSpawnSyncSpy();
+    try {
+      runPlan({
+        projectName: 'proj',
+        projectRoot: tmpDir,
+        dataDir: cairnDir,
+        agents: [],
+        spawnSyncFn: spawnFn,
+      });
+      const args = calls[0].args;
+      const idx = args.indexOf('--allowedTools');
+      const allowedTools = args[idx + 1];
+      expect(allowedTools).toContain('Bash(cairn task next-id:*)');
+      // Scoped strictly to next-id: no other cairn task subcommand or bare Bash grant.
+      expect(allowedTools).not.toContain('Bash(cairn task:*)');
+      expect(allowedTools).not.toMatch(/Bash\(cairn task (start|complete|note|set-status|add):/);
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }

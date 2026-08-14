@@ -458,3 +458,9 @@ Cairn Execution Loop Started: 2026-08-14T10:20:37.766Z
 Iteration 1 started: 2026-08-14T10:20:37.778Z — Task #77: Grant the post-task-reviewer git-inspection and per-task test commands
 Iteration 1 completed: 2026-08-14T10:23:23.773Z — SUCCESS
 Iteration 2 started: 2026-08-14T10:24:40.387Z — Task #78: Instruct the post-task reviewer to actually verify
+Iteration 2 completed: 2026-08-14T10:25:59.289Z — SUCCESS
+Iteration 3 started: 2026-08-14T10:27:08.148Z — Task #79: New src/claude-settings.ts — safe merge helper for .claude/settings.local.json
+Iteration 3 completed: 2026-08-14T10:30:17.975Z — SUCCESS
+Iteration 4 started: 2026-08-14T10:32:52.420Z — Task #80: Wire the settings.local.json writer into cairn init
+Iteration 4 completed: 2026-08-14T10:39:08.465Z — SUCCESS
+Iteration 5 started: 2026-08-14T10:42:17.438Z — Task #81: Add cairn task next-id to the planner's allowedTools

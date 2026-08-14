@@ -163,7 +163,7 @@ export function runPlan(opts: RunPlanOpts): void {
   spawnSyncFn('claude', [
     ...buildAgentArgs('planner', 'Planning assistant / software architect', projectRoot),
     '--append-system-prompt', dynamicContext,
-    '--allowedTools', 'Read,Glob,Grep,Write,Edit,Agent',
+    '--allowedTools', 'Read,Glob,Grep,Write,Edit,Agent,Bash(cairn task next-id:*)',
   ], {
     stdio: 'inherit',
     cwd: projectRoot,
