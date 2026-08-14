@@ -86,6 +86,17 @@ Prompts you for each `cairn.json` property with sensible defaults, then creates:
 
 Re-running `cairn init` on an existing project lets you update any field — existing values are shown as defaults so you only change what you need.
 
+`cairn init` then offers (default: yes, skippable) to seed `.claude/settings.local.json` with a permission baseline:
+
+- **Allow** — read-only git inspection (`git diff`, `log`, `show`, `status`, `rev-parse`), plus rules derived from your `healthCheck` and `defaultTestCommand`.
+- **Deny** — the five mutating `cairn task` subcommands (`start`, `complete`, `set-status`, `add`, `note`).
+
+This exists because agents that verify a task actually landed — chiefly the post-task reviewer — need to run tests and inspect git history, but otherwise run under normal permissions (not `--dangerously-skip-permissions`). Without these rules, a fresh project denies them outright in headless mode.
+
+Existing settings are **merged, not replaced**: `permissions.allow` and `permissions.deny` are unioned with whatever is already there, and every other key in the file is left untouched. If you already have settings from plain `claude` usage, you won't lose them.
+
+Cairn deliberately does not edit `.gitignore` or your global git config — add `.claude/settings.local.json` to your own `.gitignore` yourself. Claude Code only auto-ignores that file when Claude Code itself creates it.
+
 ### 2. Plan
 
 ```bash
@@ -239,6 +250,8 @@ touch .cairn/instructions.md
 | `narration.enabled`         | `false`             | Enable voice narration during `cairn run`              |
 | `narration.voice`           | `bf_emma`           | Kokoro TTS voice to use                                |
 | `narration.ntfyTopic`       | (empty)             | ntfy.sh topic for push notifications (no account needed) |
+
+`healthCheck` and `defaultTestCommand` also feed the permission rules `cairn init` can seed into `.claude/settings.local.json` — see [Initialize](#1-initialize).
 
 ### Health Check Auto-Detection
 
