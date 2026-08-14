@@ -88,7 +88,7 @@ Re-running `cairn init` on an existing project lets you update any field — exi
 
 `cairn init` then offers (default: yes, skippable) to seed `.claude/settings.local.json` with a permission baseline — **allow** rules for read-only git inspection (`git diff`, `log`, `show`, `status`, `rev-parse`) plus rules derived from your `healthCheck` and `defaultTestCommand`. No deny rules are seeded.
 
-This exists because agents that verify a task actually landed — chiefly the post-task reviewer — need to run tests and inspect git history, but otherwise run under normal permissions (not `--dangerously-skip-permissions`). Without these rules, a fresh project denies them outright in headless mode.
+This exists because agents that verify a task actually landed — chiefly the post-task reviewer — need to run the project's tests and inspect git history while running under normal (non-skip) permissions, not `--dangerously-skip-permissions`. Without these rules, a fresh project denies them outright in headless mode. The same allow rules also mean your own interactive sessions stop accumulating repetitive approval prompts for the same read-only git and test commands.
 
 Existing settings are **merged, not replaced**: `permissions.allow` is unioned with whatever is already there, and every other key in the file is left untouched. If you already have settings from plain `claude` usage, you won't lose them.
 

@@ -483,3 +483,5 @@ Iteration 3 completed: 2026-08-14T19:16:43.282Z — SUCCESS
 Iteration 4 started: 2026-08-14T19:19:31.955Z — Task #88: Regression test: reviewer's allowedTools grants no cairn task access
 Iteration 4 completed: 2026-08-14T19:21:07.376Z — SUCCESS
 Iteration 5 started: 2026-08-14T19:22:24.937Z — Task #89: CLAUDE.md: correct the tasks.json enforcement story
+Iteration 5 completed: 2026-08-14T19:24:13.862Z — SUCCESS
+Iteration 6 started: 2026-08-14T19:25:53.975Z — Task #90: README.md: correct the permission-baseline section
