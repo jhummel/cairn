@@ -509,3 +509,76 @@ docs-only diff.
 
 ### Verdict
 HAS_GAPS
+
+---
+
+## Task #90: README.md: correct the permission-baseline section
+Reviewed: 2026-08-14T19:32:10Z
+
+### Verification performed
+
+- Read the live `README.md` (lines 84-98) and confirmed the working tree matches the reported
+  1-line-changed diff exactly.
+- Walked `git log --oneline -- README.md` and inspected the pre-image at each prior commit that
+  touched this section (`bb46017` Task #84 — original bulleted Allow/Deny version; `d0ab102`
+  Task #87 — collapsed the bullets to prose, deleted the Deny line, fixed the merge sentence to
+  allow-only, and added the "One exception, and it is a repair" legacy-strip paragraph) to
+  establish the *actual* starting state for Task #90, rather than trusting the task description's
+  characterization of it.
+- This independently confirms the task's own notes' central claim: the task description assumed a
+  bulleted **Deny** section still existed (matching the pre-`#87` `bb46017` state), but `#87` had
+  already trued up requirements 1, 3, and 4 three commits earlier in the same round. Only
+  requirement 2 (the "This exists because..." paragraph) was left incomplete, and only partially —
+  `#87` kept the reviewer-justification half but never added the spec's second justification (the
+  user's own interactive sessions no longer accumulating repetitive approval prompts).
+- Diffed `HEAD~1` vs `HEAD` for `cairn.json` — empty — and compared `dist/cairn`'s mtime (05:28)
+  against this commit's timestamp (13:26:51) to confirm `./install.sh` was not re-run; both
+  round-pinned constraints honored.
+- Confirmed no `src/` or `test/` files appear in this commit's diff — purely `README.md` plus the
+  standard `.cairn/*` task-lifecycle bookkeeping (archival + iteration log).
+- No test command was declared for this task ("Expected Tests: none specified"), and the change is
+  a single-paragraph prose edit with no code path — there is nothing to run. The notes' claim that
+  a test run was skipped for this reason is consistent with the task's own declared scope (compare
+  to Task #89, the analogous docs-only task earlier this round, which also ran no test command).
+
+### Coverage
+```
+Task #90 Requirements
+├── [DONE] Delete the Deny bullet entirely — already true at task start (removed by #87);
+│           confirmed absent from the live file, only prose "No deny rules are seeded." remains
+├── [DONE] Rewrite "This exists because..." to justify only allow rules, adding the missing
+│           second justification (user's own sessions stop accumulating repetitive approval
+│           prompts) — this is the one actual edit in the diff, confirmed present verbatim
+├── [DONE] Fix the merge-behavior sentence to allow-only (not allow+deny) — already true at task
+│           start (fixed by #87); confirmed live text reads "`permissions.allow` is unioned..."
+├── [DONE] Add a note that re-running `cairn init` strips a legacy deny block — already true at
+│           task start (added by #87 as the "One exception, and it is a repair" paragraph);
+│           confirmed present and accurate against `LEGACY_CAIRN_TASK_DENY_RULES` /
+│           `removeSettingsRules()`
+└── [DONE] KEEP the `.claude/settings.local.json` / gitignore warning paragraph as-is — confirmed
+            byte-identical across `HEAD~1` and `HEAD`
+```
+
+### Files Changed
+- `README.md` — single paragraph edited (1 line removed, 1 line added), appending the missing
+  justification clause and tightening phrasing to match the spec's exact wording ("the project's
+  tests", "under normal (non-skip) permissions")
+- `.cairn/tasks.json`, `.cairn/tasks.completed.json`, `.cairn/.cairn_iterations.log`,
+  `.cairn/reviews/round-14.md` — standard task-lifecycle bookkeeping (archival, iteration log, and
+  this review file itself being appended to across iterations), not content of this task
+
+### Gaps
+None detected. Unlike Task #89 (which disclosed two of its three stale-premise deviations but
+missed a third), Task #90's notes explicitly enumerate all four requirements, correctly identify
+which three were already satisfied by `#87` before this task started, verify each against the live
+file before editing, and disclose the deviation transparently rather than presenting stale-premise
+resolution as literal compliance. This review independently re-verified that disclosure against
+`git log`/`git show` rather than taking the notes at their word, and found it accurate.
+
+### Regression Risks
+None detected. Documentation-only change (single paragraph edit); no exports, contracts, code
+paths, or tests touched. `cairn.json` and the installed binary remain untouched, honoring the
+round's pin/unpin constraints. No test coverage exists to regress for a markdown-only file.
+
+### Verdict
+CLEAN
