@@ -322,6 +322,81 @@ export function mergeClaudeSettings(projectRoot: string, rules: PermissionRules)
   return { created: existing === null, addedAllow, addedDeny, settingsPath };
 }
 
+export interface HookSpec {
+  /** Claude Code hook event, e.g. `PreToolUse`. */
+  event: string;
+  /** Tool-name matcher for the group this call appends, e.g. `Edit|Write|Bash`. */
+  matcher: string;
+  /** Shell command the hook runs. Presence is detected by this exact string. */
+  command: string;
+}
+
+export interface HookMergeResult {
+  /** True when this call created the settings file from scratch. */
+  created: boolean;
+  /** True when this call appended the hook; false when it was already registered. */
+  added: boolean;
+  /** Absolute path of the settings file this call targeted. */
+  settingsPath: string;
+}
+
+function groupHasCommand(group: unknown, command: string): boolean {
+  if (!isPlainObject(group) || !Array.isArray(group.hooks)) return false;
+  return group.hooks.some((hook) => isPlainObject(hook) && hook.command === command);
+}
+
+/**
+ * Register a command hook in `<projectRoot>/.claude/settings.local.json`, using
+ * Claude Code's `{ hooks: { <event>: [ { matcher, hooks: [ { type, command } ] } ] } }`
+ * shape.
+ *
+ * Idempotent: if any group under `spec.event` — whatever its matcher — already
+ * holds a hook with `spec.command`, the file is not written. Otherwise a new
+ * matcher group is appended; the user's own groups are never mutated, so their
+ * matchers, sibling hooks and options stay exactly as written. Other events and
+ * unknown keys round-trip.
+ *
+ * Throws `ClaudeSettingsError` — without touching the file — if the existing
+ * settings cannot be parsed, or if `hooks` / `hooks.<event>` has an unexpected
+ * shape.
+ */
+export function mergeHookSettings(projectRoot: string, spec: HookSpec): HookMergeResult {
+  const settingsPath = claudeSettingsPath(projectRoot);
+  const existing = readSettings(settingsPath);
+
+  const hooks = existing?.hooks;
+  if (hooks !== undefined && !isPlainObject(hooks)) {
+    throw new ClaudeSettingsError(
+      `Refusing to modify ${settingsPath}: "hooks" is not an object. ` +
+        `Fix or remove the file by hand — Cairn will not overwrite it.`
+    );
+  }
+
+  const groups = hooks?.[spec.event];
+  if (groups !== undefined && !Array.isArray(groups)) {
+    throw new ClaudeSettingsError(
+      `Refusing to modify ${settingsPath}: "hooks.${spec.event}" is not an array. ` +
+        `Fix or remove the file by hand — Cairn will not overwrite it.`
+    );
+  }
+
+  const current = (groups as unknown[] | undefined) ?? [];
+  if (current.some((group) => groupHasCommand(group, spec.command))) {
+    return { created: false, added: false, settingsPath };
+  }
+
+  const group = { matcher: spec.matcher, hooks: [{ type: 'command', command: spec.command }] };
+  const next: Record<string, unknown> = {
+    ...(existing ?? {}),
+    hooks: { ...(hooks ?? {}), [spec.event]: [...current, group] },
+  };
+
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  writeSettingsAtomic(settingsPath, `${JSON.stringify(next, null, 2)}\n`);
+
+  return { created: existing === null, added: true, settingsPath };
+}
+
 /**
  * Subtract `rules` from `<projectRoot>/.claude/settings.local.json` — the
  * migration counterpart to `mergeClaudeSettings`, for retracting rules an older

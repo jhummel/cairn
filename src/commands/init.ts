@@ -11,7 +11,9 @@ import {
   GIT_INSPECTION_RULES,
   buildCommandRules,
   mergeClaudeSettings,
+  mergeHookSettings,
   removeSettingsRules,
+  type HookSpec,
   type PermissionRules,
 } from '../claude-settings';
 
@@ -517,12 +519,34 @@ export function buildInitPermissionRules(
 }
 
 /**
- * Offer to seed the project's `.claude/settings.local.json` permission baseline.
+ * The `/cairn-run` containment hook. `cairn hook pre-tool-use` only acts on
+ * subagent calls (it is a no-op for main sessions and headless `cairn run`
+ * agents), so registering it project-wide is safe.
+ *
+ * Seeded into `.claude/settings.local.json`, never the committed
+ * `.claude/settings.json`: Cairn must not edit git-tracked settings that change
+ * every teammate's sessions.
+ */
+export const CAIRN_PRE_TOOL_USE_HOOK: HookSpec = {
+  event: 'PreToolUse',
+  matcher: 'Edit|Write|Bash',
+  command: `${BRAND.name} hook pre-tool-use`,
+};
+
+/**
+ * Offer to seed the project's `.claude/settings.local.json` permission baseline
+ * and `CAIRN_PRE_TOOL_USE_HOOK`, under a single prompt.
  *
  * Prompted rather than silent, and defaulted to yes: these rules apply to every
  * Claude session in the project, not just Cairn's, so the user gets a visible
- * confirmation. Returns the rules actually added — empty when the user declined,
- * when everything was already present, or when the existing file was unreadable.
+ * confirmation. Returns what was actually added — the rules, plus a
+ * `<event> hook: <command>` entry when the hook was registered — and is empty
+ * when the user declined, when everything was already present, or when the
+ * existing file was unreadable.
+ *
+ * The hook merge runs first: it validates the `hooks` shape on top of everything
+ * the permission helpers check, so a file any step would refuse is refused
+ * before any step writes.
  *
  * Also strips `LEGACY_CAIRN_TASK_DENY_RULES` — a project seeded by the previous
  * version of init has a broken `cairn run` until they are gone. Removals are
@@ -541,20 +565,24 @@ export async function installClaudeSettings(
 ): Promise<string[]> {
   const log = opts.log ?? ((m: string) => console.log(m));
   const rules = buildInitPermissionRules(config);
+  const hook = CAIRN_PRE_TOOL_USE_HOOK;
 
   log('');
-  log('Seed .claude/settings.local.json with permission rules?');
-  log('  (Allows read-only git inspection plus your health check and test commands.');
-  log('   Your own rules are kept and never rewritten. The only thing removed is a');
-  log('   legacy "cairn task" deny block seeded by an older cairn init, which breaks');
-  log('   cairn run.)');
+  log('Seed .claude/settings.local.json with permission rules and the containment hook?');
+  log('  (Allows read-only git inspection plus your health check and test commands,');
+  log(`   and registers the /cairn-run containment hook (${hook.event} → ${hook.command}),`);
+  log('   which only restricts /cairn-run subagents. Your own rules and hooks are kept');
+  log('   and never rewritten. The only thing removed is a legacy "cairn task" deny');
+  log('   block seeded by an older cairn init, which breaks cairn run.)');
 
-  const write = await promptBoolean(rl, 'Write permission rules?', true);
+  const write = await promptBoolean(rl, 'Write permission rules and hook?', true);
   if (!write) return [];
 
+  let hookResult;
   let removal;
   let result;
   try {
+    hookResult = mergeHookSettings(projectRoot, hook);
     removal = removeSettingsRules(projectRoot, { deny: [...LEGACY_CAIRN_TASK_DENY_RULES] });
     result = mergeClaudeSettings(projectRoot, rules);
   } catch (err) {
@@ -575,15 +603,23 @@ export async function installClaudeSettings(
     log('    re-ran one task forever while reporting success.');
   }
 
-  const added = [...result.addedAllow, ...result.addedDeny];
+  const added = [
+    ...result.addedAllow,
+    ...result.addedDeny,
+    ...(hookResult.added ? [`${hook.event} hook: ${hook.command}`] : []),
+  ];
   if (added.length === 0) {
-    if (removed.length === 0) log('  .claude/settings.local.json already has every rule.');
+    if (removed.length === 0) {
+      log('  .claude/settings.local.json already has every rule and the containment hook.');
+    }
     return [];
   }
 
-  log(`  ${result.created ? 'Created' : 'Updated'}: .claude/settings.local.json`);
+  // The hook merge ran first, so it is the one that saw a missing file.
+  log(`  ${hookResult.created || result.created ? 'Created' : 'Updated'}: .claude/settings.local.json`);
   for (const rule of result.addedAllow) log(`    allow: ${rule}`);
   for (const rule of result.addedDeny) log(`    deny:  ${rule}`);
+  if (hookResult.added) log(`    hook:  ${hook.event} (${hook.matcher}) → ${hook.command}`);
 
   log('');
   log('  WARNING: add .claude/settings.local.json to your .gitignore yourself.');

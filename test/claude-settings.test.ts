@@ -7,6 +7,7 @@ import {
   claudeSettingsPath,
   canonicalizeRule,
   mergeClaudeSettings,
+  mergeHookSettings,
   removeSettingsRules,
 } from '../src/claude-settings';
 
@@ -580,6 +581,132 @@ describe('removeSettingsRules — malformed input refusal', () => {
     expect(() => removeSettingsRules(projectRoot, { deny: LEGACY_DENY })).toThrow(
       ClaudeSettingsError
     );
+    expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe(raw);
+  });
+});
+
+describe('mergeHookSettings', () => {
+  const spec = { event: 'PreToolUse', matcher: 'Edit|Write|Bash', command: 'cairn hook pre-tool-use' };
+  const cairnGroup = {
+    matcher: 'Edit|Write|Bash',
+    hooks: [{ type: 'command', command: 'cairn hook pre-tool-use' }],
+  };
+
+  it('creates the settings file with the hook when absent', () => {
+    const result = mergeHookSettings(projectRoot, spec);
+
+    expect(result).toEqual({ created: true, added: true, settingsPath: settingsFile() });
+    expect(readSettings()).toEqual({ hooks: { PreToolUse: [cairnGroup] } });
+  });
+
+  it('merges into an existing file, preserving permissions and unknown keys', () => {
+    writeSettings(
+      JSON.stringify({
+        permissions: { allow: ['Bash(ls:*)'], defaultMode: 'acceptEdits' },
+        model: 'opus',
+        env: { FOO: '1' },
+      })
+    );
+
+    const result = mergeHookSettings(projectRoot, spec);
+
+    expect(result.created).toBe(false);
+    expect(result.added).toBe(true);
+    expect(readSettings()).toEqual({
+      permissions: { allow: ['Bash(ls:*)'], defaultMode: 'acceptEdits' },
+      model: 'opus',
+      env: { FOO: '1' },
+      hooks: { PreToolUse: [cairnGroup] },
+    });
+  });
+
+  it("appends a new group, leaving the user's PreToolUse groups and other events intact", () => {
+    const userPre = {
+      matcher: 'Bash',
+      hooks: [{ type: 'command', command: './lint.sh', timeout: 5 }],
+    };
+    const userPost = { matcher: '', hooks: [{ type: 'command', command: './after.sh' }] };
+    writeSettings(
+      JSON.stringify({
+        hooks: { PreToolUse: [userPre, 'stray'], PostToolUse: [userPost], Stop: [] },
+      })
+    );
+
+    expect(mergeHookSettings(projectRoot, spec).added).toBe(true);
+
+    expect(readSettings().hooks).toEqual({
+      PreToolUse: [userPre, 'stray', cairnGroup],
+      PostToolUse: [userPost],
+      Stop: [],
+    });
+  });
+
+  it('adds an event key alongside other events when the event is missing', () => {
+    const userPost = { matcher: '', hooks: [{ type: 'command', command: './after.sh' }] };
+    writeSettings(JSON.stringify({ hooks: { PostToolUse: [userPost] } }));
+
+    mergeHookSettings(projectRoot, spec);
+
+    expect(readSettings().hooks).toEqual({ PostToolUse: [userPost], PreToolUse: [cairnGroup] });
+  });
+
+  it('is a no-op with no write on a second run', () => {
+    mergeHookSettings(projectRoot, spec);
+    const before = fs.readFileSync(settingsFile(), 'utf-8');
+    const inode = fs.statSync(settingsFile()).ino;
+
+    const result = mergeHookSettings(projectRoot, spec);
+
+    expect(result).toEqual({ created: false, added: false, settingsPath: settingsFile() });
+    expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe(before);
+    // An atomic write renames a fresh file into place; an unchanged inode proves no write.
+    expect(fs.statSync(settingsFile()).ino).toBe(inode);
+  });
+
+  it('treats the command as present in any PreToolUse group, whatever its matcher', () => {
+    const raw = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: '*',
+            hooks: [
+              { type: 'command', command: './mine.sh' },
+              { type: 'command', command: 'cairn hook pre-tool-use' },
+            ],
+          },
+        ],
+      },
+    });
+    writeSettings(raw);
+
+    expect(mergeHookSettings(projectRoot, spec).added).toBe(false);
+    expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe(raw);
+  });
+
+  it('does not count the command under a different event as present', () => {
+    writeSettings(JSON.stringify({ hooks: { PostToolUse: [cairnGroup] } }));
+
+    expect(mergeHookSettings(projectRoot, spec).added).toBe(true);
+    expect(readSettings().hooks.PreToolUse).toEqual([cairnGroup]);
+  });
+
+  it('throws on malformed JSON and leaves the file byte-identical', () => {
+    writeSettings('{ "hooks": ');
+    expect(() => mergeHookSettings(projectRoot, spec)).toThrow(ClaudeSettingsError);
+    expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe('{ "hooks": ');
+  });
+
+  it('throws when "hooks" is not an object, leaving the file untouched', () => {
+    const raw = JSON.stringify({ hooks: ['nope'] });
+    writeSettings(raw);
+    expect(() => mergeHookSettings(projectRoot, spec)).toThrow(ClaudeSettingsError);
+    expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe(raw);
+  });
+
+  it('throws when the event entry is not an array, leaving the file untouched', () => {
+    const raw = JSON.stringify({ hooks: { PreToolUse: { matcher: 'Bash' } } });
+    writeSettings(raw);
+    expect(() => mergeHookSettings(projectRoot, spec)).toThrow(ClaudeSettingsError);
     expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe(raw);
   });
 });

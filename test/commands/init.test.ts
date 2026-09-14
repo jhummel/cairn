@@ -14,6 +14,7 @@ import {
   installAgents,
   buildInitPermissionRules,
   installClaudeSettings,
+  CAIRN_PRE_TOOL_USE_HOOK,
   showNextSteps,
   runInit,
   type PromptInterface,
@@ -1522,6 +1523,79 @@ describe('installClaudeSettings', () => {
     expect(lines.join('\n')).toContain('Bash(git diff:*)');
     expect(stdoutLines).toEqual([]);
   });
+
+  // --- PreToolUse containment hook ---
+
+  const cairnHookGroup = {
+    matcher: 'Edit|Write|Bash',
+    hooks: [{ type: 'command', command: 'cairn hook pre-tool-use' }],
+  };
+
+  test('the seeded hook spec targets cairn hook pre-tool-use on Edit|Write|Bash', () => {
+    expect(CAIRN_PRE_TOOL_USE_HOOK).toEqual({
+      event: 'PreToolUse',
+      matcher: 'Edit|Write|Bash',
+      command: 'cairn hook pre-tool-use',
+    });
+  });
+
+  test('seeds the PreToolUse containment hook under the same prompt', async () => {
+    const questions: string[] = [];
+    const rl: PromptInterface = {
+      question: async (query: string) => {
+        questions.push(query);
+        return 'y';
+      },
+      close: () => {},
+    };
+    await installClaudeSettings(tmpDir, config, rl);
+    expect(questions).toHaveLength(1);
+    expect(readSettings().hooks).toEqual({ PreToolUse: [cairnHookGroup] });
+  });
+
+  test('declining writes no hook', async () => {
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['n']));
+    expect(fs.existsSync(settingsPath())).toBe(false);
+  });
+
+  test('explains the containment hook before prompting and reports adding it', async () => {
+    await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+    const output = stdoutLines.join('\n');
+    expect(output).toContain('containment hook');
+    expect(output).toContain('hook:  PreToolUse (Edit|Write|Bash) → cairn hook pre-tool-use');
+  });
+
+  test('returns the hook among what it added', async () => {
+    const added = await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+    expect(added).toContain('PreToolUse hook: cairn hook pre-tool-use');
+  });
+
+  test("keeps the user's own hooks and adds the hook even when every rule is present", async () => {
+    const userPre = { matcher: 'Bash', hooks: [{ type: 'command', command: './lint.sh' }] };
+    fs.mkdirSync(path.join(tmpDir, '.claude'), { recursive: true });
+    fs.writeFileSync(
+      settingsPath(),
+      JSON.stringify({
+        permissions: { allow: buildInitPermissionRules(config).allow },
+        hooks: { PreToolUse: [userPre] },
+      }),
+    );
+
+    const added = await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+
+    expect(added).toEqual(['PreToolUse hook: cairn hook pre-tool-use']);
+    expect(readSettings().hooks.PreToolUse).toEqual([userPre, cairnHookGroup]);
+    expect(stdoutLines.join('\n')).not.toContain('already has every rule');
+  });
+
+  test('reports a hooks-shape error and continues without throwing', async () => {
+    fs.mkdirSync(path.join(tmpDir, '.claude'), { recursive: true });
+    fs.writeFileSync(settingsPath(), JSON.stringify({ hooks: 'broken' }));
+    const added = await installClaudeSettings(tmpDir, config, createMockPrompt(['y']));
+    expect(added).toEqual([]);
+    expect(stdoutLines.join('\n')).toContain('Refusing to modify');
+    expect(JSON.parse(fs.readFileSync(settingsPath(), 'utf8')).hooks).toBe('broken');
+  });
 });
 
 // --- installClaudeSettings: legacy deny-block migration ---
@@ -1790,6 +1864,18 @@ describe('runInit', () => {
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     expect(settings.permissions.allow).toContain('Bash(git diff:*)');
     expect(settings.permissions.deny ?? []).toEqual([]);
+  });
+
+  test('seeds the PreToolUse containment hook with default answers', async () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    const rl = createMockPrompt(allDefaultAnswers());
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, '.claude', 'settings.local.json'), 'utf8'),
+    );
+    expect(settings.hooks.PreToolUse).toEqual([
+      { matcher: 'Edit|Write|Bash', hooks: [{ type: 'command', command: 'cairn hook pre-tool-use' }] },
+    ]);
   });
 
   test('skips the settings file when the user declines', async () => {
