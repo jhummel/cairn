@@ -487,3 +487,8 @@ Iteration 5 completed: 2026-08-14T19:24:13.862Z — SUCCESS
 Iteration 6 started: 2026-08-14T19:25:53.975Z — Task #90: README.md: correct the permission-baseline section
 Iteration 6 completed: 2026-08-14T19:26:56.289Z — SUCCESS
 Iteration 7: COMPLETION FLAG FOUND
+Cairn Execution Loop Started: 2026-09-14T03:34:50.179Z
+
+Iteration 1 started: 2026-09-14T03:34:50.204Z — Task #91: Extract post-iteration logic from run.ts into settleTask (src/settle.ts)
+Iteration 1 completed: 2026-09-14T03:37:38.022Z — SUCCESS
+Iteration 2 started: 2026-09-14T03:39:39.118Z — Task #92: Run-state store (src/run-state.ts)

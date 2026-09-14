@@ -80,6 +80,8 @@ describe('initCoreFiles', () => {
       '.cairn_completed_ids',
       '.cairn_tasks_snapshot.json',
       '.cairn_task_*_notes.md',
+      '.cairn_run_state.json',
+      '.cairn_run_state.json.lock',
       '.ralph_task_*_notes.md',
       'instructions.md',
     ]);

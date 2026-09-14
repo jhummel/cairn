@@ -24,6 +24,8 @@ const TEMP_IGNORE_SUFFIXES = [
   'completed_ids',
   'tasks_snapshot.json',
   'task_*_notes.md',
+  'run_state.json',
+  'run_state.json.lock',
 ] as const;
 
 const GITIGNORE_CURRENT_HEADER =
