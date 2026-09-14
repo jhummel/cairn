@@ -120,7 +120,46 @@ Cairn's own health check (`cairn.json`'s `healthCheck` field) is `bun build --co
 
 The fix used during past self-modifying rounds — worth reusing for any future one:
 
-1. **Freeze the installed binary before starting the round.** Copy the last known-good `~/.local/bin/cairn` aside, or simply stop re-running `./install.sh` for the duration of the round. Agents are explicitly told not to run `./install.sh` themselves.
-2. **Redirect the health check to a throwaway outfile.** Point `healthCheck` at something like `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck` instead of the real `dist/cairn` output, so a build-outfile-path task doesn't corrupt the binary developers are actively using.
+1. **Freeze the installed binary before starting the round.** `install.sh` installs `~/.local/bin/cairn` as a **symlink** to `dist/cairn` (`ln -sf`), so merely not re-running `./install.sh` pins nothing: any `bun run build` mid-round — including the health check itself — rewrites `dist/cairn` and with it the binary on PATH. Pinning means replacing the symlink with a real copy of a known-good build. Agents are explicitly told not to run `./install.sh` themselves.
+2. **Redirect the health check to a throwaway outfile.** Point `healthCheck` at `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck` instead of the real `dist/cairn` output, so a build-outfile-path task doesn't corrupt the binary developers are actively using.
 3. **Tell agents both values are user-managed for the round.** Any task whose file scope could plausibly touch `install.sh`, `package.json`'s build script, or `healthCheck` should say so explicitly in its description (e.g. "do NOT modify `cairn.json`'s `healthCheck` value — the user has pinned the binary and redirected the health check to a throwaway outfile"). Without that, an unrelated task can innocently "fix" the health check back to the real outfile and re-introduce the self-modification hazard mid-round.
 4. **Revert both manually once the round finishes.** Un-pin the binary (re-run `./install.sh`) and restore `healthCheck` to its real value. Neither is done automatically — both are explicitly user-managed for the duration of the round.
+
+### Commands
+
+Pin, from the repo root, before the round:
+
+```bash
+# Build a known-good binary from the committed state
+bun run build
+
+# Replace the symlink with a real copy (mv swaps the link out atomically)
+cp dist/cairn ~/.local/bin/cairn.tmp && mv ~/.local/bin/cairn.tmp ~/.local/bin/cairn
+
+# Verify: a regular file (-rwx), not a symlink (lrwx ... -> dist/cairn)
+ls -la ~/.local/bin/cairn && cairn --version
+```
+
+Then in `cairn.json`:
+
+```json
+"healthCheck": "bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck"
+```
+
+Unpin, from the repo root, after the round:
+
+```bash
+# Rebuilds dist/cairn; ln -sf restores the symlink over the pinned copy
+./install.sh
+
+# Verify: ~/.local/bin/cairn -> .../dist/cairn again
+ls -la ~/.local/bin/cairn
+```
+
+Then restore `cairn.json`'s normal value:
+
+```json
+"healthCheck": "bun run build"
+```
+
+While pinned, agents may still run `bun run build` — it updates `dist/cairn`, but the `cairn` on PATH stays on the pinned copy.
