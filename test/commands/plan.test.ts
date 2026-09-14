@@ -413,6 +413,21 @@ describe('buildDynamicContext', () => {
     expect(result).not.toContain('post-task-reviewer');
     expect(result).not.toContain('AVAILABLE SPECIALIST AGENTS');
   });
+
+  test('excludes cairn-task-agent from the specialist agents section — it is never offered as a specialist', () => {
+    const agents: AgentInfo[] = [
+      { name: 'cairn-task-agent', description: 'Executes one Cairn task from a prompt file.', model: '', file: 'cairn-task-agent.md', internal: true },
+      { name: 'specialist', description: 'Useful agent', model: 'opus', file: 'specialist.md' },
+    ];
+    const result = buildDynamicContext({
+      projectName: 'proj',
+      projectRoot: '/tmp/test',
+      dataDir: '/tmp/test/.cairn',
+      agents,
+    });
+    expect(result).not.toContain('cairn-task-agent');
+    expect(result).toContain('specialist');
+  });
 });
 
 // ── runPlan tests ──────────────────────────────────────────

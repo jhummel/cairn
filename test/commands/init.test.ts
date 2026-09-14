@@ -1268,6 +1268,20 @@ describe('installAgents', () => {
     expect(fs.existsSync(path.join(destDir, 'summarizer.md'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'post-task-reviewer.md'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'audit-planner.md'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'cairn-task-agent.md'))).toBe(true);
+  });
+
+  test('installs cairn-task-agent.md from a cairnRoot override pointing at the real repo root', () => {
+    // Uses the real repo root as cairnRoot (rather than a fake fixture dir) so
+    // this exercises the actual committed agents/cairn-task-agent.md file, not a
+    // stand-in — the file /cairn-run's run agent depends on for every task launch.
+    const repoRoot = path.join(__dirname, '..', '..');
+    installAgents(tmpDir, repoRoot);
+    const destPath = path.join(tmpDir, '.claude', 'agents', 'cairn-task-agent.md');
+    expect(fs.existsSync(destPath)).toBe(true);
+    const content = fs.readFileSync(destPath, 'utf8');
+    expect(content).toContain('name: cairn-task-agent');
+    expect(content).toContain('internal: true');
   });
 
   test('copies audit-planner.md from mock cairnRoot to .claude/agents/ with correct content', () => {

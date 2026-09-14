@@ -346,6 +346,24 @@ Agent body here.`);
     }
   });
 
+  test('falls back to the generalist prompt when a task names cairn-task-agent as its specialist', () => {
+    // cairn-task-agent is the internal executor /cairn-run always launches — a
+    // task's own `agent` field must never turn it into a specialist prompt.
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const agents: AgentInfo[] = [
+        { name: 'cairn-task-agent', description: 'Executes one Cairn task from a prompt file.', model: '', file: 'cairn-task-agent.md', internal: true },
+      ];
+      const prompt = buildSystemPrompt(makeInput({ taskAgent: 'cairn-task-agent', agents }));
+      expect(prompt).not.toContain('SPECIALIST INSTRUCTIONS');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[cairn] Agent 'cairn-task-agent' is marked internal")
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   // --- subagent mode ---
 
   describe('subagent mode', () => {

@@ -400,6 +400,32 @@ Body text.`
       expect(agent!.internal).toBe(true);
     }
   });
+
+  it('parses cairn-task-agent frontmatter, including the camelCase maxTurns key, without breaking other keys', () => {
+    // cairn-task-agent.md declares a numeric `maxTurns` key alongside the usual
+    // string fields. The frontmatter parser's key regex (`\w+`) already matches
+    // camelCase, but this pins that down so a future change to the parser (e.g.
+    // switching to a stricter key pattern) can't silently drop maxTurns or, worse,
+    // corrupt neighboring keys like `internal`.
+    const agentsDir = path.join(tmpDir, '.claude', 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(agentsDir, 'cairn-task-agent.md'),
+      `---
+name: cairn-task-agent
+description: Executes one Cairn task from a prompt file written by \`cairn round next\`. Internal — launched by /cairn-run only.
+internal: true
+maxTurns: 150
+---
+
+Body text.`
+    );
+
+    const agents = discoverAgents(tmpDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('cairn-task-agent');
+    expect(agents[0].internal).toBe(true);
+  });
 });
 
 describe('setConfigEnvVars', () => {
