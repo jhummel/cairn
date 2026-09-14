@@ -11,15 +11,38 @@ import { getRound } from "./task-counter";
 import type { Task } from "./types";
 import type { CairnConfig } from "./types";
 import { loadPersonalInstructions } from "./personal-instructions";
-import { GIT_INSPECTION_RULES, buildCommandRules } from "./claude-settings";
+import { GIT_INSPECTION_RULES } from "./claude-settings";
+import { BRAND } from "./brand";
 
-// Grant the reviewer exactly what a task declared in `tests` so it can actually
-// re-run them. Granting the declared command also covers one-off invocations
-// (e.g. `npx tsc -p tsconfig.json`) that a static config-derived rule would miss.
-// The rule mechanics — and the read-only git list — are shared with `cairn init`'s
-// settings.local.json seeding so the two grants can never drift apart.
-function buildTestCommandRules(tests?: string[]): string[] {
-  return buildCommandRules(tests ?? []);
+/**
+ * The change under review: either embedded (diff, log and changed files
+ * captured up front) or a commit range the reviewer inspects with git itself.
+ */
+export type ReviewedChange =
+  | { diff: string; log: string; files: string[]; diffRange?: undefined }
+  | { diffRange: string; diff?: undefined; log?: undefined; files?: undefined };
+
+function renderChange(change: ReviewedChange): string {
+  if (change.diffRange !== undefined) {
+    const range = change.diffRange;
+    return `## Changes Under Review
+The diff is not embedded. Inspect the range \`${range}\` yourself:
+
+- \`git diff ${range}\` — the full diff
+- \`git log --oneline ${range}\` — the commits
+- \`git diff --name-only ${range}\` — the changed files`;
+  }
+  const changedFiles = change.files.length ? change.files.join("\n") : "(no files changed)";
+  return `## Git Log (since task started)
+${change.log || "(no commits)"}
+
+## Changed Files
+${changedFiles}
+
+## Git Diff
+\`\`\`diff
+${change.diff || "(empty diff)"}
+\`\`\``;
 }
 
 export function buildPostTaskReviewUserPrompt(opts: {
@@ -31,17 +54,23 @@ export function buildPostTaskReviewUserPrompt(opts: {
     tests?: string[];
     directory?: string;
   };
-  diff: string;
-  log: string;
-  files: string[];
   dataDir?: string;
   reviewFilePath: string;
-}): string {
-  const { task, diff, log, files, dataDir, reviewFilePath } = opts;
+  /** formatTestSummary output from the validation cairn already ran. */
+  testSummary?: string;
+} & ReviewedChange): string {
+  const { task, dataDir, reviewFilePath, testSummary } = opts;
   const personalInstructions = dataDir ? loadPersonalInstructions(dataDir) : "";
   const filesList = task.files?.length ? task.files.join("\n") : "(none specified)";
   const testsList = task.tests?.length ? task.tests.join("\n") : "(none specified)";
-  const changedFiles = files.length ? files.join("\n") : "(no files changed)";
+  const testSection = testSummary === undefined
+    ? ""
+    : `## Test Validation (already run by ${BRAND.name} — do not re-run)
+${testSummary}
+
+---
+
+`;
 
   return `${personalInstructions}## Task Under Review
 
@@ -59,16 +88,7 @@ ${testsList}
 
 ---
 
-## Git Log (since task started)
-${log || "(no commits)"}
-
-## Changed Files
-${changedFiles}
-
-## Git Diff
-\`\`\`diff
-${diff || "(empty diff)"}
-\`\`\`
+${testSection}${renderChange(opts)}
 
 ---
 
@@ -132,6 +152,7 @@ export interface SpawnPostTaskReviewerOpts {
   diff: string;
   log: string;
   files: string[];
+  testSummary?: string;
   streamOpts?: ProcessStreamOptions;
   deps?: {
     spawn?: SpawnerSpawnFn;
@@ -142,7 +163,7 @@ export interface SpawnPostTaskReviewerOpts {
 export async function spawnPostTaskReviewer(
   opts: SpawnPostTaskReviewerOpts
 ): Promise<{ exitCode: number }> {
-  const { projectRoot, dataDir, task, diff, log, files, streamOpts, deps } = opts;
+  const { projectRoot, dataDir, task, diff, log, files, testSummary, streamOpts, deps } = opts;
 
   const doSpawn: SpawnerSpawnFn = deps?.spawn ?? (nodeSpawn as any);
   const doProcessStream: SpawnerProcessStreamFn =
@@ -152,7 +173,7 @@ export async function spawnPostTaskReviewer(
 
   const { reviewsDir, reviewFilePath } = resolveReviewFilePath(projectRoot, dataDir);
 
-  const userPrompt = buildPostTaskReviewUserPrompt({ task, diff, log, files, dataDir, reviewFilePath });
+  const userPrompt = buildPostTaskReviewUserPrompt({ task, diff, log, files, dataDir, reviewFilePath, testSummary });
 
   // Permission-rule paths must be absolute (leading "//"). A relative glob like
   // Edit(.cairn/reviews/**) is resolved against the shell's CURRENT working
@@ -172,6 +193,8 @@ export async function spawnPostTaskReviewer(
   // denied with no error and no review output.
   const reviewFileRule = `/${reviewsDir}/**`;
 
+  // No test-command rules: cairn validates the task's tests before the review
+  // and hands the reviewer the summary, so the reviewer never re-runs them.
   const allowedTools = [
     "Read",
     "Glob",
@@ -179,7 +202,6 @@ export async function spawnPostTaskReviewer(
     `Edit(${reviewFileRule})`,
     `Write(${reviewFileRule})`,
     ...GIT_INSPECTION_RULES,
-    ...buildTestCommandRules(task.tests),
   ].join(",");
 
   const args = [
@@ -242,6 +264,8 @@ export interface RunPostTaskReviewOpts {
   taskStatus: string;
   beforeSha: string | null;
   config: CairnConfig;
+  /** formatTestSummary output from settle's validation, when one ran. */
+  testSummary?: string;
   streamOpts?: ProcessStreamOptions;
   deps?: {
     captureGitSha?: typeof captureGitSha;
@@ -259,6 +283,7 @@ export async function runPostTaskReview(opts: RunPostTaskReviewOpts): Promise<vo
     taskStatus,
     beforeSha,
     config,
+    testSummary,
     streamOpts,
     deps,
   } = opts;
@@ -301,6 +326,7 @@ export async function runPostTaskReview(opts: RunPostTaskReviewOpts): Promise<vo
       diff,
       log: gitLog,
       files,
+      testSummary,
       streamOpts,
     });
 

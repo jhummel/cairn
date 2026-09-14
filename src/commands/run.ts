@@ -9,7 +9,7 @@ import { processStream, sendToNarrate as defaultSendToNarrate, sendNtfy as defau
 import { startNarrationServer as defaultStartNarrationServer, stopNarrationServer as defaultStopNarrationServer, checkNarrationHealth as defaultCheckNarrationHealth, findNarrationSocketPath as defaultFindNarrationSocketPath, type StartNarrationOpts } from '../narration';
 import { loadCompletedIds as defaultLoadCompletedIds, selectNextTask as defaultSelectNextTask, buildIterationPrompt as defaultBuildIterationPrompt } from '../task-selector';
 import { runHealthCheck as defaultRunHealthCheck, type HealthCheckResult } from '../health-check';
-import { validateTaskTests as defaultValidateTaskTests, type ValidateTaskTestsOpts, type ValidationResult } from '../test-validator';
+import { validateTaskTests as defaultValidateTaskTests, formatTestSummary, type ValidateTaskTestsOpts, type ValidationResult } from '../test-validator';
 import { archiveCompletedTasks as defaultArchiveCompletedTasks, type ArchiveResult } from '../task-archiver';
 import { captureGitSha as defaultCaptureGitSha, runPostTaskReview as defaultRunPostTaskReview, type RunPostTaskReviewOpts } from '../post-task-reviewer';
 import { loadPersonalInstructions } from '../personal-instructions';
@@ -725,6 +725,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
           taskStatus: updatedTaskStatus,
           beforeSha,
           config,
+          testSummary: settled.validation ? formatTestSummary(settled.validation) : undefined,
           streamOpts,
         });
         await settleTask({ ...settleInput, reviewed: true }, settleDeps);

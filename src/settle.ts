@@ -1,11 +1,11 @@
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 import type { CairnConfig, Task } from './types';
-import type { ValidateTaskTestsOpts, ValidationResult } from './test-validator';
+import { formatTestSummary, testLogPath, type ValidateTaskTestsOpts, type ValidationResult } from './test-validator';
 import type { TasksFile } from './tasks-file';
 import type { ArchiveResult } from './task-archiver';
 import { loadArchivedTask } from './task-archiver';
-import { buildPostTaskReviewUserPrompt, captureGitSha, getGitDiff, resolveReviewFilePath } from './post-task-reviewer';
+import { buildPostTaskReviewUserPrompt, captureGitSha, resolveReviewFilePath } from './post-task-reviewer';
 import { BRAND } from './brand';
 import { fileRunStateStore, newAttemptRecord, type RunStateStore } from './run-state';
 import { tempFilePath } from './utils';
@@ -213,13 +213,18 @@ export interface WriteReviewPromptFileOpts {
   dataDir: string;
   taskId: number;
   beforeSha: string;
-  getGitDiff?: typeof getGitDiff;
+  /**
+   * formatTestSummary output from the validation this settle call ran. Absent
+   * when the prompt is rewritten by a call that ran no validation.
+   */
+  testSummary?: string;
 }
 
 /**
  * Write the post-task reviewer's prompt for an archived task to
  * reviewPromptFilePath and return that path. The task is read from
- * tasks.completed.json because settle archives before reviewing.
+ * tasks.completed.json because settle archives before reviewing. The prompt
+ * names the `<beforeSha>..HEAD` range rather than embedding the diff.
  */
 export function writeReviewPromptFile(opts: WriteReviewPromptFileOpts): string {
   const { projectRoot, dataDir, taskId, beforeSha } = opts;
@@ -227,10 +232,11 @@ export function writeReviewPromptFile(opts: WriteReviewPromptFileOpts): string {
   if (!task) {
     throw new SettleError(`Task #${taskId} not found in tasks.completed.json; cannot write its review prompt`);
   }
-  const { diff, log, files } = (opts.getGitDiff ?? getGitDiff)(projectRoot, beforeSha);
   const { reviewFilePath } = resolveReviewFilePath(projectRoot, dataDir);
+  const testSummary = opts.testSummary
+    ?? `Summary not available: test validation ran in an earlier settle call. Full output, if any: ${testLogPath(dataDir, taskId)}`;
   const file = reviewPromptFilePath(dataDir, taskId);
-  fs.writeFileSync(file, buildPostTaskReviewUserPrompt({ task, diff, log, files, dataDir, reviewFilePath }));
+  fs.writeFileSync(file, buildPostTaskReviewUserPrompt({ task, diffRange: `${beforeSha}..HEAD`, dataDir, reviewFilePath, testSummary }));
   return file;
 }
 
@@ -548,7 +554,7 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
       });
       const reviewPromptFile = input.inlineReview
         ? reviewPromptFilePath(dataDir, taskId)
-        : writePromptFile({ projectRoot, dataDir, taskId, beforeSha });
+        : writePromptFile({ projectRoot, dataDir, taskId, beforeSha, testSummary: formatTestSummary(validation) });
       verdict = reviewVerdict(taskId, reviewPromptFile);
     }
   } else {

@@ -76,6 +76,11 @@ function writeTestLog(logPath: string, entries: string[]): void {
   }
 }
 
+/** The per-task test log validateTaskTests overwrites on every run. */
+export function testLogPath(dataDir: string, taskId: number): string {
+  return tempFilePath(dataDir, `task_${taskId}_tests.log`);
+}
+
 /** A few lines suitable for a reviewer prompt: per command, then the log path. */
 export function formatTestSummary(result: ValidationResult): string {
   if (result.status === 'skipped') {
@@ -308,7 +313,7 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
   const root = path.resolve(projectRoot);
   const taskDir = resolveTaskDir(task.directory, root);
 
-  const logPath = tempFilePath(dataDir, `task_${task.id}_tests.log`);
+  const logPath = testLogPath(dataDir, task.id);
   const logEntries: string[] = [];
   const summary: TestSummaryEntry[] = [];
 

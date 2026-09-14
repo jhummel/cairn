@@ -21,7 +21,7 @@ import {
   type WriteReviewPromptFileOpts,
 } from '../src/settle';
 import { execFileSync } from 'child_process';
-import type { ValidationResult } from '../src/test-validator';
+import { formatTestSummary, type ValidationResult } from '../src/test-validator';
 import type { CairnConfig, Task } from '../src/types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -657,9 +657,32 @@ describe('review phase', () => {
     expect(result.verdict).toEqual({ verdict: 'review', taskId: 7, reviewPromptFile: PROMPT_FILE, next: NEXT_REVIEW });
     expect(h.runState.state.attempts['7']).toMatchObject({ phase: 'awaiting-review', beforeSha: 'sha-before' });
     expect(h.promptWrites).toEqual([
-      { projectRoot: '/proj', dataDir: '/proj/.cairn', taskId: 7, beforeSha: 'sha-before', phaseAtWrite: 'awaiting-review' },
+      {
+        projectRoot: '/proj', dataDir: '/proj/.cairn', taskId: 7, beforeSha: 'sha-before',
+        testSummary: formatTestSummary({ status: 'passed' }), phaseAtWrite: 'awaiting-review',
+      },
     ]);
     expect(h.appended.at(-1)).toEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: review\n' });
+  });
+
+  test("the prompt file carries this settle's validation summary, and says so when validation was skipped", async () => {
+    const ran = makeHarness();
+    ran.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    const validation: ValidationResult = {
+      status: 'passed',
+      logPath: '/proj/.cairn/.cairn_task_7_tests.log',
+      summary: [{ command: 'bun test', status: 'passed', durationMs: 12, counts: { pass: 3, fail: 0 } }],
+    };
+    ran.setValidation(validation);
+    await settleTask(makeInput({ config: REVIEW_ON }), ran.deps);
+    expect(ran.promptWrites[0]?.testSummary).toBe(formatTestSummary(validation));
+    expect(ran.promptWrites[0]?.testSummary).toContain('/proj/.cairn/.cairn_task_7_tests.log');
+
+    const skipped = makeHarness();
+    skipped.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    skipped.setValidation({ status: 'skipped' });
+    await settleTask(makeInput({ config: REVIEW_ON }), skipped.deps);
+    expect(skipped.promptWrites[0]?.testSummary).toMatch(/skipped/i);
   });
 
   test('a repeat call while awaiting review returns review again with no second archive or validation', async () => {
@@ -688,6 +711,8 @@ describe('review phase', () => {
     expect(again.verdict.verdict).toBe('review');
     expect(h.promptWrites).toHaveLength(2);
     expect(h.promptWrites[1]).toMatchObject({ taskId: 7, beforeSha: 'sha-before' });
+    // No validation ran in this settle call, so there is no summary to pass.
+    expect(h.promptWrites[1]?.testSummary).toBeUndefined();
     expect(h.archiveCalls).toHaveLength(1);
   });
 
@@ -870,29 +895,44 @@ describe('writeReviewPromptFile', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  test('writes the reviewer prompt for the archived task to .cairn_task_<id>_review_prompt.md', () => {
+  function archiveSeven() {
     fs.writeFileSync(
       path.join(dataDir, 'tasks.completed.json'),
       JSON.stringify({ tasks: [makeTask({ status: 'complete', title: 'Archived seven', tests: ['bun test test/x.test.ts'] })] }),
     );
-    let diffArgs: unknown[] = [];
+  }
+
+  test('writes the diff-range reviewer prompt with the test summary to .cairn_task_<id>_review_prompt.md', () => {
+    archiveSeven();
     const file = writeReviewPromptFile({
       projectRoot: root,
       dataDir,
       taskId: 7,
       beforeSha: 'sha-before',
-      getGitDiff: (...args) => { diffArgs = args; return { diff: 'DIFF-BODY', log: 'abc123 commit', files: ['src/x.ts'] }; },
+      testSummary: 'bun test test/x.test.ts: passed (4 pass, 0 fail) [30ms]',
     });
 
     expect(file).toBe(path.join(dataDir, '.cairn_task_7_review_prompt.md'));
-    expect(diffArgs).toEqual([root, 'sha-before']);
     const content = fs.readFileSync(file, 'utf-8');
     expect(content).toContain('**Task #7: Archived seven**');
-    expect(content).toContain('DIFF-BODY');
-    expect(content).toContain('abc123 commit');
-    expect(content).toContain('bun test test/x.test.ts');
+    // Range variant: no embedded diff, the reviewer inspects the range itself.
+    expect(content).not.toContain('```diff');
+    expect(content).toContain('git diff sha-before..HEAD');
+    expect(content).toContain('git log --oneline sha-before..HEAD');
+    expect(content).toContain('git diff --name-only sha-before..HEAD');
+    expect(content).toContain('## Test Validation (already run by cairn — do not re-run)');
+    expect(content).toContain('bun test test/x.test.ts: passed (4 pass, 0 fail) [30ms]');
     expect(content).toContain(path.join(dataDir, 'reviews', 'round-3.md'));
     expect(fs.existsSync(path.join(dataDir, 'reviews'))).toBe(true);
+  });
+
+  test('without a summary, says validation ran in an earlier settle and points at the test log', () => {
+    archiveSeven();
+    const file = writeReviewPromptFile({ projectRoot: root, dataDir, taskId: 7, beforeSha: 'sha-before' });
+    const content = fs.readFileSync(file, 'utf-8');
+    expect(content).toContain('## Test Validation (already run by cairn — do not re-run)');
+    expect(content).toMatch(/earlier settle/i);
+    expect(content).toContain(path.join(dataDir, '.cairn_task_7_tests.log'));
   });
 
   test('throws SettleError when the task is not in tasks.completed.json', () => {
@@ -902,7 +942,6 @@ describe('writeReviewPromptFile', () => {
       dataDir,
       taskId: 7,
       beforeSha: 'sha-before',
-      getGitDiff: () => ({ diff: '', log: '', files: [] }),
     })).toThrow(SettleError);
   });
 });

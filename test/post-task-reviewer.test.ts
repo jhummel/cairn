@@ -193,6 +193,45 @@ describe("buildPostTaskReviewUserPrompt", () => {
     }
   });
 
+  test("renders the test summary in a do-not-re-run Test Validation section", () => {
+    const prompt = buildPostTaskReviewUserPrompt({
+      task: sampleTask,
+      diff: "",
+      log: "",
+      files: [],
+      testSummary: "bun test: passed (12 pass, 0 fail) [900ms]\nFull output: /p/.cairn/.cairn_task_42_tests.log",
+    });
+    expect(prompt).toContain("## Test Validation (already run by cairn — do not re-run)");
+    expect(prompt).toContain("bun test: passed (12 pass, 0 fail) [900ms]");
+    expect(prompt).toContain("Full output: /p/.cairn/.cairn_task_42_tests.log");
+  });
+
+  test("omits the Test Validation section when no summary is passed", () => {
+    const prompt = buildPostTaskReviewUserPrompt({ task: sampleTask, diff: "", log: "", files: [] });
+    expect(prompt).not.toContain("## Test Validation");
+  });
+
+  test("diff-range variant omits the embedded diff and names the range commands", () => {
+    const prompt = buildPostTaskReviewUserPrompt({
+      task: sampleTask,
+      diffRange: "abc123..HEAD",
+      reviewFilePath: "/abs/proj/.cairn/reviews/round-3.md",
+    });
+    expect(prompt).not.toContain("```diff");
+    expect(prompt).not.toContain("## Git Diff");
+    expect(prompt).toContain("git diff abc123..HEAD");
+    expect(prompt).toContain("git log --oneline abc123..HEAD");
+    expect(prompt).toContain("git diff --name-only abc123..HEAD");
+    expect(prompt).toContain("**Task #42: My awesome task**");
+    expect(prompt).toContain("/abs/proj/.cairn/reviews/round-3.md");
+  });
+
+  test("embedded variant still renders the diff block", () => {
+    const prompt = buildPostTaskReviewUserPrompt({ task: sampleTask, diff: "+x", log: "", files: [] });
+    expect(prompt).toContain("## Git Diff");
+    expect(prompt).toContain("```diff\n+x\n```");
+  });
+
   test("omits personal instructions when instructions.md is missing from dataDir", () => {
     const dataDir = mkdtempSync(join(tmpdir(), "cairn-noinstr-test-"));
     try {
@@ -279,7 +318,7 @@ describe("spawnPostTaskReviewer", () => {
     expect(args).toContain("--allowedTools");
     expect(args[args.indexOf("--allowedTools") + 1]).toBe(
       `Read,Glob,Grep,Edit(/${spawnTmpDir}/.cairn/reviews/**),Write(/${spawnTmpDir}/.cairn/reviews/**),` +
-        `${GIT_RULES},Bash(bun test:*)`
+        `${GIT_RULES}`
     );
     expect(args).toContain("--agents");
     expect(args).toContain("--agent");
@@ -307,7 +346,7 @@ describe("spawnPostTaskReviewer", () => {
 
     const rule = `/${spawnTmpDir}/.cairn/reviews/**`;
     expect(spawnArgs[spawnArgs.indexOf("--allowedTools") + 1]).toBe(
-      `Read,Glob,Grep,Edit(${rule}),Write(${rule}),${GIT_RULES},Bash(bun test:*)`
+      `Read,Glob,Grep,Edit(${rule}),Write(${rule}),${GIT_RULES}`
     );
   });
 
@@ -433,89 +472,32 @@ describe("spawnPostTaskReviewer", () => {
       expect(allowed).not.toContain("Bash(git reset");
     });
 
-    test("grants one prefix rule per declared test command", async () => {
+    // cairn validates tests before the review, so the reviewer never re-runs
+    // them: the declared test commands must not reach the grant.
+    test("grants no rule for any declared test command", async () => {
       const allowed = await captureAllowedTools([
         "bun test test/foo.test.ts",
         "npx tsc -p tsconfig.json",
-      ]);
-      expect(allowed).toContain("Bash(bun test test/foo.test.ts:*)");
-      expect(allowed).toContain("Bash(npx tsc -p tsconfig.json:*)");
-    });
-
-    test("splits a compound test command into one rule per subcommand", async () => {
-      // Claude Code matches each subcommand of a compound command independently,
-      // so a whole-string rule could never match.
-      const allowed = await captureAllowedTools(["cd services/api && bun test"]);
-      expect(allowed).toContain("Bash(cd services/api:*)");
-      expect(allowed).toContain("Bash(bun test:*)");
-      expect(allowed).not.toContain("Bash(cd services/api && bun test:*)");
-    });
-
-    test("splits on ||, ;, |, & and newlines too", async () => {
-      const allowed = await captureAllowedTools([
+        "cd services/api && bun test",
         "make build || make clean",
-        "lint; typecheck",
-        "bun test | tee out.log",
-        "serve & sleep 1",
-        "step-one\nstep-two",
       ]);
-      for (const cmd of [
-        "make build",
-        "make clean",
-        "lint",
-        "typecheck",
-        "bun test",
-        "tee out.log",
-        "serve",
-        "sleep 1",
-        "step-one",
-        "step-two",
-      ]) {
-        expect(allowed).toContain(`Bash(${cmd}:*)`);
+      const rule = `/${spawnTmpDir}/.cairn/reviews/**`;
+      expect(allowed).toBe(`Read,Glob,Grep,Edit(${rule}),Write(${rule}),${GIT_RULES}`);
+      for (const fragment of ["bun test", "npx tsc", "cd services/api", "make build", "make clean"]) {
+        expect(allowed).not.toContain(fragment);
       }
     });
 
-    test("emits no Bash test rules when tests is absent", async () => {
-      const allowed = await captureAllowedTools(undefined);
-      const rule = `/${spawnTmpDir}/.cairn/reviews/**`;
-      expect(allowed).toBe(
-        `Read,Glob,Grep,Edit(${rule}),Write(${rule}),${GIT_RULES}`
-      );
+    test("the grant is identical whether tests is absent, empty, or populated", async () => {
+      const absent = await captureAllowedTools(undefined);
+      expect(await captureAllowedTools([])).toBe(absent);
+      expect(await captureAllowedTools(["bun test", "lint; typecheck"])).toBe(absent);
     });
 
-    test("emits no Bash test rules when tests is empty", async () => {
-      const allowed = await captureAllowedTools([]);
-      const rule = `/${spawnTmpDir}/.cairn/reviews/**`;
-      expect(allowed).toBe(
-        `Read,Glob,Grep,Edit(${rule}),Write(${rule}),${GIT_RULES}`
-      );
-    });
-
-    test("never emits an empty rule or a trailing separator", async () => {
-      const allowed = await captureAllowedTools(["", "   ", "bun test &&", "; ;"]);
-      expect(allowed).not.toContain("Bash()");
-      expect(allowed).not.toContain(",,");
-      expect(allowed.endsWith(",")).toBe(false);
-      expect(allowed).toContain("Bash(bun test:*)");
-    });
-
-    test("deduplicates repeated subcommands", async () => {
-      const allowed = await captureAllowedTools(["bun test", "bun test", "lint && bun test"]);
-      expect(allowed.split("Bash(bun test:*)").length - 1).toBe(1);
-      expect(allowed).toContain("Bash(lint:*)");
-    });
-
-    test("drops commands whose characters would corrupt the rule string", async () => {
-      // Commas separate rules and parens delimit them — a command containing
-      // either cannot be expressed as a single rule.
-      const allowed = await captureAllowedTools([
-        "bun test --filter a,b",
-        "sh -c (echo hi)",
-        "bun test",
-      ]);
-      expect(allowed).not.toContain("a,b");
-      expect(allowed).not.toContain("echo hi");
-      expect(allowed).toContain("Bash(bun test:*)");
+    test("every Bash rule is a read-only git inspection rule", async () => {
+      const allowed = await captureAllowedTools(["bun test"]);
+      const bashRules = allowed.split(",").filter((r) => r.startsWith("Bash("));
+      expect(bashRules).toEqual(GIT_RULES.split(","));
     });
   });
 
@@ -524,7 +506,7 @@ describe("spawnPostTaskReviewer", () => {
     // task` subcommands (see CLAUDE.md), containment of the reviewer rests
     // entirely on this --allowedTools construction plus headless claude -p's
     // deny-by-default for un-allowlisted side effects. If a future change to
-    // buildTestCommandRules/GIT_INSPECTION_RULES/the allowedTools array ever
+    // GIT_INSPECTION_RULES/the allowedTools array ever
     // widens the reviewer's Bash grants to include a `cairn` invocation, this
     // must fail immediately.
     test("--allowedTools grants no cairn task access and no Bash(cairn prefix at all", async () => {
@@ -636,6 +618,32 @@ describe("spawnPostTaskReviewer", () => {
     expect(stdinData).toContain("Task #7: Add widget");
     expect(stdinData).toContain("the diff");
     expect(stdinData).toContain("the log");
+  });
+
+  test("writes the test summary to stdin when one is passed", async () => {
+    const child = createMockChild();
+    let stdinData = "";
+    child.stdin.on("data", (chunk: Buffer) => {
+      stdinData += chunk.toString();
+    });
+    const mockSpawn = () => {
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+
+    await spawnPostTaskReviewer({
+      projectRoot: spawnTmpDir,
+      dataDir: join(spawnTmpDir, ".cairn"),
+      task: sampleTask,
+      diff: "the diff",
+      log: "",
+      files: [],
+      testSummary: "bun test: passed [5ms]",
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    expect(stdinData).toContain("## Test Validation (already run by cairn — do not re-run)");
+    expect(stdinData).toContain("bun test: passed [5ms]");
   });
 
   test("calls processStream on stdout", async () => {
@@ -805,6 +813,36 @@ describe("spawnPostTaskReviewer", () => {
     });
 
     expect(stdinData).toContain(".cairn/reviews/round-4.md");
+  });
+});
+
+describe("agents/post-task-reviewer.md", () => {
+  const content = readFileSync(join(import.meta.dir, "..", "agents", "post-task-reviewer.md"), "utf-8");
+  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  const frontmatter = match?.[1] ?? "";
+  const body = match?.[2] ?? "";
+
+  test("frontmatter restricts tools and caps turns", () => {
+    expect(frontmatter.split("\n")).toContain("tools: Read, Grep, Glob, Bash, Edit, Write");
+    expect(frontmatter.split("\n")).toContain("maxTurns: 50");
+  });
+
+  test("body no longer tells the reviewer to run the declared tests", () => {
+    expect(body).not.toMatch(/run the task's declared test commands/i);
+    expect(body).not.toContain("Expected Tests");
+    expect(body).toContain("Test Validation");
+    expect(body).toMatch(/already run by cairn/i);
+  });
+
+  test("body keeps git inspection guidance and the review output template", () => {
+    expect(body).toContain("git show");
+    expect(body).toContain("### Coverage");
+    expect(body).toContain("### Verdict");
+  });
+
+  test("body requires a single-line final response", () => {
+    expect(body).toContain("`PASS`");
+    expect(body).toContain("`CONCERNS: <n>, see <review file path>`");
   });
 });
 
@@ -985,6 +1023,30 @@ describe("runPostTaskReview", () => {
     expect(spawnerArgs.diff).toBe("the diff");
     expect(spawnerArgs.log).toBe("the log");
     expect(spawnerArgs.files).toEqual(["a.ts"]);
+    expect(spawnerArgs.testSummary).toBeUndefined();
+  });
+
+  test("threads the test summary through to spawnPostTaskReviewer", async () => {
+    let spawnerArgs: any;
+    const { deps } = makeDeps({
+      spawnPostTaskReviewer: async (opts: any) => {
+        spawnerArgs = opts;
+        return { exitCode: 0 };
+      },
+    });
+
+    await runPostTaskReview({
+      projectRoot: "/proj",
+      dataDir: "/proj/.cairn",
+      task: makeTask(),
+      taskStatus: "complete",
+      beforeSha: "beforesha111",
+      config: makeConfig(),
+      testSummary: "bun test: passed [5ms]",
+      deps,
+    });
+
+    expect(spawnerArgs.testSummary).toBe("bun test: passed [5ms]");
   });
 
   test("catches and logs errors without throwing", async () => {
