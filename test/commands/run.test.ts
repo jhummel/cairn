@@ -345,6 +345,100 @@ Agent body here.`);
       warnSpy.mockRestore();
     }
   });
+
+  // --- subagent mode ---
+
+  describe('subagent mode', () => {
+    test('default (no mode) is identical to explicit headless mode', () => {
+      const defaultPrompt = buildSystemPrompt(makeInput());
+      const headlessPrompt = buildSystemPrompt(makeInput({ mode: 'headless' }));
+      expect(defaultPrompt).toBe(headlessPrompt);
+    });
+
+    test('headless mode still includes the completion-flag step and rule', () => {
+      const prompt = buildSystemPrompt(makeInput({ mode: 'headless' }));
+      expect(prompt).toContain('has no remaining pending/in-progress tasks, create the file');
+      expect(prompt).toContain('BEFORE creating');
+    });
+
+    test('subagent mode omits the completion-flag workflow step and critical rule', () => {
+      const prompt = buildSystemPrompt(makeInput({ mode: 'subagent' }));
+      expect(prompt).not.toContain('.cairn_complete');
+      expect(prompt).not.toContain('has no remaining pending/in-progress tasks, create the file');
+      expect(prompt).not.toContain('BEFORE creating');
+    });
+
+    test('subagent mode states the working directory as an absolute path', () => {
+      const prompt = buildSystemPrompt(makeInput({
+        mode: 'subagent',
+        projectRoot: '/projects/myapp',
+        taskDir: 'src/services/auth',
+      }));
+      expect(prompt).toContain('/projects/myapp/src/services/auth');
+      expect(prompt).toMatch(/cd there|absolute paths/);
+    });
+
+    test('subagent mode uses projectRoot as the absolute working directory when taskDir is empty', () => {
+      const prompt = buildSystemPrompt(makeInput({
+        mode: 'subagent',
+        projectRoot: '/projects/myapp',
+        taskDir: '',
+      }));
+      expect(prompt).toContain('Your working directory is: /projects/myapp');
+    });
+
+    test('subagent mode includes the 5-line report contract', () => {
+      const prompt = buildSystemPrompt(makeInput({ mode: 'subagent' }));
+      expect(prompt).toContain('at most 5 lines');
+      expect(prompt).toContain('task id');
+      expect(prompt).toContain('commit sha');
+      expect(prompt).toContain('--notes-file');
+      expect(prompt).toContain('blocked');
+    });
+
+    test('subagent mode still includes SUBAGENT STRATEGY', () => {
+      const prompt = buildSystemPrompt(makeInput({ mode: 'subagent' }));
+      expect(prompt).toContain('SUBAGENT STRATEGY:');
+      expect(prompt).toContain('10 parallel Sonnet subagents');
+    });
+
+    test('subagent mode still includes the "do NOT re-read" CLAUDE.md line', () => {
+      const prompt = buildSystemPrompt(makeInput({ mode: 'subagent' }));
+      expect(prompt).toContain('The root CLAUDE.md is already loaded in your system prompt — do NOT re-read it');
+    });
+
+    test('subagent mode still embeds the specialist section when a specialist is assigned', () => {
+      const projectRoot = tmpDir;
+      const agentsDir = path.join(projectRoot, '.claude', 'agents');
+      fs.mkdirSync(agentsDir, { recursive: true });
+      fs.writeFileSync(path.join(agentsDir, 'db-expert.md'), `---
+name: db-expert
+---
+
+You are a database expert. Focus on migrations and schema design.`);
+
+      const agents: AgentInfo[] = [
+        { name: 'db-expert', description: 'Database specialist', model: 'opus', file: 'db-expert.md' },
+      ];
+
+      const prompt = buildSystemPrompt(makeInput({
+        mode: 'subagent',
+        projectRoot,
+        taskAgent: 'db-expert',
+        agents,
+      }));
+
+      expect(prompt).toContain('SPECIALIST INSTRUCTIONS:');
+      expect(prompt).toContain('You are a database expert. Focus on migrations and schema design.');
+    });
+
+    test('subagent mode keeps the tasks.json Edit/Write ban and cairn task subcommand instructions', () => {
+      const prompt = buildSystemPrompt(makeInput({ mode: 'subagent', dataDir: '/projects/myapp/.cairn' }));
+      expect(prompt).toContain('Do NOT use Edit or Write on /projects/myapp/.cairn/tasks.json directly');
+      expect(prompt).toContain('cairn task start');
+      expect(prompt).toContain('cairn task complete');
+    });
+  });
 });
 
 // --- spawnClaude tests ---

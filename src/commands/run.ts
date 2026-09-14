@@ -30,6 +30,14 @@ export interface SystemPromptInput {
   agents: AgentInfo[];
   iteration: number;
   commitPrefix?: string;
+  // 'headless' (default): a fresh `claude -p` process spawned by spawnClaude,
+  // with its own cwd set per-task and a completion flag it must create itself.
+  // 'subagent': a `cairn-task-agent` subagent launched under `/cairn-run`. It
+  // inherits the interactive session's cwd (so the working directory must be
+  // stated as an absolute path) and reports back to a run agent that only
+  // wants a tiny report, not full completion notes — `cairn round next`
+  // detects round-done on its own, so there is no completion flag to create.
+  mode?: 'headless' | 'subagent';
 }
 
 /**
@@ -46,7 +54,8 @@ function stripFrontmatter(content: string): string {
  * Build the system prompt for a task execution agent.
  */
 export function buildSystemPrompt(input: SystemPromptInput): string {
-  const { taskDir, taskAgent, projectRoot, dataDir, config, agents, iteration, commitPrefix: commitPrefixOverride } = input;
+  const { taskDir, taskAgent, projectRoot, dataDir, config, agents, iteration, commitPrefix: commitPrefixOverride, mode = 'headless' } = input;
+  const isSubagent = mode === 'subagent';
 
   const tasksFile = path.join(dataDir, 'tasks.json');
   const completeFlag = tempFilePath(dataDir, 'complete');
@@ -99,7 +108,16 @@ ${body}
   const personalInstructions = loadPersonalInstructions(dataDir);
 
   // --- Directory ---
-  const dirLabel = taskDir || 'project root';
+  // In subagent mode the agent inherits the interactive session's cwd, not a
+  // per-task cwd (only spawnClaude sets that) — so the working directory must
+  // be spelled out as an absolute path, with an explicit cd/absolute-paths
+  // instruction, rather than the relative label headless mode uses.
+  const dirLabel = isSubagent
+    ? (taskDir ? path.join(projectRoot, taskDir) : projectRoot)
+    : (taskDir || 'project root');
+  const dirCdInstruction = isSubagent
+    ? `\n- You did not inherit a per-task working directory — cd there first, or use absolute paths for every file operation`
+    : '';
 
   // --- Test instruction ---
   let testInstruction = '4. Run the tests listed in the task.';
@@ -107,10 +125,48 @@ ${body}
     testInstruction = `4. Run the tests listed in the task. If none are listed, run '${config.defaultTestCommand}' if available.`;
   }
 
+  // --- Workflow steps ---
+  const workflowSteps: string[] = [
+    `1. Run: cairn task start <id> --iteration ${iteration}`,
+    `2. If the task has files listed, focus on those files. Otherwise explore the codebase to understand it.`,
+    `3. Implement the task COMPLETELY. No placeholders, no stubs, no TODOs. Incomplete implementations waste an entire future iteration redoing the same work.`,
+    testInstruction,
+    `5. Mark the task complete:\n   (a) Write your completion notes to ${notesFile} using the Write tool (substitute <id> with the task ID)\n   (b) Run: cairn task complete <id> --iteration ${iteration} --notes-file ${notesFile}`,
+  ];
+  // Headless mode is the only one with a completion flag to create — under
+  // /cairn-run, `cairn round next` detects round-done on its own.
+  if (!isSubagent) {
+    workflowSteps.push(`6. If '${tasksFile}' has no remaining pending/in-progress tasks, create the file '${completeFlag}'`);
+  }
+  workflowSteps.push(`${isSubagent ? 6 : 7}. Make a focused git commit with message format: '[${commitPrefix}] Task #<id>: <title>'`);
+
+  // --- Report contract (subagent only) ---
+  // The subagent's parent is a run agent that only wants a tiny report — full
+  // detail belongs in the completion notes, not here.
+  const reportSection = isSubagent ? `
+
+REPORT:
+When finished, return a report of at most 5 lines: task id, outcome, commit sha, and anything blocking. Put details in the completion notes via --notes-file, not in this report.
+If you cannot finish, leave the task in-progress and say so in the report. Only for a genuine external blocker, first record a note with \`cairn task note <id> "..."\` and run \`cairn task set-status <id> blocked\`, then say so in the report.` : '';
+
+  // --- Critical rules ---
+  const criticalRules: string[] = [
+    `- Work on EXACTLY ONE task per iteration — the one assigned in the prompt`,
+    `- Set status to 'in-progress' BEFORE starting implementation`,
+  ];
+  if (!isSubagent) {
+    criticalRules.push(`- Mark the task complete in ${tasksFile} BEFORE creating ${completeFlag}`);
+  }
+  criticalRules.push(
+    `- Do NOT use Edit or Write on ${tasksFile} directly — the cairn task subcommands are the only supported path.`,
+    `- Be thorough with notes — help the next agent understand what you did`,
+    `- Keep responses concise. Use Edit for surgical changes — do NOT Write entire large files in one shot.`,
+  );
+
   const prompt = `${specialistSection}You are working on the ${config.projectName} project.${projectDesc}
 ${personalInstructions}
 DIRECTORY:
-- Your working directory is: ${dirLabel}
+- Your working directory is: ${dirLabel}${dirCdInstruction}
 - You may work wherever needed to complete the task
 
 CONTEXT:
@@ -125,15 +181,7 @@ SUBAGENT STRATEGY:
 
 YOUR WORKFLOW:
 Your assigned task is provided in the user prompt. Do NOT read tasks.json to find your task — it's already been extracted for you.
-1. Run: cairn task start <id> --iteration ${iteration}
-2. If the task has files listed, focus on those files. Otherwise explore the codebase to understand it.
-3. Implement the task COMPLETELY. No placeholders, no stubs, no TODOs. Incomplete implementations waste an entire future iteration redoing the same work.
-${testInstruction}
-5. Mark the task complete:
-   (a) Write your completion notes to ${notesFile} using the Write tool (substitute <id> with the task ID)
-   (b) Run: cairn task complete <id> --iteration ${iteration} --notes-file ${notesFile}
-6. If '${tasksFile}' has no remaining pending/in-progress tasks, create the file '${completeFlag}'
-7. Make a focused git commit with message format: '[${commitPrefix}] Task #<id>: <title>'
+${workflowSteps.join('\n')}${reportSection}
 
 DISCOVER AND DOCUMENT:
 - If you discover bugs or missing functionality UNRELATED to your task, use cairn task add --file <path> to append a new task (the CLI validates the payload before merging). Include a 'directory' field indicating where the work should happen. Max 3 discovered tasks per iteration.
@@ -142,12 +190,7 @@ DISCOVER AND DOCUMENT:
 - Keep CLAUDE.md strictly operational (build commands, config quirks, gotchas). No status updates, no progress notes, no task history.
 
 CRITICAL RULES:
-- Work on EXACTLY ONE task per iteration — the one assigned in the prompt
-- Set status to 'in-progress' BEFORE starting implementation
-- Mark the task complete in ${tasksFile} BEFORE creating ${completeFlag}
-- Do NOT use Edit or Write on ${tasksFile} directly — the cairn task subcommands are the only supported path.
-- Be thorough with notes — help the next agent understand what you did
-- Keep responses concise. Use Edit for surgical changes — do NOT Write entire large files in one shot.`;
+${criticalRules.join('\n')}`;
 
   return prompt;
 }
