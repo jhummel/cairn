@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as tasksFileModule from './tasks-file';
 import { TasksFileError, type TasksFile } from './tasks-file';
 import type { Task } from './types';
+import { tempFilePath } from './utils';
 
 export interface ValidateTaskTestsOpts {
   task: Task;
@@ -12,9 +13,91 @@ export interface ValidateTaskTestsOpts {
   timeoutMs?: number;
 }
 
+export interface TestSummaryEntry {
+  command: string;
+  status: 'passed' | 'failed' | 'error' | 'skipped';
+  durationMs: number;
+  counts?: { pass?: number; fail?: number; skip?: number };
+}
+
 export interface ValidationResult {
   status: 'passed' | 'failed' | 'error' | 'skipped';
   message?: string;
+  /** Path to the full per-command log; set only when at least one command ran. */
+  logPath?: string;
+  /** One entry per command actually run (the loop stops at the first failure). */
+  summary?: TestSummaryEntry[];
+  /** Last ~40 lines of the failing command's output. Only set for failed/error. */
+  failureTail?: string;
+}
+
+const FAILURE_TAIL_LINES = 40;
+
+/** Last `n` lines of `text`, preserving order. */
+function tailLines(text: string, n: number): string {
+  const lines = text.split('\n');
+  return lines.slice(Math.max(0, lines.length - n)).join('\n');
+}
+
+// bun test prints summary lines like ` 12 pass`, ` 0 fail`, ` 0 skip`. Lenient by
+// design: take the LAST occurrence of each so a nested/child run's totals don't win
+// over the final summary, and leave a count undefined when its line never appears
+// rather than guessing.
+function parseCounts(output: string): { pass?: number; fail?: number; skip?: number } | undefined {
+  const lastMatch = (re: RegExp): number | undefined => {
+    const matches = [...output.matchAll(re)];
+    return matches.length ? Number(matches[matches.length - 1][1]) : undefined;
+  };
+  const pass = lastMatch(/(?:^|\n)\s*(\d+)\s+pass\b/gi);
+  const fail = lastMatch(/(?:^|\n)\s*(\d+)\s+fail\b/gi);
+  const skip = lastMatch(/(?:^|\n)\s*(\d+)\s+skip\b/gi);
+  if (pass === undefined && fail === undefined && skip === undefined) return undefined;
+  return { pass, fail, skip };
+}
+
+function formatLogEntry(cmd: string, cwd: string, exitCode: number, durationMs: number, output: string): string {
+  return [
+    `=== ${cmd}`,
+    `cwd: ${cwd}`,
+    `exit code: ${exitCode}`,
+    `duration: ${durationMs}ms`,
+    '--- output ---',
+    output,
+    '',
+  ].join('\n');
+}
+
+/** Overwrite the per-task log. A write failure must never affect the validation outcome. */
+function writeTestLog(logPath: string, entries: string[]): void {
+  try {
+    fs.writeFileSync(logPath, entries.join('\n'));
+  } catch {
+    // best-effort — the reviewer just won't have a log to read
+  }
+}
+
+/** A few lines suitable for a reviewer prompt: per command, then the log path. */
+export function formatTestSummary(result: ValidationResult): string {
+  if (result.status === 'skipped') {
+    return 'Tests skipped (no test commands declared, or the task was not complete).';
+  }
+  const lines: string[] = [];
+  if (result.summary && result.summary.length > 0) {
+    for (const entry of result.summary) {
+      const parts: string[] = [];
+      if (entry.counts?.pass !== undefined) parts.push(`${entry.counts.pass} pass`);
+      if (entry.counts?.fail !== undefined) parts.push(`${entry.counts.fail} fail`);
+      if (entry.counts?.skip !== undefined) parts.push(`${entry.counts.skip} skip`);
+      const countsStr = parts.length ? ` (${parts.join(', ')})` : '';
+      lines.push(`${entry.command}: ${entry.status}${countsStr} [${entry.durationMs}ms]`);
+    }
+  } else {
+    lines.push(result.message ? `${result.status}: ${result.message.replace(/\s+/g, ' ').trim()}` : result.status);
+  }
+  if (result.logPath) {
+    lines.push(`Full output: ${result.logPath}`);
+  }
+  return lines.join('\n');
 }
 
 const CANT_RUN_PATTERNS = [
@@ -225,37 +308,57 @@ export async function validateTaskTests(opts: ValidateTaskTestsOpts): Promise<Va
   const root = path.resolve(projectRoot);
   const taskDir = resolveTaskDir(task.directory, root);
 
+  const logPath = tempFilePath(dataDir, `task_${task.id}_tests.log`);
+  const logEntries: string[] = [];
+  const summary: TestSummaryEntry[] = [];
+
+  // Write the log (best-effort) and stamp logPath/summary onto whatever result
+  // the caller is about to return. Called exactly once, right before returning.
+  const finalize = (result: ValidationResult): ValidationResult => {
+    writeTestLog(logPath, logEntries);
+    return { ...result, logPath, summary: summary.length ? summary : undefined };
+  };
+
   for (const cmd of task.tests) {
     const cwd = resolveCommandCwd(cmd, taskDir, root);
+    const start = Date.now();
     const { exitCode, stdout, stderr } = await runCommand(cmd, cwd, timeoutMs);
+    const durationMs = Date.now() - start;
     const output = `${stdout}\n${stderr}`;
+    logEntries.push(formatLogEntry(cmd, cwd, exitCode, durationMs, output));
 
-    if (exitCode === 0) continue;
+    if (exitCode === 0) {
+      summary.push({ command: cmd, status: 'passed', durationMs, counts: parseCounts(output) });
+      continue;
+    }
 
     if (stderr.includes('timeout after')) {
       // Timeout → infrastructure error, don't revert
+      summary.push({ command: cmd, status: 'error', durationMs, counts: parseCounts(output) });
       appendNote(data, fileTask, 'Post-iteration: test commands could not execute (missing deps/scripts).');
       writeAndSnapshot(tasksFilePath, dataDir, data);
-      return { status: 'error', message: `timeout: ${cmd}` };
+      return finalize({ status: 'error', message: `timeout: ${cmd}`, failureTail: tailLines(output, FAILURE_TAIL_LINES) });
     }
 
     if (isCantRunError(output, exitCode)) {
       // Infrastructure error → note but don't revert
+      summary.push({ command: cmd, status: 'error', durationMs, counts: parseCounts(output) });
       appendNote(data, fileTask, 'Post-iteration: test commands could not execute (missing deps/scripts).');
       writeAndSnapshot(tasksFilePath, dataDir, data);
-      return { status: 'error', message: `can't run: ${cmd}` };
+      return finalize({ status: 'error', message: `can't run: ${cmd}`, failureTail: tailLines(output, FAILURE_TAIL_LINES) });
     }
 
     // Real test failure → revert status
+    summary.push({ command: cmd, status: 'failed', durationMs, counts: parseCounts(output) });
     fileTask.status = 'in-progress';
     delete fileTask.completedAt;
     delete fileTask.completedBy;
     appendNote(data, fileTask, 'Post-iteration test validation failed — reverted to in-progress.');
     writeAndSnapshot(tasksFilePath, dataDir, data);
-    return { status: 'failed', message: `${cmd}: ${output.trim().slice(-200)}` };
+    return finalize({ status: 'failed', message: `${cmd}: ${output.trim().slice(-200)}`, failureTail: tailLines(output, FAILURE_TAIL_LINES) });
   }
 
-  return { status: 'passed' };
+  return finalize({ status: 'passed' });
 }
 
 function appendNote(data: { tasks: Task[] }, task: Task, note: string) {

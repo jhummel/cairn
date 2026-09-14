@@ -359,15 +359,15 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
   // continue to fresh on its second consecutive occurrence. An unknown status
   // (unreadable re-read) retries in place — the record is kept, so the next
   // settle re-reads.
-  const retry = (mode: RetryMode, reason: RetryReason): Verdict =>
-    ({ verdict: 'retry', taskId, mode, reason, next: retryNext(taskId, mode) });
+  const retry = (mode: RetryMode, reason: RetryReason, failure?: string): Verdict =>
+    ({ verdict: 'retry', taskId, mode, reason, ...(failure ? { failure } : {}), next: retryNext(taskId, mode) });
   let verdict: Verdict;
   if (blockedByGuard && blockNote !== null) {
     verdict = { verdict: 'blocked', taskId, reason: blockNote, next: NEXT_ROUND };
   } else if (updatedTaskStatus === 'blocked') {
     verdict = { verdict: 'blocked', taskId, reason: updatedNotes?.trim() || 'Blocked by the task agent (no notes recorded)', next: NEXT_ROUND };
   } else if (validation.status === 'failed') {
-    verdict = retry('continue', 'validation-failed');
+    verdict = retry('continue', 'validation-failed', validation.failureTail);
   } else if (updatedTaskStatus === 'pending') {
     verdict = retry('fresh', 'stalled');
   } else if (updatedTaskStatus === 'in-progress') {

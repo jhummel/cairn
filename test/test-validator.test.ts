@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { validateTaskTests } from '../src/test-validator';
+import { validateTaskTests, formatTestSummary } from '../src/test-validator';
 import * as tasksFileModule from '../src/tasks-file';
 import type { Task } from '../src/types';
 
@@ -73,7 +73,9 @@ describe('validateTaskTests', () => {
       writeTasksFile(tasksFilePath, [task]);
 
       const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
-      expect(result).toEqual({ status: 'passed' });
+      expect(result.status).toBe('passed');
+      expect(result.logPath).toBeDefined();
+      expect(result.summary).toEqual([{ command: 'true', status: 'passed', durationMs: expect.any(Number), counts: undefined }]);
     });
 
     it('returns passed when multiple test commands all succeed', async () => {
@@ -84,7 +86,8 @@ describe('validateTaskTests', () => {
       writeTasksFile(tasksFilePath, [task]);
 
       const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
-      expect(result).toEqual({ status: 'passed' });
+      expect(result.status).toBe('passed');
+      expect(result.summary?.map((s) => s.command)).toEqual(['exit 0', 'echo "ok"', 'true']);
     });
   });
 
@@ -602,6 +605,146 @@ describe('validateTaskTests', () => {
       } finally {
         snapshotSpy.mockRestore();
       }
+    });
+  });
+
+  describe('per-task test log', () => {
+    it('writes full combined stdout+stderr with a header to .cairn_task_<id>_tests.log', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        tests: ['echo "out line" && echo "err line" >&2'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      const logPath = join(tmpDir, '.cairn_task_1_tests.log');
+      expect(result.logPath).toBe(logPath);
+      expect(existsSync(logPath)).toBe(true);
+      const content = readFileSync(logPath, 'utf-8');
+      expect(content).toContain('echo "out line" && echo "err line" >&2');
+      expect(content).toContain(`cwd: ${tmpDir}`);
+      expect(content).toContain('exit code: 0');
+      expect(content).toMatch(/duration: \d+ms/);
+      expect(content).toContain('out line');
+      expect(content).toContain('err line');
+    });
+
+    it('overwrites the log on each validation run', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        tests: ['echo "first run"'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+      await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+
+      const task2: Task = { ...task, tests: ['echo "second run"'] };
+      writeTasksFile(tasksFilePath, [task2]);
+      await validateTaskTests({ task: task2, tasksFilePath, projectRoot: tmpDir });
+
+      const content = readFileSync(join(tmpDir, '.cairn_task_1_tests.log'), 'utf-8');
+      expect(content).not.toContain('first run');
+      expect(content).toContain('second run');
+    });
+
+    it('a failure to write the log does not change the validation outcome', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        tests: ['true'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+      // Make the log path unwritable by occupying it with a directory.
+      mkdirSync(join(tmpDir, '.cairn_task_1_tests.log'));
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('passed');
+    });
+  });
+
+  describe('summary counts', () => {
+    it('parses bun-style pass/fail counts from output', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        tests: ['echo " 12 pass" && echo " 0 fail" && echo " 2 skip"'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.summary).toEqual([
+        { command: task.tests![0], status: 'passed', durationMs: expect.any(Number), counts: { pass: 12, fail: 0, skip: 2 } },
+      ]);
+    });
+
+    it('leaves counts undefined when output is not parseable', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        tests: ['echo "nothing recognizable here"'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.summary?.[0].counts).toBeUndefined();
+    });
+  });
+
+  describe('failureTail', () => {
+    it('is at most 40 lines and is the end of the output on a real failure', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        tests: ['for i in $(seq 1 60); do echo "line $i" >&2; done; exit 1'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('failed');
+      const tailLines = result.failureTail!.split('\n');
+      expect(tailLines.length).toBeLessThanOrEqual(40);
+      expect(result.failureTail).toContain('line 60');
+      expect(result.failureTail).not.toContain('line 1\n');
+    });
+
+    it('is present on infrastructure error results too', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        tests: ['echo "Cannot find module xyz" >&2 && exit 1'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.status).toBe('error');
+      expect(result.failureTail).toContain('Cannot find module xyz');
+    });
+
+    it('is undefined on a passing result', async () => {
+      const task: Task = {
+        id: 1, priority: 1, title: 'Test', status: 'complete',
+        tests: ['true'],
+      };
+      writeTasksFile(tasksFilePath, [task]);
+
+      const result = await validateTaskTests({ task, tasksFilePath, projectRoot: tmpDir });
+      expect(result.failureTail).toBeUndefined();
+    });
+  });
+
+  describe('formatTestSummary', () => {
+    it('says so for a skipped validation', () => {
+      expect(formatTestSummary({ status: 'skipped' })).toMatch(/skip/i);
+    });
+
+    it('includes command, status, counts, duration, and the log path', () => {
+      const summaryText = formatTestSummary({
+        status: 'passed',
+        logPath: '/tmp/.cairn_task_1_tests.log',
+        summary: [
+          { command: 'bun test', status: 'passed', durationMs: 42, counts: { pass: 5, fail: 0 } },
+        ],
+      });
+      expect(summaryText).toContain('bun test');
+      expect(summaryText).toContain('passed');
+      expect(summaryText).toContain('5 pass');
+      expect(summaryText).toContain('0 fail');
+      expect(summaryText).toContain('42ms');
+      expect(summaryText).toContain('/tmp/.cairn_task_1_tests.log');
     });
   });
 });

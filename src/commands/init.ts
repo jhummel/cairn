@@ -24,6 +24,7 @@ const TEMP_IGNORE_SUFFIXES = [
   'completed_ids',
   'tasks_snapshot.json',
   'task_*_notes.md',
+  'task_*_tests.log',
   'run_state.json',
   'run_state.json.lock',
 ] as const;
