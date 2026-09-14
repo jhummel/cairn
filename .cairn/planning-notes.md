@@ -27,7 +27,7 @@ The design was drafted in a separate discussion on 2026-09-13 and revised in thi
 - **The stall-guard note (`run.ts:724`) blames a `permissions.deny` rule.** Init now strips those rules, and under `/cairn-run` a stall has other likely causes. Reword the note when it moves into `settle`.
 - **Specialists are embedded in the prompt** (`run.ts:64-80`), not used as the agent's system prompt. Task `model` is `'opus' | 'sonnet'` (`types.ts`), which maps directly onto the Agent tool's `model` parameter.
 - **`~/.local/bin/cairn` is a symlink to `dist/cairn`**, so not re-running `install.sh` pins nothing. CLAUDE.md's pin/unpin section now includes the exact commands (uncommitted as of this session).
-- **`CLAUDE.local.md` is not gitignored in this repo.** The global ignore covers only `.claude/settings.local.json`.
+- **`CLAUDE.local.md` is gitignored in this repo** (added to `.gitignore` during planning). The global ignore covers only `.claude/settings.local.json`, so other projects need init's warning (task 106).
 
 ### Probe results (this session, run as subagents from the interactive planner)
 
