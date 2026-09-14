@@ -534,9 +534,6 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       }
 
       const taskDir = task.directory ?? '';
-      // Snapshot at selection time — the stall guard compares against this, not
-      // against task.status, which must not be read back after the agent runs.
-      const selectedStatus = task.status;
 
       // Set CAIRN_TASK_CONTEXT env var
       process.env.CAIRN_TASK_CONTEXT = task.title;
@@ -645,10 +642,10 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
 
       iterationsCompleted++;
 
-      // k. Settle: validate tests, apply the revert and stall guards, and
-      // re-read the task status (see src/settle.ts).
+      // k. Settle: validate tests, apply the revert, incomplete, and stall
+      // guards, and re-read the task status (see src/settle.ts).
       const settled = await settleTask(
-        { task, selectedStatus, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath },
+        { task, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath },
         {
           validateTaskTests: deps.validateTaskTests,
           readTasksFile: deps.readTasksFile,

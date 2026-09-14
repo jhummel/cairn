@@ -6,7 +6,8 @@ import { fileRunStateStore, newAttemptRecord, type RunStateStore } from './run-s
 
 /**
  * Post-iteration settlement: validate the task's tests, apply the
- * consecutive-revert and same-task stall guards, and re-read the task's status.
+ * consecutive-revert, incomplete, and same-task stall guards, and re-read the
+ * task's status.
  *
  * Shared by `cairn run` and the interactive round commands so both modes run
  * one tested implementation of the logic that decides what an iteration did.
@@ -25,18 +26,34 @@ import { fileRunStateStore, newAttemptRecord, type RunStateStore } from './run-s
 export const REVERT_BLOCK_THRESHOLD = 2;
 
 /**
- * Consecutive iterations a task may be selected as 'pending' and left 'pending'
- * before it is forced to 'blocked'.
+ * Consecutive iterations a task may be left 'pending' before it is forced to
+ * 'blocked'.
  *
  * The agent never calling `cairn task start` is a no-op iteration: the task
  * stays pending, so the loop re-selects it next time and every iteration still
- * reports SUCCESS. The usual cause is environmental (a `permissions.deny` rule
- * for `cairn task`), so retrying cannot help. Fixed at 3 on purpose, same
- * reasoning as REVERT_BLOCK_THRESHOLD: three identical no-op iterations are
- * unambiguous, and a misconfigured value would re-hide the failure. Not
- * configurable.
+ * reports SUCCESS. The cause is environmental, not task-specific — the agent
+ * couldn't run the CLI, crashed before starting, or misread its instructions —
+ * so retrying cannot help. Fixed at 3 on purpose, same reasoning as
+ * REVERT_BLOCK_THRESHOLD: three identical no-op iterations are unambiguous,
+ * and a misconfigured value would re-hide the failure. Not configurable.
  */
 export const STALL_BLOCK_THRESHOLD = 3;
+
+/**
+ * Consecutive iterations a task may be left 'in-progress' without completing
+ * before it is forced to 'blocked'.
+ *
+ * selectNextTask returns in-progress tasks first, so a task the agent leaves
+ * in-progress every time (it times out, gives up, or otherwise never reaches
+ * a completion) is re-picked forever — the same livelock REVERT_BLOCK_THRESHOLD
+ * guards against, but for an agent that never gets as far as a failed
+ * validation. Fixed at 3, not 2 like the revert guard, and not configurable:
+ * blocking early costs a human an unblock, blocking late costs one extra
+ * agent session, a large task can legitimately need two sessions to finish,
+ * and the third attempt deliberately hands the task to a fresh agent in case
+ * the first agent's own context was the problem.
+ */
+export const INCOMPLETE_BLOCK_THRESHOLD = 3;
 
 /** Squash a validation message into a single readable line for a task note. */
 export function summarizeFailure(message: string | undefined): string {
@@ -52,9 +69,9 @@ export interface BlockTaskOpts {
   note: string;
 }
 
-export type GuardKind = 'reverts' | 'stalls';
+export type GuardKind = 'reverts' | 'stalls' | 'incompletes';
 
-/** Per-task consecutive counts backing the revert and stall guards. */
+/** Per-task consecutive counts backing the revert, stall, and incomplete guards. */
 export interface GuardCounters {
   get(taskId: number, kind: GuardKind): number;
   set(taskId: number, kind: GuardKind, n: number): void;
@@ -95,6 +112,7 @@ export function createInMemoryGuardCounters(): GuardCounters {
   const maps: Record<GuardKind, Map<number, number>> = {
     reverts: new Map(),
     stalls: new Map(),
+    incompletes: new Map(),
   };
   return {
     get: (taskId, kind) => maps[kind].get(taskId) ?? 0,
@@ -105,8 +123,6 @@ export function createInMemoryGuardCounters(): GuardCounters {
 
 export interface SettleTaskInput {
   task: Task;
-  /** Status snapshot at selection time — the stall guard compares against this. */
-  selectedStatus: Task['status'];
   tasksFilePath: string;
   dataDir: string;
   projectRoot: string;
@@ -124,6 +140,18 @@ export interface SettleTaskDeps {
   counters?: GuardCounters;
 }
 
+/**
+ * How the next attempt at this task should be spawned, derived from the
+ * guard state this settle observed. 'continue' resumes the same agent
+ * (a single revert or incomplete — normal unfinished work worth retrying
+ * in-place); 'fresh' spawns a new agent (a stall, or a second consecutive
+ * incomplete, in case the prior agent's own context was the problem);
+ * 'blocked' means a guard forced the task to 'blocked' this settle, so
+ * there is no next attempt until a human unblocks it; null means none of
+ * the guards have an opinion (e.g. the task completed).
+ */
+export type RetryMode = 'continue' | 'fresh' | 'blocked' | null;
+
 export interface SettleTaskResult {
   validation: ValidationResult;
   /** Task status re-read from tasks.json; 'unknown' when unreadable or missing. */
@@ -132,10 +160,12 @@ export interface SettleTaskResult {
   blockedByGuard: boolean;
   /** True when the re-read had to repair or restore tasks.json. */
   corrupted: boolean;
+  /** How the next attempt at this task should be spawned — see RetryMode. */
+  retryMode: RetryMode;
 }
 
 export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): Promise<SettleTaskResult> {
-  const { task, selectedStatus, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath } = input;
+  const { task, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath } = input;
   const counters = deps.counters ?? createRunStateGuardCounters(dataDir);
   let blockedByGuard = false;
   let corrupted = false;
@@ -170,6 +200,7 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
     }
   } else if (validation.status === 'passed') {
     counters.clear(task.id, 'reverts');
+    counters.clear(task.id, 'incompletes');
   }
 
   // k3. Re-read task status from tasks.json (the agent may have updated it).
@@ -188,34 +219,73 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
     // Unreadable: 'unknown' leaves the guard neutral and skips the review.
   }
 
-  // k4. Same-task stall guard. A task selected as 'pending' that is *still*
-  // pending afterwards means the agent never ran `cairn task start` — a
-  // no-op iteration that reports SUCCESS and gets re-selected forever.
-  // Anything else observed (in-progress, complete, blocked) is real
-  // progress and resets the count; an unreadable file is neutral.
-  if (updatedTaskStatus === 'pending') {
-    if (selectedStatus === 'pending') {
-      const stalls = counters.get(task.id, 'stalls') + 1;
-      counters.set(task.id, 'stalls', stalls);
+  // k3.5. Incomplete guard. A task still 'in-progress' at settle time, that
+  // was NOT reverted by a failed validation above, means the agent left it
+  // unfinished — it timed out, gave up, or otherwise never called
+  // `cairn task complete`. Excluding a failed-validation revert keeps the two
+  // guards disjoint: that iteration already counted as a revert, not this.
+  if (updatedTaskStatus === 'in-progress' && validation.status !== 'failed') {
+    const incompletes = counters.get(task.id, 'incompletes') + 1;
+    counters.set(task.id, 'incompletes', incompletes);
 
-      if (stalls >= STALL_BLOCK_THRESHOLD) {
-        const note = `Blocked by ${BRAND.name} after ${stalls} consecutive iterations in which the agent never moved the task out of 'pending'. The usual cause is a permissions.deny rule for 'cairn task' in .claude/settings.local.json — which is NOT bypassed by --dangerously-skip-permissions, so the agent silently cannot run 'cairn task start'/'complete' and every iteration still reports SUCCESS.`;
-        try {
-          deps.blockTask({ tasksFilePath, dataDir, taskId: task.id, note });
-          blockedByGuard = true;
-          deps.log(`Task #${task.id} blocked after ${stalls} consecutive iterations that left it 'pending' — the agent is likely unable to run 'cairn task start'. Moving on.`);
-          deps.appendFileSync(iterationLogPath, `Iteration ${iteration}: Task #${task.id} BLOCKED after ${stalls} consecutive iterations still 'pending'\n`);
-        } catch (err) {
-          deps.log(`Failed to block task #${task.id}: ${err instanceof Error ? err.message : String(err)}`);
-        }
-        // Start over, so a human fixing the permissions rule gets a fresh set
-        // of attempts rather than an instant re-block.
-        counters.clear(task.id, 'stalls');
+    if (incompletes >= INCOMPLETE_BLOCK_THRESHOLD) {
+      const note = `Blocked by ${BRAND.name} after ${incompletes} consecutive iterations that left the task 'in-progress' without completing it.`;
+      try {
+        deps.blockTask({ tasksFilePath, dataDir, taskId: task.id, note });
+        blockedByGuard = true;
+        deps.log(`Task #${task.id} blocked after ${incompletes} consecutive iterations left 'in-progress' — moving on.`);
+        deps.appendFileSync(iterationLogPath, `Iteration ${iteration}: Task #${task.id} BLOCKED after ${incompletes} consecutive iterations left 'in-progress'\n`);
+      } catch (err) {
+        deps.log(`Failed to block task #${task.id}: ${err instanceof Error ? err.message : String(err)}`);
       }
+      // Start the count over: if a human unblocks the task it gets a fresh
+      // pair of attempts rather than re-blocking on the first incomplete.
+      counters.clear(task.id, 'incompletes');
+    }
+  }
+
+  // k4. Same-task stall guard. A task that is still 'pending' at settle time
+  // means the agent never ran `cairn task start` — a no-op iteration that
+  // reports SUCCESS and gets re-selected forever. Anything else observed
+  // (in-progress, complete, blocked) is real progress and resets the count;
+  // an unreadable file is neutral.
+  if (updatedTaskStatus === 'pending') {
+    const stalls = counters.get(task.id, 'stalls') + 1;
+    counters.set(task.id, 'stalls', stalls);
+
+    if (stalls >= STALL_BLOCK_THRESHOLD) {
+      const note = `Blocked by ${BRAND.name} after ${stalls} consecutive iterations in which the agent never moved the task out of 'pending'. Likely causes: the agent could not run the ${BRAND.name} CLI (not on PATH, or a permission rule or hook denying it), it crashed or hit its turn limit before starting, or it misread its instructions.`;
+      try {
+        deps.blockTask({ tasksFilePath, dataDir, taskId: task.id, note });
+        blockedByGuard = true;
+        deps.log(`Task #${task.id} blocked after ${stalls} consecutive iterations that left it 'pending'. Moving on.`);
+        deps.appendFileSync(iterationLogPath, `Iteration ${iteration}: Task #${task.id} BLOCKED after ${stalls} consecutive iterations still 'pending'\n`);
+      } catch (err) {
+        deps.log(`Failed to block task #${task.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      // Start over, so a human who fixes the underlying cause gets a fresh
+      // set of attempts rather than an instant re-block.
+      counters.clear(task.id, 'stalls');
     }
   } else if (updatedTaskStatus !== 'unknown') {
     counters.clear(task.id, 'stalls');
   }
 
-  return { validation, updatedTaskStatus, blockedByGuard, corrupted };
+  // Retry mode for the next attempt: blocked wins outright; a failed
+  // validation below its threshold always resumes the same agent; a stall
+  // always gets a fresh one; an incomplete escalates from continue to fresh
+  // on its second consecutive occurrence. null means no guard has an
+  // opinion (e.g. the task completed).
+  let retryMode: RetryMode = null;
+  if (blockedByGuard) {
+    retryMode = 'blocked';
+  } else if (validation.status === 'failed') {
+    retryMode = 'continue';
+  } else if (updatedTaskStatus === 'pending') {
+    retryMode = 'fresh';
+  } else if (updatedTaskStatus === 'in-progress') {
+    retryMode = counters.get(task.id, 'incompletes') >= 2 ? 'fresh' : 'continue';
+  }
+
+  return { validation, updatedTaskStatus, blockedByGuard, corrupted, retryMode };
 }

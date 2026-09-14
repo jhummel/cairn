@@ -1299,9 +1299,10 @@ describe('runRun', () => {
         return selected;
       }),
       spawnClaude: mock(async () => {
-        // Task 1's agent is blocked from running `cairn task start` (the real
-        // bug: a permissions.deny rule), so the task never leaves 'pending' and
-        // the loop re-picks it forever. Task 2's agent behaves normally.
+        // Task 1's agent never gets as far as running `cairn task start` (e.g.
+        // it can't run the CLI, or crashes before starting), so the task never
+        // leaves 'pending' and the loop re-picks it forever. Task 2's agent
+        // behaves normally.
         const t = selected;
         if (t && t.id === 2) t.status = 'complete';
         return { exitCode: 0 };
@@ -1318,7 +1319,9 @@ describe('runRun', () => {
     expect(call[0].tasksFilePath).toBe('/projects/myapp/.cairn/tasks.json');
     expect(call[0].dataDir).toBe('/projects/myapp/.cairn');
     expect(call[0].note).toContain('pending');
-    expect(call[0].note).toContain('permissions.deny');
+    // The note lists likely causes without asserting one — it must not blame
+    // a permissions.deny rule, which cairn init now strips (see CLAUDE.md).
+    expect(call[0].note).not.toContain('permissions.deny');
     expect(tasks[0]!.status).toBe('blocked');
     // Three iterations burned on the stuck task, then the loop moved on and
     // finished task 2 — 3 iterations instead of the full run.
@@ -1451,6 +1454,61 @@ describe('runRun', () => {
     expect(deps.blockTask).toHaveBeenCalledTimes(1);
     expect((deps.blockTask as ReturnType<typeof mock>).mock.calls[0][0].taskId).toBe(3);
     expect(deps.runPostTaskReview).not.toHaveBeenCalled();
+  });
+
+  // --- Incomplete guard ---
+
+  test('blocks a task after three consecutive iterations that leave it in-progress without completing, and moves on', async () => {
+    const tasks = [
+      makeTask({ id: 1, priority: 1, status: 'in-progress' }),
+      makeTask({ id: 2, priority: 2 }),
+    ];
+    let selected: Task | null = null;
+    const deps = makeGuardDeps(tasks, {
+      validateTaskTests: mock(async () => ({ status: 'skipped' as const })),
+      selectNextTask: mock((ts: Task[]) =>
+        (selected = ts.find(t => t.status === 'in-progress') ?? ts.find(t => t.status === 'pending') ?? null)),
+      spawnClaude: mock(async () => {
+        // Task 1's agent starts the task but times out or gives up every time
+        // without ever calling `cairn task complete`. Task 2's agent behaves
+        // normally.
+        const t = selected;
+        if (t && t.id === 2) t.status = 'complete';
+        return { exitCode: 0 };
+      }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 10 }), deps);
+
+    expect(deps.blockTask).toHaveBeenCalledTimes(1);
+    const call = (deps.blockTask as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0].taskId).toBe(1);
+    expect(call[0].note).toContain("left the task 'in-progress' without completing it");
+    expect(tasks[0]!.status).toBe('blocked');
+    // Three iterations burned on the stuck task, then the loop moved on and
+    // finished task 2 — not a livelock.
+    expect(tasks[1]!.status).toBe('complete');
+    expect(deps.spawnClaude).toHaveBeenCalledTimes(4);
+  });
+
+  test('a failed validation reverts the task without also counting as an incomplete', async () => {
+    const tasks = [makeTask({ id: 1, tests: ['bun test'] })];
+    const deps = makeGuardDeps(tasks, {
+      validateTaskTests: mock(async () => {
+        tasks[0]!.status = 'in-progress';
+        return { status: 'failed' as const, message: 'bun test: boom' };
+      }),
+    });
+
+    // Five reverts would block via the incomplete guard too (threshold 3) if
+    // a revert were double-counted; the revert guard (threshold 2) must fire
+    // first, so the block should carry the revert note, not the incomplete one.
+    await runRun(makeRunOpts({ maxIterations: 5 }), deps);
+
+    expect(deps.blockTask).toHaveBeenCalledTimes(1);
+    const call = (deps.blockTask as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0].note).toContain('consecutive post-iteration test validation failures');
+    expect(call[0].note).not.toContain("left the task 'in-progress'");
   });
 
   // --- Persistent attempt record (run state) ---

@@ -9,6 +9,7 @@ import {
   createRunStateGuardCounters,
   REVERT_BLOCK_THRESHOLD,
   STALL_BLOCK_THRESHOLD,
+  INCOMPLETE_BLOCK_THRESHOLD,
   summarizeFailure,
   type SettleTaskInput,
   type SettleTaskDeps,
@@ -93,7 +94,6 @@ function makeHarness(): Harness {
 function makeInput(overrides: Partial<SettleTaskInput> = {}): SettleTaskInput {
   return {
     task: makeTask(),
-    selectedStatus: 'pending',
     tasksFilePath: '/proj/.cairn/tasks.json',
     dataDir: '/proj/.cairn',
     projectRoot: '/proj',
@@ -104,9 +104,10 @@ function makeInput(overrides: Partial<SettleTaskInput> = {}): SettleTaskInput {
 }
 
 describe('thresholds', () => {
-  test('are fixed at 2 reverts and 3 stalls', () => {
+  test('are fixed at 2 reverts, 3 stalls, 3 incompletes', () => {
     expect(REVERT_BLOCK_THRESHOLD).toBe(2);
     expect(STALL_BLOCK_THRESHOLD).toBe(3);
+    expect(INCOMPLETE_BLOCK_THRESHOLD).toBe(3);
   });
 });
 
@@ -206,12 +207,16 @@ describe('settleTask', () => {
     expect(result.validation).toEqual({ status: 'skipped' });
   });
 
-  test('passed validation resets the revert counter', async () => {
+  test('passed validation resets the revert and incomplete counters', async () => {
     const h = makeHarness();
     h.counters.set(7, 'reverts', 1);
+    h.counters.set(7, 'incompletes', 2);
     h.setValidation({ status: 'passed' });
     const result = await settleTask(makeInput(), h.deps);
     expect(h.counters.get(7, 'reverts')).toBe(0);
+    // Status re-reads as 'complete' (makeHarness default), so the incomplete
+    // guard does not re-increment after the reset.
+    expect(h.counters.get(7, 'incompletes')).toBe(0);
     expect(result.blockedByGuard).toBe(false);
     expect(h.blocked).toHaveLength(0);
   });
@@ -235,10 +240,12 @@ describe('settleTask', () => {
     const first = await settleTask(makeInput({ iteration: 1 }), h.deps);
     expect(h.counters.get(7, 'reverts')).toBe(1);
     expect(first.blockedByGuard).toBe(false);
+    expect(first.retryMode).toBe('continue');
     expect(h.blocked).toHaveLength(0);
 
     const second = await settleTask(makeInput({ iteration: 2 }), h.deps);
     expect(second.blockedByGuard).toBe(true);
+    expect(second.retryMode).toBe('blocked');
     expect(h.blocked).toHaveLength(1);
     expect(h.blocked[0]).toEqual({
       tasksFilePath: '/proj/.cairn/tasks.json',
@@ -255,6 +262,15 @@ describe('settleTask', () => {
     });
   });
 
+  test('a failed validation counts only as a revert, never also as an incomplete', async () => {
+    const h = makeHarness();
+    h.setStatus('in-progress');
+    h.setValidation({ status: 'failed', message: 'bun test: boom' });
+    await settleTask(makeInput(), h.deps);
+    expect(h.counters.get(7, 'reverts')).toBe(1);
+    expect(h.counters.get(7, 'incompletes')).toBe(0);
+  });
+
   test('a blockTask failure is logged and does not mark blockedByGuard', async () => {
     const h = makeHarness();
     h.setStatus('in-progress');
@@ -267,7 +283,7 @@ describe('settleTask', () => {
     expect(h.counters.get(7, 'reverts')).toBe(0);
   });
 
-  test('stall increments only when selected pending and still pending, blocks at 3', async () => {
+  test('stall increments whenever the task is still pending, blocks at 3', async () => {
     const h = makeHarness();
     h.setStatus('pending');
     h.setValidation({ status: 'skipped' });
@@ -275,15 +291,18 @@ describe('settleTask', () => {
     const r1 = await settleTask(makeInput({ iteration: 1 }), h.deps);
     expect(r1.updatedTaskStatus).toBe('pending');
     expect(h.counters.get(7, 'stalls')).toBe(1);
+    expect(r1.retryMode).toBe('fresh');
     await settleTask(makeInput({ iteration: 2 }), h.deps);
     expect(h.counters.get(7, 'stalls')).toBe(2);
     expect(h.blocked).toHaveLength(0);
 
     const r3 = await settleTask(makeInput({ iteration: 3 }), h.deps);
     expect(r3.blockedByGuard).toBe(true);
+    expect(r3.retryMode).toBe('blocked');
     expect(h.blocked).toHaveLength(1);
     expect(h.blocked[0].taskId).toBe(7);
     expect(h.blocked[0].note).toContain("Blocked by cairn after 3 consecutive iterations in which the agent never moved the task out of 'pending'.");
+    expect(h.blocked[0].note).not.toContain('permissions.deny');
     expect(h.counters.get(7, 'stalls')).toBe(0);
     expect(h.appended).toContainEqual({
       p: '/proj/.cairn/.cairn_iterations.log',
@@ -291,14 +310,19 @@ describe('settleTask', () => {
     });
   });
 
-  test('still pending but selected in-progress does not count as a stall', async () => {
+  test('still-pending counts as a stall regardless of the task\'s prior status', async () => {
     const h = makeHarness();
     h.setStatus('pending');
     h.setValidation({ status: 'skipped' });
     h.counters.set(7, 'stalls', 2);
-    const result = await settleTask(makeInput({ selectedStatus: 'in-progress' }), h.deps);
-    expect(h.counters.get(7, 'stalls')).toBe(2);
-    expect(result.blockedByGuard).toBe(false);
+    // The task object's own status (pre-iteration) was 'in-progress'; settleTask
+    // no longer takes a selection-time snapshot, so only the re-read status
+    // (still 'pending') decides — a prior status can no longer suppress it.
+    const result = await settleTask(makeInput({ task: makeTask({ status: 'in-progress' }) }), h.deps);
+    // Third consecutive stall: hits the threshold and blocks, so the counter
+    // restarts at 0 rather than landing on 3.
+    expect(result.blockedByGuard).toBe(true);
+    expect(h.counters.get(7, 'stalls')).toBe(0);
   });
 
   test('any other observed status resets the stall counter', async () => {
@@ -346,5 +370,61 @@ describe('settleTask', () => {
     }
     const clean = makeHarness();
     expect((await settleTask(makeInput(), clean.deps)).corrupted).toBe(false);
+  });
+});
+
+describe('incomplete guard', () => {
+  test('increments only when the task is left in-progress without a failed validation, blocks at 3', async () => {
+    const h = makeHarness();
+    h.setStatus('in-progress');
+    h.setValidation({ status: 'skipped' });
+
+    const r1 = await settleTask(makeInput({ iteration: 1 }), h.deps);
+    expect(h.counters.get(7, 'incompletes')).toBe(1);
+    expect(r1.blockedByGuard).toBe(false);
+    expect(r1.retryMode).toBe('continue');
+
+    const r2 = await settleTask(makeInput({ iteration: 2 }), h.deps);
+    expect(h.counters.get(7, 'incompletes')).toBe(2);
+    expect(r2.blockedByGuard).toBe(false);
+    expect(r2.retryMode).toBe('fresh');
+
+    const r3 = await settleTask(makeInput({ iteration: 3 }), h.deps);
+    expect(r3.blockedByGuard).toBe(true);
+    expect(r3.retryMode).toBe('blocked');
+    expect(h.blocked).toHaveLength(1);
+    expect(h.blocked[0]).toEqual({
+      tasksFilePath: '/proj/.cairn/tasks.json',
+      dataDir: '/proj/.cairn',
+      taskId: 7,
+      note: "Blocked by cairn after 3 consecutive iterations that left the task 'in-progress' without completing it.",
+    });
+    // Counter restarts after a block.
+    expect(h.counters.get(7, 'incompletes')).toBe(0);
+    expect(h.logs).toContain("Task #7 blocked after 3 consecutive iterations left 'in-progress' — moving on.");
+    expect(h.appended).toContainEqual({
+      p: '/proj/.cairn/.cairn_iterations.log',
+      content: "Iteration 3: Task #7 BLOCKED after 3 consecutive iterations left 'in-progress'\n",
+    });
+  });
+
+  test('a completed task does not count as an incomplete', async () => {
+    const h = makeHarness();
+    h.setStatus('complete');
+    h.setValidation({ status: 'passed' });
+    await settleTask(makeInput(), h.deps);
+    expect(h.counters.get(7, 'incompletes')).toBe(0);
+  });
+
+  test('a blockTask failure is logged and does not mark blockedByGuard', async () => {
+    const h = makeHarness();
+    h.setStatus('in-progress');
+    h.setValidation({ status: 'skipped' });
+    h.counters.set(7, 'incompletes', 2);
+    h.setBlockThrows(true);
+    const result = await settleTask(makeInput(), h.deps);
+    expect(result.blockedByGuard).toBe(false);
+    expect(h.logs).toContain('Failed to block task #7: lock busy');
+    expect(h.counters.get(7, 'incompletes')).toBe(0);
   });
 });
