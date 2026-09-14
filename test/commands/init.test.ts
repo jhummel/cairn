@@ -84,6 +84,7 @@ describe('initCoreFiles', () => {
       '.cairn_task_*_prompt.md',
       '.cairn_run_state.json',
       '.cairn_run_state.json.lock',
+      '.cairn_hook_errors.log',
       '.ralph_task_*_notes.md',
       'instructions.md',
     ]);

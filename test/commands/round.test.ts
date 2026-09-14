@@ -169,6 +169,42 @@ describe('roundNext', () => {
     });
   });
 
+  describe('hook error warnings', () => {
+    const logPath = () => path.join(dataDir, '.cairn_hook_errors.log');
+
+    test('adds a warning naming the log and its line count when the hook-error log is non-empty', async () => {
+      writeTasks([makeTask({ id: 7 })]);
+      fs.writeFileSync(logPath(), '2026-09-13T00:00:00.000Z error one\n2026-09-13T00:00:01.000Z error two\n');
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result.verdict).toBe('task');
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings![0]).toContain(logPath());
+      expect(result.warnings![0]).toContain('(2 lines)');
+      expect(result.warnings![0]).toContain('containment hook');
+    });
+
+    test('warns on a round-done verdict too', async () => {
+      writeTasks([]);
+      fs.writeFileSync(logPath(), 'one line\n');
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'round-done' });
+      expect(result.warnings![0]).toContain('(1 lines)');
+    });
+
+    test('no warnings key when the log is absent or empty', async () => {
+      writeTasks([makeTask({ id: 7 })]);
+      expect('warnings' in (await roundNext(input(), makeHarness().deps))).toBe(false);
+
+      fs.writeFileSync(logPath(), '');
+      writeTasks([makeTask({ id: 8 })]);
+      expect('warnings' in (await roundNext(input(), makeHarness().deps))).toBe(false);
+    });
+  });
+
   describe('round-done', () => {
     test('reports the blocked count and tells the driver to notify and stop', async () => {
       writeTasks([

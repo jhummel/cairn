@@ -13,6 +13,7 @@ import { runRun } from './commands/run';
 import { runNarrate } from './commands/narrate';
 import { registerTaskCommands } from './commands/task';
 import { registerRoundCommands } from './commands/round';
+import { runPreToolUseHook } from './commands/hook';
 import type { AgentInfo } from './types';
 import { BRAND } from './brand';
 
@@ -187,6 +188,18 @@ export function createProgram(): Command {
   // --- Round subcommand group ---
   registerRoundCommands(program);
 
+  // --- Hook subcommand group (Claude Code hooks; skips project context setup) ---
+  const hook = program
+    .command('hook')
+    .description('Claude Code hook handlers (JSON payload on stdin)');
+
+  hook
+    .command('pre-tool-use')
+    .description('PreToolUse hook: contain /cairn-run subagents (tasks.json, post-task-reviewer scope)')
+    .action(async () => {
+      await runPreToolUseHook();
+    });
+
   return program;
 }
 
@@ -199,7 +212,11 @@ export async function main(argv?: string[]): Promise<void> {
   const program = createProgram();
 
   // Hook into Commander to set up project context before any command runs
-  program.hook('preAction', (thisCommand) => {
+  program.hook('preAction', (thisCommand, actionCommand) => {
+    // Hook handlers fire on every Edit/Write/Bash call in every session, so they
+    // skip config loading, agent discovery and git probing, and resolve only
+    // what they need themselves. A malformed cairn.json must not crash them.
+    if (actionCommand.parent?.name() === 'hook') return;
     const opts = thisCommand.opts();
     setupProjectContext(opts.projectRoot);
   });

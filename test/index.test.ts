@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as childProcess from 'child_process';
 import * as summarizeModule from '../src/commands/summarize';
+import * as hookModule from '../src/commands/hook';
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 
@@ -371,6 +372,35 @@ describe('command registration', () => {
     expect(longFlags).toContain('--reviewed');
     expect(longFlags).toContain('--before-sha');
     expect(longFlags).toContain('--test-timeout');
+  });
+
+  test('registers hook command group with pre-tool-use subcommand', () => {
+    const program = createProgram();
+    const hook = program.commands.find((c) => c.name() === 'hook');
+    expect(hook).toBeDefined();
+    expect(hook!.commands.map((c) => c.name())).toContain('pre-tool-use');
+  });
+
+  test('hook pre-tool-use skips project context setup (fast startup, immune to a malformed cairn.json)', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-hook-index-'));
+    const saved = { root: process.env.CAIRN_PROJECT_ROOT, data: process.env.CAIRN_DATA_DIR };
+    // setupProjectContext would JSON.parse this and throw.
+    fs.writeFileSync(path.join(tmpDir, 'cairn.json'), '{ nope');
+    process.env.CAIRN_PROJECT_ROOT = tmpDir;
+    process.env.CAIRN_DATA_DIR = 'sentinel';
+    const spy = spyOn(hookModule, 'runPreToolUseHook').mockImplementation(async () => {});
+    try {
+      await main(['node', 'cairn', 'hook', 'pre-tool-use']);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(process.env.CAIRN_DATA_DIR).toBe('sentinel');
+    } finally {
+      spy.mockRestore();
+      if (saved.root !== undefined) process.env.CAIRN_PROJECT_ROOT = saved.root;
+      else delete process.env.CAIRN_PROJECT_ROOT;
+      if (saved.data !== undefined) process.env.CAIRN_DATA_DIR = saved.data;
+      else delete process.env.CAIRN_DATA_DIR;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   test('run command accepts optional [max] argument', () => {

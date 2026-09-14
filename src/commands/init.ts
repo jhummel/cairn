@@ -30,6 +30,7 @@ const TEMP_IGNORE_SUFFIXES = [
   'task_*_prompt.md',
   'run_state.json',
   'run_state.json.lock',
+  'hook_errors.log',
 ] as const;
 
 const GITIGNORE_CURRENT_HEADER =

@@ -22,6 +22,7 @@ import { archiveCompletedTasks as defaultArchiveCompletedTasks } from '../task-a
 import { loadConfig, autoDetectHealthCheck } from '../config';
 import { buildSystemPrompt, resolveTaskModel } from './run';
 import { tempFilePath } from '../utils';
+import { hookErrorLogPath } from './hook';
 import { BRAND } from '../brand';
 
 type Writer = { write: (chunk: string) => void };
@@ -39,10 +40,14 @@ function defaultStderr(): Writer {
  * file, so the run agent never reads tasks.json itself.
  */
 
-export type RoundNextResult =
+export type RoundNextResult = (
   | { verdict: 'review'; taskId: number; reviewPromptFile: string; next: string }
   | { verdict: 'round-done'; blocked: number; next: string }
-  | { verdict: 'task'; taskId: number; title: string; iteration: number; model: string; promptFile: string; next: string };
+  | { verdict: 'task'; taskId: number; title: string; iteration: number; model: string; promptFile: string; next: string }
+) & {
+  /** Present only when there is something to warn about. */
+  warnings?: string[];
+};
 
 export interface RoundNextInput {
   projectRoot: string;
@@ -64,7 +69,30 @@ export function taskPromptFilePath(dataDir: string, taskId: number): string {
   return tempFilePath(dataDir, `task_${taskId}_prompt.md`);
 }
 
+/**
+ * Warnings for the run agent. A non-empty hook-error log means the PreToolUse
+ * containment hook failed open at least once — silently, from the agent's side.
+ */
+function roundWarnings(dataDir: string): string[] {
+  const logPath = hookErrorLogPath(dataDir);
+  let text: string;
+  try {
+    text = fs.readFileSync(logPath, 'utf8');
+  } catch {
+    return [];
+  }
+  const lines = text.split('\n').filter((l) => l.trim() !== '').length;
+  if (lines === 0) return [];
+  return [`Hook errors logged in ${logPath} (${lines} lines) — the /${BRAND.name}-run containment hook may not be working`];
+}
+
 export async function roundNext(input: RoundNextInput, deps: RoundNextDeps = {}): Promise<RoundNextResult> {
+  const result = await pickNext(input, deps);
+  const warnings = roundWarnings(input.dataDir);
+  return warnings.length > 0 ? { ...result, warnings } : result;
+}
+
+async function pickNext(input: RoundNextInput, deps: RoundNextDeps): Promise<RoundNextResult> {
   const { projectRoot, dataDir, config, agents } = input;
   const store = deps.runState ?? fileRunStateStore;
   const writeReview = deps.writeReviewPromptFile ?? defaultWriteReviewPromptFile;

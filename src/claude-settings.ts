@@ -88,6 +88,27 @@ export const GIT_INSPECTION_RULES: readonly string[] = [
 ];
 
 /**
+ * Split a shell command into its trimmed, non-empty subcommands the way Claude
+ * Code does before matching each one against the allowlist: on `&&`, `||`, `;`,
+ * `|`, `&` and newlines.
+ */
+export function splitSubcommands(command: string): string[] {
+  return command
+    .split(/&&|\|\||;|\||&|\n/)
+    .map((part) => part.trim())
+    .filter((part) => part !== '');
+}
+
+/**
+ * The command prefix a `Bash(<prefix>:*)` rule grants — `'git diff'` for
+ * `'Bash(git diff:*)'` — or null for any other rule shape.
+ */
+export function bashRulePrefix(rule: string): string | null {
+  const match = /^Bash\((.+):\*\)$/s.exec(rule.trim());
+  return match ? match[1] : null;
+}
+
+/**
  * Turn shell commands (a task's declared `tests`, a project's configured health
  * check) into `Bash(...)` permission rules.
  *
@@ -105,10 +126,10 @@ export function buildCommandRules(commands: readonly (string | undefined)[]): st
   const rules: string[] = [];
 
   for (const entry of commands) {
-    for (const part of (entry ?? '').split(/&&|\|\||;|\||&|\n/)) {
-      const cmd = part.trim();
-      // Skip blanks (absent/empty commands, trailing operators) so we never emit
-      // an empty `Bash()` rule or a dangling separator. Parens delimit a rule and
+    // splitSubcommands drops blanks (absent/empty commands, trailing operators)
+    // so we never emit an empty `Bash()` rule or a dangling separator.
+    for (const cmd of splitSubcommands(entry ?? '')) {
+      // Parens delimit a rule and
       // commas separate rules within a `--allowedTools` string, so a command
       // containing either cannot be expressed as one rule — drop it rather than
       // emit something that parses as a different, broader grant. The comma case
