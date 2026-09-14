@@ -82,7 +82,8 @@ Prompts you for each `cairn.json` property with sensible defaults, then creates:
 
 - `.cairn/` — data directory for tasks, notes, and logs
 - `cairn.json` — project configuration
-- `.cairn/instructions.md` — personal agent preferences (optional, gitignored)
+
+It also offers to create/open `CLAUDE.local.md` at the project root for personal agent preferences, and — if a legacy `.cairn/instructions.md` exists — to migrate its content into `CLAUDE.local.md` and delete it. See [Personal Agent Instructions](#personal-agent-instructions).
 
 Re-running `cairn init` on an existing project lets you update any field — existing values are shown as defaults so you only change what you need.
 
@@ -197,22 +198,28 @@ Notifications work independently of voice narration — you don't need `narratio
 
 ## Personal Agent Instructions
 
-`.cairn/instructions.md` is an optional file for personal prompt instructions that get injected into every execution agent's system prompt during `cairn run`. It's gitignored by default — use it for preferences that shouldn't be shared with your team, like preferred coding style, tools you like to avoid, or communication tone.
+`CLAUDE.local.md` at your project root is Claude Code's native mechanism for personal instructions. It's loaded automatically by every Claude Code session in the project — including Cairn's own headless agents (`cairn run`'s execution agents, the post-task reviewer, `cairn plan`, `cairn summarize`) and `/cairn-run`'s subagents — so Cairn doesn't need to inject it itself. Use it for preferences that shouldn't be shared with your team, like preferred coding style, tools you like to avoid, or communication tone.
 
 It differs from `CLAUDE.md`:
 
-| | `CLAUDE.md` | `.cairn/instructions.md` |
+| | `CLAUDE.md` | `CLAUDE.local.md` |
 |---|---|---|
-| **Scope** | Project-level, committed to git | Personal, gitignored |
-| **When used** | All Claude Code sessions | Cairn execution agents only (not planning) |
+| **Scope** | Project-level, committed to git | Personal |
+| **When used** | Every Claude Code session | Every Claude Code session |
 | **Purpose** | Project conventions, build commands | Personal agent preferences |
 
-Create it during `cairn init` or manually:
+Create it during `cairn init` (it offers to create/open it in `$EDITOR`) or manually:
 
 ```bash
-touch .cairn/instructions.md
+touch CLAUDE.local.md
 # Then edit it — plain text or markdown, no special format required
 ```
+
+`cairn init` warns — but never edits `.gitignore` or your git config — if `CLAUDE.local.md` isn't already ignored. Claude Code only auto-excludes a path when Claude Code itself creates that file, and it writes that exclusion to your global git excludes, not this repository's `.gitignore`, so add it yourself.
+
+### Migrating from `.cairn/instructions.md`
+
+`.cairn/instructions.md` is deprecated. Unlike `CLAUDE.local.md`, it only ever reached Cairn's own execution, post-task reviewer, `plan`, and `summarize` agents — never other Claude Code sessions in the project. Re-run `cairn init` and accept the migration prompt to move its content into `CLAUDE.local.md` (appended under a heading if `CLAUDE.local.md` already has content) and delete the old file. The loader still reads `instructions.md` when present, for one release, but logs a deprecation warning to stderr each time.
 
 ## Configuration
 
@@ -310,9 +317,9 @@ your-project/
 │   ├── reviews/
 │   │   └── round-<N>.md        # Per-planning-round post-task review logs
 │   ├── planning-notes.md       # Output from planning discussions
-│   ├── instructions.md         # Personal agent preferences (gitignored)
-│   └── .gitignore              # Ignores temp files and instructions.md
+│   └── .gitignore              # Ignores temp files (and instructions.md, if still present)
 ├── cairn.json                  # Project configuration (optional)
+├── CLAUDE.local.md             # Personal agent preferences (gitignored — see Personal Agent Instructions)
 └── IMPLEMENTATION.md           # Architecture summary
 ```
 
@@ -349,4 +356,4 @@ Each task in `tasks.json`:
 - **Resume after interruption** — `cairn run` picks up where it left off. In-progress tasks are retried automatically.
 - **Cost control** — set `model: "sonnet"` on straightforward tasks. Reserve `opus` for complex work.
 - **CLAUDE.md matters** — the execution engine loads your project's `CLAUDE.md` as system prompt context. Keep it current with conventions and patterns so agents follow your standards.
-- **instructions.md for personal preferences** — add `.cairn/instructions.md` to steer agent behavior without committing personal preferences to the repo. It's gitignored and only injected during `cairn run`, not planning.
+- **CLAUDE.local.md for personal preferences** — create it with `cairn init` or by hand to steer agent behavior without committing personal preferences to the repo. It's loaded by every Claude Code session in the project, not just `cairn run`; `cairn init` warns (but won't edit `.gitignore` for you) if it isn't already ignored.

@@ -9,6 +9,9 @@ import {
   promptForConfig,
   writeCairnJson,
   createInstructionsFile,
+  migrateInstructionsFile,
+  isPathGitIgnored,
+  warnIfClaudeLocalMdNotIgnored,
   installNarrationHooks,
   installSlashCommands,
   installAgents,
@@ -20,6 +23,7 @@ import {
   type PromptInterface,
   type ConfigDefaults,
   type SpawnSyncFn,
+  type CheckIgnoreFn,
 } from '../../src/commands/init';
 
 // --- initCoreFiles tests (existing) ---
@@ -819,7 +823,6 @@ describe('createInstructionsFile', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-instructions-test-'));
-    fs.mkdirSync(path.join(tmpDir, '.ralph'));
     stdoutLines = [];
     consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
       stdoutLines.push(args.join(' '));
@@ -832,32 +835,28 @@ describe('createInstructionsFile', () => {
   });
 
   const noopSpawn: SpawnSyncFn = () => ({ status: 0 });
+  const claudeLocalPath = () => path.join(tmpDir, 'CLAUDE.local.md');
 
   test('does nothing when user declines', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
     const rl = createMockPrompt(['n']);
-    await createInstructionsFile(dataDir, rl, noopSpawn);
-    expect(fs.existsSync(path.join(dataDir, 'instructions.md'))).toBe(false);
-    expect(stdoutLines.join('\n')).not.toContain('instructions.md');
+    await createInstructionsFile(tmpDir, rl, noopSpawn);
+    expect(fs.existsSync(claudeLocalPath())).toBe(false);
+    expect(stdoutLines.join('\n')).not.toContain('CLAUDE.local.md');
   });
 
-  test('creates instructions.md when user accepts', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+  test('creates CLAUDE.local.md when user accepts', async () => {
     const rl = createMockPrompt(['y']);
-    await createInstructionsFile(dataDir, rl, noopSpawn);
-    expect(fs.existsSync(path.join(dataDir, 'instructions.md'))).toBe(true);
+    await createInstructionsFile(tmpDir, rl, noopSpawn);
+    expect(fs.existsSync(claudeLocalPath())).toBe(true);
   });
 
-  test('prints Created: .ralph/instructions.md', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
+  test('prints Created: CLAUDE.local.md', async () => {
     const rl = createMockPrompt(['y']);
-    await createInstructionsFile(dataDir, rl, noopSpawn);
-    expect(stdoutLines.join('\n')).toContain('Created: .ralph/instructions.md');
+    await createInstructionsFile(tmpDir, rl, noopSpawn);
+    expect(stdoutLines.join('\n')).toContain('Created: CLAUDE.local.md');
   });
 
-  test('prompts and prints using .cairn/ when dataDir is .cairn', async () => {
-    const cairnDataDir = path.join(tmpDir, '.cairn');
-    fs.mkdirSync(cairnDataDir);
+  test('prompt mentions CLAUDE.local.md at the project root', async () => {
     const questions: string[] = [];
     const rl: PromptInterface = {
       question: async (query: string) => {
@@ -866,23 +865,19 @@ describe('createInstructionsFile', () => {
       },
       close: () => {},
     };
-    await createInstructionsFile(cairnDataDir, rl, noopSpawn);
-    expect(questions.some(q => q.includes('.cairn/instructions.md'))).toBe(true);
-    expect(stdoutLines.join('\n')).toContain('Created: .cairn/instructions.md');
+    await createInstructionsFile(tmpDir, rl, noopSpawn);
+    expect(questions.some(q => q.includes('CLAUDE.local.md'))).toBe(true);
   });
 
-  test('does not overwrite existing instructions.md', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
-    const instructionsPath = path.join(dataDir, 'instructions.md');
-    fs.writeFileSync(instructionsPath, '# my notes\n');
+  test('does not overwrite existing CLAUDE.local.md content', async () => {
+    fs.writeFileSync(claudeLocalPath(), '# my notes\n');
     const rl = createMockPrompt(['y']);
-    await createInstructionsFile(dataDir, rl, noopSpawn);
-    expect(fs.readFileSync(instructionsPath, 'utf8')).toBe('# my notes\n');
-    expect(stdoutLines.join('\n')).not.toContain('Created: .ralph/instructions.md');
+    await createInstructionsFile(tmpDir, rl, noopSpawn);
+    expect(fs.readFileSync(claudeLocalPath(), 'utf8')).toBe('# my notes\n');
+    expect(stdoutLines.join('\n')).not.toContain('Created: CLAUDE.local.md');
   });
 
   test('launches $EDITOR with the file path', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
     const rl = createMockPrompt(['y']);
     let spawnedCmd = '';
     let spawnedArgs: string[] = [];
@@ -894,9 +889,9 @@ describe('createInstructionsFile', () => {
     const origEditor = process.env.EDITOR;
     process.env.EDITOR = '/usr/bin/nano';
     try {
-      await createInstructionsFile(dataDir, rl, captureSpawn);
+      await createInstructionsFile(tmpDir, rl, captureSpawn);
       expect(spawnedCmd).toBe('/usr/bin/nano');
-      expect(spawnedArgs[0]).toContain('instructions.md');
+      expect(spawnedArgs[0]).toContain('CLAUDE.local.md');
     } finally {
       if (origEditor === undefined) delete process.env.EDITOR;
       else process.env.EDITOR = origEditor;
@@ -904,14 +899,13 @@ describe('createInstructionsFile', () => {
   });
 
   test('falls back to vi when $EDITOR is not set', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
     const rl = createMockPrompt(['y']);
     let spawnedCmd = '';
     const captureSpawn: SpawnSyncFn = (cmd) => { spawnedCmd = cmd; return { status: 0 }; };
     const origEditor = process.env.EDITOR;
     delete process.env.EDITOR;
     try {
-      await createInstructionsFile(dataDir, rl, captureSpawn);
+      await createInstructionsFile(tmpDir, rl, captureSpawn);
       expect(spawnedCmd).toBe('vi');
     } finally {
       if (origEditor !== undefined) process.env.EDITOR = origEditor;
@@ -919,33 +913,206 @@ describe('createInstructionsFile', () => {
   });
 
   test('prints path when editor fails to launch', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
     const rl = createMockPrompt(['y']);
     const failSpawn: SpawnSyncFn = () => ({ status: 1, error: new Error('not found') });
     process.env.EDITOR = 'nonexistent-editor';
-    await createInstructionsFile(dataDir, rl, failSpawn);
-    expect(stdoutLines.join('\n')).toContain('instructions.md');
+    await createInstructionsFile(tmpDir, rl, failSpawn);
+    expect(stdoutLines.join('\n')).toContain('CLAUDE.local.md');
+  });
+});
+
+// --- migrateInstructionsFile tests ---
+
+describe('migrateInstructionsFile', () => {
+  let tmpDir: string;
+  let dataDir: string;
+  let stdoutLines: string[];
+  let consoleSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-migrate-instructions-test-'));
+    dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    stdoutLines = [];
+    consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
+      stdoutLines.push(args.join(' '));
+    });
   });
 
-  test('adds instructions.md to .gitignore when missing', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
-    const gitignorePath = path.join(dataDir, '.gitignore');
-    fs.writeFileSync(gitignorePath, '# other stuff\n');
-    const rl = createMockPrompt(['y']);
-    await createInstructionsFile(dataDir, rl, noopSpawn);
-    const content = fs.readFileSync(gitignorePath, 'utf8');
-    expect(content).toContain('instructions.md');
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true });
   });
 
-  test('does not duplicate instructions.md in .gitignore', async () => {
-    const dataDir = path.join(tmpDir, '.ralph');
-    const gitignorePath = path.join(dataDir, '.gitignore');
-    fs.writeFileSync(gitignorePath, '# stuff\ninstructions.md\n');
+  const claudeLocalPath = () => path.join(tmpDir, 'CLAUDE.local.md');
+  const instructionsPath = () => path.join(dataDir, 'instructions.md');
+
+  test('does nothing when instructions.md is absent — no prompt, nothing written', async () => {
+    const rl = createMockPrompt([]);
+    await migrateInstructionsFile(tmpDir, dataDir, rl);
+    expect(fs.existsSync(claudeLocalPath())).toBe(false);
+  });
+
+  test('does nothing when instructions.md is blank', async () => {
+    fs.writeFileSync(instructionsPath(), '   \n');
+    const rl = createMockPrompt([]);
+    await migrateInstructionsFile(tmpDir, dataDir, rl);
+    expect(fs.existsSync(claudeLocalPath())).toBe(false);
+    expect(fs.existsSync(instructionsPath())).toBe(true);
+  });
+
+  test('prompts to move, defaulting to yes', async () => {
+    fs.writeFileSync(instructionsPath(), '* Always use TDD\n');
+    const questions: string[] = [];
+    const rl: PromptInterface = {
+      question: async (query: string) => {
+        questions.push(query);
+        return '';
+      },
+      close: () => {},
+    };
+    await migrateInstructionsFile(tmpDir, dataDir, rl);
+    expect(questions[0]).toContain('.cairn/instructions.md');
+    expect(questions[0]).toContain('CLAUDE.local.md');
+    expect(questions[0]).toContain('[Y/n]');
+    // Empty input takes the yes default.
+    expect(fs.existsSync(claudeLocalPath())).toBe(true);
+  });
+
+  test('declining leaves instructions.md in place and CLAUDE.local.md untouched', async () => {
+    fs.writeFileSync(instructionsPath(), '* Always use TDD\n');
+    const rl = createMockPrompt(['n']);
+    await migrateInstructionsFile(tmpDir, dataDir, rl);
+    expect(fs.existsSync(claudeLocalPath())).toBe(false);
+    expect(fs.existsSync(instructionsPath())).toBe(true);
+  });
+
+  test('accepting creates CLAUDE.local.md with the migrated content and deletes instructions.md', async () => {
+    fs.writeFileSync(instructionsPath(), '* Always use TDD\n');
     const rl = createMockPrompt(['y']);
-    await createInstructionsFile(dataDir, rl, noopSpawn);
-    const content = fs.readFileSync(gitignorePath, 'utf8');
-    const count = content.split('\n').filter(l => l === 'instructions.md').length;
-    expect(count).toBe(1);
+    await migrateInstructionsFile(tmpDir, dataDir, rl);
+    expect(fs.readFileSync(claudeLocalPath(), 'utf8')).toBe('* Always use TDD\n');
+    expect(fs.existsSync(instructionsPath())).toBe(false);
+  });
+
+  test('appends to an existing CLAUDE.local.md with a blank line and heading, preserving prior content', async () => {
+    fs.writeFileSync(claudeLocalPath(), '# Project notes\nBuild with bun.\n');
+    fs.writeFileSync(instructionsPath(), '* Always use TDD\n');
+    const rl = createMockPrompt(['y']);
+    await migrateInstructionsFile(tmpDir, dataDir, rl);
+    const content = fs.readFileSync(claudeLocalPath(), 'utf8');
+    expect(content).toBe(
+      '# Project notes\nBuild with bun.\n\n## Personal instructions (migrated from .cairn/instructions.md)\n\n* Always use TDD\n',
+    );
+    expect(fs.existsSync(instructionsPath())).toBe(false);
+  });
+
+  test('never overwrites existing CLAUDE.local.md content', async () => {
+    fs.writeFileSync(claudeLocalPath(), '# Do not lose this\n');
+    fs.writeFileSync(instructionsPath(), '* Always use TDD\n');
+    const rl = createMockPrompt(['y']);
+    await migrateInstructionsFile(tmpDir, dataDir, rl);
+    expect(fs.readFileSync(claudeLocalPath(), 'utf8')).toContain('# Do not lose this');
+  });
+
+  test('reports the migration', async () => {
+    fs.writeFileSync(instructionsPath(), '* Always use TDD\n');
+    const rl = createMockPrompt(['y']);
+    await migrateInstructionsFile(tmpDir, dataDir, rl);
+    expect(stdoutLines.join('\n')).toContain('Moved');
+    expect(stdoutLines.join('\n')).toContain('.cairn/instructions.md');
+    expect(stdoutLines.join('\n')).toContain('CLAUDE.local.md');
+  });
+});
+
+// --- CLAUDE.local.md gitignore warning tests ---
+
+describe('isPathGitIgnored', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-check-ignore-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  test('returns true when check-ignore exits 0', () => {
+    const runFn: CheckIgnoreFn = () => ({ status: 0 });
+    expect(isPathGitIgnored(tmpDir, 'CLAUDE.local.md', runFn)).toBe(true);
+  });
+
+  test('returns false when check-ignore exits 1 (not ignored)', () => {
+    const runFn: CheckIgnoreFn = () => ({ status: 1 });
+    expect(isPathGitIgnored(tmpDir, 'CLAUDE.local.md', runFn)).toBe(false);
+  });
+
+  test('returns null (skip) outside a git repo — a fatal, non-0/1 exit', () => {
+    const runFn: CheckIgnoreFn = () => ({ status: 128 });
+    expect(isPathGitIgnored(tmpDir, 'CLAUDE.local.md', runFn)).toBe(null);
+  });
+
+  test('returns null (skip) when the command errors (e.g. git not installed)', () => {
+    const runFn: CheckIgnoreFn = () => ({ status: null, error: new Error('not found') });
+    expect(isPathGitIgnored(tmpDir, 'CLAUDE.local.md', runFn)).toBe(null);
+  });
+
+  test('runs from projectRoot with the expected git invocation', () => {
+    let seenCmd = '';
+    let seenArgs: string[] = [];
+    let seenOpts: { cwd: string } | undefined;
+    const runFn: CheckIgnoreFn = (cmd, args, opts) => {
+      seenCmd = cmd;
+      seenArgs = args;
+      seenOpts = opts;
+      return { status: 0 };
+    };
+    isPathGitIgnored(tmpDir, 'CLAUDE.local.md', runFn);
+    expect(seenCmd).toBe('git');
+    expect(seenArgs).toEqual(['check-ignore', '-q', 'CLAUDE.local.md']);
+    expect(seenOpts).toEqual({ cwd: tmpDir });
+  });
+});
+
+describe('warnIfClaudeLocalMdNotIgnored', () => {
+  let tmpDir: string;
+  let lines: string[];
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-warn-ignore-test-'));
+    lines = [];
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  test('warns when CLAUDE.local.md is not ignored', () => {
+    const runFn: CheckIgnoreFn = () => ({ status: 1 });
+    warnIfClaudeLocalMdNotIgnored(tmpDir, runFn, (m) => lines.push(m));
+    const output = lines.join('\n');
+    expect(output).toContain('WARNING');
+    expect(output).toContain('CLAUDE.local.md');
+    expect(output).toContain('.gitignore');
+  });
+
+  test('does not warn when CLAUDE.local.md is already ignored', () => {
+    const runFn: CheckIgnoreFn = () => ({ status: 0 });
+    warnIfClaudeLocalMdNotIgnored(tmpDir, runFn, (m) => lines.push(m));
+    expect(lines).toEqual([]);
+  });
+
+  test('skips silently outside a git repo', () => {
+    const runFn: CheckIgnoreFn = () => ({ status: 128 });
+    warnIfClaudeLocalMdNotIgnored(tmpDir, runFn, (m) => lines.push(m));
+    expect(lines).toEqual([]);
+  });
+
+  test('does not edit .gitignore or git config', () => {
+    const runFn: CheckIgnoreFn = () => ({ status: 1 });
+    warnIfClaudeLocalMdNotIgnored(tmpDir, runFn, (m) => lines.push(m));
+    expect(fs.existsSync(path.join(tmpDir, '.gitignore'))).toBe(false);
   });
 });
 
@@ -1924,5 +2091,58 @@ describe('runInit', () => {
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(path.join(tmpDir, '.claude', 'commands', 'generate-tasks.md'))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, '.claude', 'commands', 'review-tasks.md'))).toBe(true);
+  });
+
+  test('migrates a pre-existing instructions.md into CLAUDE.local.md when accepted', async () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
+    // 8 config prompts + reviewMaxIter + reviewPostTask (10, all default) +
+    // migrate='y' + create/open CLAUDE.local.md='n'.
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '', 'y', 'n']);
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    expect(fs.existsSync(path.join(tmpDir, 'CLAUDE.local.md'))).toBe(true);
+    expect(fs.readFileSync(path.join(tmpDir, 'CLAUDE.local.md'), 'utf8')).toBe('* Always use TDD\n');
+    expect(fs.existsSync(path.join(dataDir, 'instructions.md'))).toBe(false);
+  });
+
+  test('declining the migration prompt keeps instructions.md and skips CLAUDE.local.md', async () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '', 'n', 'n']);
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    expect(fs.existsSync(path.join(tmpDir, 'CLAUDE.local.md'))).toBe(false);
+    expect(fs.existsSync(path.join(dataDir, 'instructions.md'))).toBe(true);
+  });
+
+  test('warns when the migrated CLAUDE.local.md is not gitignored', async () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '', 'y', 'n']);
+    const notIgnored: CheckIgnoreFn = () => ({ status: 1 });
+    await runInit(tmpDir, dataDir, rl, noopSpawn, notIgnored);
+    const output = stdoutLines.join('\n');
+    expect(output).toContain('add CLAUDE.local.md to your .gitignore yourself');
+  });
+
+  test('does not warn when CLAUDE.local.md is already gitignored', async () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '', 'y', 'n']);
+    const ignored: CheckIgnoreFn = () => ({ status: 0 });
+    await runInit(tmpDir, dataDir, rl, noopSpawn, ignored);
+    expect(stdoutLines.join('\n')).not.toContain('add CLAUDE.local.md');
+  });
+
+  test('does not check gitignore status when there is no CLAUDE.local.md', async () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    const rl = createMockPrompt(allDefaultAnswers());
+    let called = false;
+    const spy: CheckIgnoreFn = () => { called = true; return { status: 1 }; };
+    await runInit(tmpDir, dataDir, rl, noopSpawn, spy);
+    expect(called).toBe(false);
   });
 });

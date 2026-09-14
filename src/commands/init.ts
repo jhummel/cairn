@@ -232,39 +232,126 @@ export function writeCairnJson(projectRoot: string, config: CairnConfig): void {
 export type SpawnSyncResult = { status: number | null; error?: Error };
 export type SpawnSyncFn = (cmd: string, args: string[], options: { stdio: 'inherit' }) => SpawnSyncResult;
 
+const CLAUDE_LOCAL_MD = 'CLAUDE.local.md';
+
 /**
- * Offer to create instructions.md inside the data directory and open it in $EDITOR.
+ * Offer to migrate a deprecated `<dataDir>/instructions.md` into the project
+ * root's `CLAUDE.local.md` — the native Claude Code mechanism, which is loaded
+ * by every Claude Code session in the project (unlike the old file, which only
+ * ever reached Cairn's own execution, post-task reviewer, plan, and summarize
+ * agents). No-ops silently when there is no non-blank instructions.md to move.
+ *
+ * Never overwrites existing CLAUDE.local.md content: when the file already
+ * exists, the migrated content is appended after a blank line and a heading
+ * naming where it came from.
+ */
+export async function migrateInstructionsFile(
+  projectRoot: string,
+  dataDir: string,
+  rl: PromptInterface,
+): Promise<void> {
+  const dirName = path.basename(dataDir);
+  const instructionsPath = path.join(dataDir, 'instructions.md');
+  if (!fs.existsSync(instructionsPath)) return;
+
+  const content = fs.readFileSync(instructionsPath, 'utf8');
+  if (!content.trim()) return;
+
+  const move = await promptBoolean(
+    rl,
+    `Move ${dirName}/instructions.md into ${CLAUDE_LOCAL_MD}?`,
+    true,
+  );
+  if (!move) return;
+
+  const claudeLocalPath = path.join(projectRoot, CLAUDE_LOCAL_MD);
+  if (fs.existsSync(claudeLocalPath)) {
+    const existing = fs.readFileSync(claudeLocalPath, 'utf8').replace(/\n+$/, '');
+    const heading = `## Personal instructions (migrated from ${dirName}/instructions.md)`;
+    fs.writeFileSync(claudeLocalPath, `${existing}\n\n${heading}\n\n${content}`);
+  } else {
+    fs.writeFileSync(claudeLocalPath, content);
+  }
+
+  fs.rmSync(instructionsPath);
+  console.log(`  Moved: ${dirName}/instructions.md -> ${CLAUDE_LOCAL_MD}`);
+}
+
+/**
+ * Offer to create (or just open) the project root's `CLAUDE.local.md` and open
+ * it in $EDITOR. Never overwrites existing content.
  */
 export async function createInstructionsFile(
-  dataDir: string,
+  projectRoot: string,
   rl: PromptInterface,
   spawnSyncFn: SpawnSyncFn = (cmd, args, opts) => nodeSpawnSync(cmd, args, opts),
 ): Promise<void> {
-  const dirName = path.basename(dataDir);
-  const create = await promptBoolean(rl, `Create ${dirName}/instructions.md for personal agent preferences?`, false);
+  const create = await promptBoolean(
+    rl,
+    `Create/open ${CLAUDE_LOCAL_MD} for personal agent preferences?`,
+    false,
+  );
   if (!create) return;
 
-  const instructionsPath = path.join(dataDir, 'instructions.md');
-  if (!fs.existsSync(instructionsPath)) {
-    fs.writeFileSync(instructionsPath, '');
-    console.log(`  Created: ${dirName}/instructions.md`);
-  }
-
-  // Ensure instructions.md is in .gitignore
-  const gitignorePath = path.join(dataDir, '.gitignore');
-  if (fs.existsSync(gitignorePath)) {
-    const content = fs.readFileSync(gitignorePath, 'utf8');
-    if (!content.split('\n').some(line => line === 'instructions.md')) {
-      fs.appendFileSync(gitignorePath, 'instructions.md\n');
-    }
+  const claudeLocalPath = path.join(projectRoot, CLAUDE_LOCAL_MD);
+  if (!fs.existsSync(claudeLocalPath)) {
+    fs.writeFileSync(claudeLocalPath, '');
+    console.log(`  Created: ${CLAUDE_LOCAL_MD}`);
   }
 
   // Open in $EDITOR (fall back to vi)
   const editor = process.env.EDITOR || 'vi';
-  const result = spawnSyncFn(editor, [instructionsPath], { stdio: 'inherit' });
+  const result = spawnSyncFn(editor, [claudeLocalPath], { stdio: 'inherit' });
   if (result.error || result.status !== 0) {
-    console.log(`  Path: ${instructionsPath}`);
+    console.log(`  Path: ${claudeLocalPath}`);
   }
+}
+
+export type CheckIgnoreFn = (
+  cmd: string,
+  args: string[],
+  options: { cwd: string },
+) => SpawnSyncResult;
+
+/**
+ * Whether `filePath` (relative to `projectRoot`) is covered by a gitignore
+ * rule, per `git check-ignore -q`. Returns `null` — meaning "skip, don't
+ * warn" — when `projectRoot` isn't inside a git repo, or the command errors
+ * for any other reason: `git check-ignore` only makes sense inside a repo,
+ * and a directory Cairn didn't `git init` is not this function's business.
+ */
+export function isPathGitIgnored(
+  projectRoot: string,
+  filePath: string,
+  runFn: CheckIgnoreFn = (cmd, args, opts) => nodeSpawnSync(cmd, args, { ...opts, stdio: 'ignore' }),
+): boolean | null {
+  const result = runFn('git', ['check-ignore', '-q', filePath], { cwd: projectRoot });
+  if (result.error) return null;
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  return null;
+}
+
+/**
+ * Warn — never edit — when the project root's `CLAUDE.local.md` isn't
+ * gitignored. Mirrors `installClaudeSettings`'s warning style for
+ * `.claude/settings.local.json`: Claude Code only auto-excludes paths it
+ * creates itself, and only in your global git excludes, never this
+ * repository's `.gitignore`. Cairn does not edit `.gitignore` or your git
+ * config for you.
+ */
+export function warnIfClaudeLocalMdNotIgnored(
+  projectRoot: string,
+  runFn?: CheckIgnoreFn,
+  log: (message: string) => void = (m) => console.log(m),
+): void {
+  if (isPathGitIgnored(projectRoot, CLAUDE_LOCAL_MD, runFn) !== false) return;
+
+  log('');
+  log(`  WARNING: add ${CLAUDE_LOCAL_MD} to your .gitignore yourself.`);
+  log('    Claude Code only excludes a path when Claude Code itself creates the file,');
+  log('    and it writes that entry to your global git excludes — not to this');
+  log('    repository. Cairn does not edit .gitignore or your git config for you.');
 }
 
 const NARRATE_SH = `#!/bin/bash
@@ -648,6 +735,7 @@ export async function runInit(
   dataDir: string,
   rl: PromptInterface,
   spawnSyncFn?: SpawnSyncFn,
+  checkIgnoreFn?: CheckIgnoreFn,
 ): Promise<void> {
   console.log('');
   console.log(`Initializing ${BRAND.displayName} in: ${projectRoot}`);
@@ -664,7 +752,11 @@ export async function runInit(
   console.log('');
   console.log(`  Wrote: ${BRAND.configFile}`);
 
-  await createInstructionsFile(dataDir, rl, spawnSyncFn);
+  await migrateInstructionsFile(projectRoot, dataDir, rl);
+  await createInstructionsFile(projectRoot, rl, spawnSyncFn);
+  if (fs.existsSync(path.join(projectRoot, CLAUDE_LOCAL_MD))) {
+    warnIfClaudeLocalMdNotIgnored(projectRoot, checkIgnoreFn);
+  }
   await installNarrationHooks(projectRoot, config.narration.enabled, rl);
   await installClaudeSettings(projectRoot, config, rl);
   showNextSteps();
