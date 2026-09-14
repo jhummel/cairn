@@ -35,6 +35,12 @@ The design was drafted in a separate discussion on 2026-09-13 and revised in thi
 - **(a′) `CLAUDE.local.md` is loaded into subagents.** The in-session probe was negative because the file was created after the parent session started. From a **new** session, a `general-purpose` subagent quoted `PROBE-MARKER: kestrel-7731.` from its loaded instructions before using any tools, and saw `CLAUDE.local.md` listed as private project instructions. Only `general-purpose` was tested this way. Custom agent types loaded the same CLAUDE.md and auto-memory as `general-purpose` in probe (a), so they very likely load it too, but that's unverified.
 - **(b) Nesting works.** A subagent launched a nested subagent, and the nested one reported it also had the Agent tool, so nesting goes at least two levels deep.
 - **Reviewer tool surface.** `post-task-reviewer` as a subagent gets **every tool**, including `Agent`, `Bash`, `Write` and all MCP tools, because its frontmatter has no `tools` field.
+- **(c) Hook behavior** (throwaway repo, interactive `claude --dangerously-skip-permissions`, `Edit|Write|Bash` matcher; checked against the hook log and files on disk):
+  - **Main-session calls have no `agent_id` or `agent_type` keys** (the keys are absent, not null). Subagent calls carry `agent_id` plus `agent_type`: `general-purpose` for the built-in, and the agent's `name` for a custom one (`probe-reviewer`).
+  - **An internal Claude Code helper also fires the hook:** a `Bash` call (`printf 'wait for it'`, "Output suggestion text") with an `agent_id` but **no `agent_type` key**. So "`agent_id` present" doesn't guarantee "`agent_type` present", and the hook sees traffic beyond the agents Cairn launches.
+  - Input also includes `permission_mode` (`bypassPermissions`), `tool_name`, `tool_input`, `cwd`, `session_id`, `transcript_path`, `tool_use_id`.
+  - **Hook denies still block under bypass mode**, both ways. With exit 2, the agent sees `PreToolUse:Write hook error: [<script path>]: <stderr>`. With exit 0 and JSON `hookSpecificOutput.permissionDecision: "deny"`, it sees only the reason text.
+  - **Any other failure lets the call through, silently.** Exit 1 and a missing binary (exit 127) both let the Write proceed, and the agent was shown no warning.
 
 ### Docs findings (Claude Code docs: `sub-agents.md`, `hooks.md`, `auto-mode-config.md`, `remote-control.md`)
 
@@ -179,14 +185,16 @@ Edit the repo-root `agents/` and `commands/`. `cairn init` copies them into proj
 
 Subagents follow the interactive session's permission mode, so per-agent `--allowedTools` scoping doesn't carry over, and frontmatter can't express path scopes. Replace both with one **PreToolUse hook that checks `agent_type`**:
 
-- **Implemented as `cairn hook pre-tool-use`** (JSON on stdin), not a shell script, so the decision logic is TypeScript with tests. Init seeds it into `.claude/settings.local.json` (round 13 rejected writing to the committed `settings.json`), with a matcher limited to `Edit|Write|Bash`.
+- **Implemented as `cairn hook pre-tool-use`** (JSON on stdin), not a shell script, so the decision logic is TypeScript with tests. **Deny with exit 0 plus JSON `permissionDecision: "deny"`**, not exit 2: the agent sees a clean reason instead of a "hook error" naming the script (probe c). Init seeds it into `.claude/settings.local.json` (round 13 rejected writing to the committed `settings.json`), with a matcher limited to `Edit|Write|Bash`.
 - **Rule 1:** a call from any subagent (`agent_id` present) to `Edit`/`Write` on `tasks.json` → deny. **Generate-tasks runs in the main session with no `agent_id`, so it is exempt automatically.** This replaces the draft's "deny only while a round is live" heuristic, which a crashed round's stale `executing` record would have broken.
 - **Rule 2:** when `agent_type == post-task-reviewer`, allow `Edit`/`Write` only under the resolved `reviews/` dir, and Bash only for `GIT_INSPECTION_RULES` (shared from `src/claude-settings.ts`). This rebuilds, mechanically, the scoping the headless reviewer gets from `--allowedTools`.
 - **No effect on headless `cairn run`:** its agents are main sessions (no `agent_id`), so the hook is a no-op for them. It can't cause a round-13-style incident against the existing loop.
-- **Fail open.** Any internal error (unparseable input, data dir not found, binary problem) exits without blocking. Only a deliberate deny blocks. The hook runs on every matching tool call in every session in the project, so it must also be fast: exit immediately when `agent_id` is absent.
+- **Fail open, but not invisibly.** Any internal error (unparseable input, data dir not found) exits non-zero without a deny. Probe (c) showed that a non-2 exit, including a missing `cairn` binary (127), lets the call through, so a broken or uninstalled hook can't lock up sessions. The rule is simple: never exit 2 and never emit `deny` on an internal error. Those failures are also **silent** (no warning reaches the agent), so the hook appends internal errors to a gitignored hook-error log in the data dir (`tempFilePath`) rather than failing without a trace.
+- **Missing `agent_type` is normal**, not an error. Internal Claude Code helpers carry `agent_id` without `agent_type` (probe c). Rule 1 still applies to them (they never touch `tasks.json`); rule 2 matches only an exact `agent_type`.
+- **Fast path:** the hook fires on every matching call in every session in the project, internal helpers included. Exit immediately when `agent_id` is absent, or when the tool and path can't match a rule.
 
 **Permission mode for `/cairn-run` sessions:** the user picks it at launch; the skill can't set it.
-- **Documented default: `bypassPermissions` + hook.** An unattended round never stalls. Containment is the same as today's execution agents, plus the hook, which is a strict gain.
+- **Documented default: `bypassPermissions` + hook.** Probe (c) confirmed that hook denies bind under bypass. An unattended round never stalls. Containment is the same as today's execution agents, plus the hook, which is a strict gain.
 - **Try `auto` + hook in the validation round.** The classifier adds a layer but could wrongly deny normal actions (`git commit`, `bun test`, `cairn task …`).
 - **`default`/`acceptEdits` + allowlist is rejected** for unattended rounds (see Rejected Alternatives).
 
@@ -204,7 +212,7 @@ Subagents follow the interactive session's permission mode, so per-agent `--allo
 - This round rewrites `run.ts` and adds commands to the binary the loop depends on. **The binary is pinned** (`~/.local/bin/cairn` is a regular file, built 2026-09-13 17:37) and `healthCheck` points at `/tmp/cairn-healthcheck`.
 - The pinned binary runs this round, so `run.ts` changes don't affect the round in progress. They do have to keep `test/commands/run.test.ts` green.
 - `/cairn-run` can't run this round. Its first real use is the validation round afterwards.
-- The hook seeding must never be exercised against the project root mid-round. A half-built hook pointing at the pinned binary, which doesn't have `cairn hook`, would be a no-op at best.
+- The hook seeding must never be exercised against the project root mid-round. A hook pointing at the pinned binary, which doesn't have `cairn hook`, fails silently and blocks nothing (probe c): harmless, but it hides that the hook isn't working.
 
 ## Rejected Alternatives
 
@@ -281,10 +289,7 @@ Subagents follow the interactive session's permission mode, so per-agent `--allo
 2. **Pin: already done.** Re-verify with `ls -la ~/.local/bin/cairn` (a regular file, not a symlink) right before `cairn run`.
 3. **Remaining probes**, before generating tasks:
    - **(a′) Done:** subagents load `CLAUDE.local.md`. Remove the marker line from `CLAUDE.local.md`.
-   - **(c)** Hook behavior:
-     - Does PreToolUse input from a subagent call actually include `agent_id` / `agent_type`, and are they absent for main-session calls?
-     - Does a hook deny still block under `bypassPermissions`?
-     - Which exit code / JSON output blocks, and does a crashing hook command block or pass? This decides how to fail open.
+   - **(c) Done:** `agent_id`/`agent_type` behave as the plan needs, denies bind under bypass, and non-2 failures let the call through silently. See Context. Delete `~/cairn-hook-probe`.
 
 **Round tasks** (each TDD: write the test, watch it fail, then implement). No project specialist agents apply; all tasks use the generalist prompt.
 
@@ -310,9 +315,12 @@ Subagents follow the interactive session's permission mode, so per-agent `--allo
 12. **`agents/cairn-task-agent.md`** (`agents/`, `test/commands/`): generic internal task agent with `maxTurns`; test that init installs it and that its frontmatter parses; make sure it isn't offered as a specialist.
 13. **`cairn hook pre-tool-use`** (`src/commands/`, `src/claude-settings.ts`, `test/commands/`):
     - A pure decision function covering the `tasks.json` subagent deny, the reviewer's `reviews/**` scope and the reviewer's git-only Bash.
-    - Fail open on any error; exit immediately when `agent_id` is absent.
+    - Deny via exit 0 plus JSON `hookSpecificOutput.permissionDecision: "deny"` with a reason.
+    - Fail open on any internal error (non-2 exit, never `deny`), and append the error to a gitignored hook-error log.
+    - Exit immediately when `agent_id` is absent. Treat a missing `agent_type` as normal (internal helpers).
+    - Test fixtures copied from the real probe (c) payloads: main session, `general-purpose`, custom agent, internal helper without `agent_type`.
     - Reuse `GIT_INSPECTION_RULES` and discovery.
-    - *Deps: probe (c).* ⚠️ Touches `index.ts`.
+    - ⚠️ Touches `index.ts`.
 14. **Init seeds the hook** (`src/commands/init.ts`, `src/claude-settings.ts`, `test/commands/init.test.ts`): idempotent merge into `settings.local.json` with an `Edit|Write|Bash` matcher, leaving user hooks intact. ⚠️ **Temp dirs only; never exercise init against the project root** (same hazard as round 14). *Deps: 13.*
 15. **`/cairn-run` skill** (`commands/`): `commands/cairn-run.md`.
     - The loop over verdicts, always launching `cairn-task-agent` with `model`.
@@ -341,7 +349,7 @@ Directories: `src/`, `src/commands/`, `test/`, `test/commands/`, `agents/`, `com
 ## Open Questions
 
 - **Do custom agent types (`cairn-task-agent`, `post-task-reviewer`) load `CLAUDE.local.md`?** Confirmed only for `general-purpose` (probe a′). Very likely, since custom types loaded the same memory files in probe (a). Check with `cairn-task-agent` in the validation round, before the `instructions.md` fallback is deleted.
-- **Probe (c): hook specifics.** Confirm `agent_id`/`agent_type` presence, that a deny blocks under `bypassPermissions`, and the exit-code semantics for failing open. If a hook deny does *not* bind under bypass, the default mode recommendation flips to `auto`.
+- **Where hook errors surface.** The hook-error log exists, but nothing reads it yet. Should `cairn round next` (or `cairn status`) warn when it's non-empty? Small; decide during task generation.
 - **Right value for `maxTurns` on `cairn-task-agent`**, and whether the reviewer also gets one. Pick during task generation; no data yet.
 - **Should `cairn run` also switch to prompt files,** or keep inline prompts? The reviewer changes (no test runs, test summary) apply to both modes because `settle` is shared. Sharing is simpler; keeping the prompt path separate is lower-risk mid-transition.
 - **Concurrent loops:** should `cairn round next` refuse when another loop (`cairn run` or a second `/cairn-run`) is live? The lock protects files, not the round's logic.
