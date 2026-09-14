@@ -353,6 +353,26 @@ describe('command registration', () => {
     expect(commandNames).toContain('narrate');
   });
 
+  test('registers round command group with next and settle subcommands', () => {
+    const program = createProgram();
+    const round = program.commands.find((c) => c.name() === 'round');
+    expect(round).toBeDefined();
+    const subNames = round!.commands.map((c) => c.name());
+    expect(subNames).toContain('next');
+    expect(subNames).toContain('settle');
+  });
+
+  test('round settle has the documented options', () => {
+    const program = createProgram();
+    const round = program.commands.find((c) => c.name() === 'round');
+    const settle = round!.commands.find((c) => c.name() === 'settle');
+    expect(settle).toBeDefined();
+    const longFlags = settle!.options.map((o) => o.long);
+    expect(longFlags).toContain('--reviewed');
+    expect(longFlags).toContain('--before-sha');
+    expect(longFlags).toContain('--test-timeout');
+  });
+
   test('run command accepts optional [max] argument', () => {
     const program = createProgram();
     const runCmd = program.commands.find((c) => c.name() === 'run');

@@ -12,6 +12,7 @@ import { runPlan } from './commands/plan';
 import { runRun } from './commands/run';
 import { runNarrate } from './commands/narrate';
 import { registerTaskCommands } from './commands/task';
+import { registerRoundCommands } from './commands/round';
 import type { AgentInfo } from './types';
 import { BRAND } from './brand';
 
@@ -182,6 +183,9 @@ export function createProgram(): Command {
 
   // --- Task subcommand group ---
   registerTaskCommands(program);
+
+  // --- Round subcommand group ---
+  registerRoundCommands(program);
 
   return program;
 }

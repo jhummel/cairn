@@ -2,11 +2,15 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { roundNext, type RoundNextDeps } from '../../src/commands/round';
+import { Command } from 'commander';
+import { roundNext, roundNextCommand, roundSettleCommand, registerRoundCommands, type RoundNextDeps } from '../../src/commands/round';
 import { buildSystemPrompt, resolveTaskModel } from '../../src/commands/run';
-import { newAttemptRecord, readRunState, updateRunState } from '../../src/run-state';
+import { newAttemptRecord, readRunState, updateRunState, type RunState, type RunStateStore } from '../../src/run-state';
 import type { HealthCheckOpts, HealthCheckResult } from '../../src/health-check';
-import type { WriteReviewPromptFileOpts } from '../../src/settle';
+import { SettleError, createInMemoryGuardCounters, type SettleTaskDeps, type BlockTaskOpts, type WriteReviewPromptFileOpts } from '../../src/settle';
+import { TasksFileError } from '../../src/tasks-file';
+import { FileLockError } from '../../src/file-lock';
+import type { ValidationResult } from '../../src/test-validator';
 import type { AgentInfo, CairnConfig, Task } from '../../src/types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -365,5 +369,321 @@ describe('resolveTaskModel', () => {
   test('an unknown agent or an agent without a model falls back to opus', () => {
     expect(resolveTaskModel(makeTask({ agent: 'missing' }), agents)).toBe('opus');
     expect(resolveTaskModel(makeTask({ agent: 'no-model' }), agents)).toBe('opus');
+  });
+});
+
+// --- CLI handlers (task 99) ---
+
+function makeWriter(): { write: (chunk: string) => void; lines: string[] } {
+  const lines: string[] = [];
+  return { lines, write: (chunk: string) => { lines.push(chunk); } };
+}
+
+function makeMemoryRunState(initial: RunState = { iteration: 0, attempts: {} }): RunStateStore {
+  const state = structuredClone(initial);
+  return {
+    read: () => structuredClone(state),
+    update: (_dataDir, fn) => fn(state),
+  };
+}
+
+function makeThrowingRunState(err: Error): RunStateStore {
+  return {
+    read: () => ({ iteration: 0, attempts: {} }),
+    update: () => { throw err; },
+  };
+}
+
+interface SettleHarness {
+  deps: Partial<SettleTaskDeps>;
+  logs: string[];
+  appended: string[];
+  blocked: BlockTaskOpts[];
+  archiveCalls: Array<{ tasksFilePath: string; dataDir: string; iterationLogPath?: string }>;
+}
+
+function makeSettleHarness(overrides: {
+  tasks?: Task[];
+  completedIds?: Set<number>;
+  validation?: ValidationResult;
+  readTasksFile?: SettleTaskDeps['readTasksFile'];
+  runState?: RunStateStore;
+  counters?: SettleTaskDeps['counters'];
+  headSha?: string | null;
+  taskBaseSha?: string | null;
+  includeLog?: boolean;
+} = {}): SettleHarness {
+  const logs: string[] = [];
+  const appended: string[] = [];
+  const blocked: BlockTaskOpts[] = [];
+  const archiveCalls: SettleHarness['archiveCalls'] = [];
+  const deps: Partial<SettleTaskDeps> = {
+    validateTaskTests: async () => overrides.validation ?? { status: 'passed' },
+    archiveCompletedTasks: async (opts) => {
+      archiveCalls.push(opts);
+      return { archivedCount: 1, prevNotes: null, warnings: [] };
+    },
+    git: {
+      headSha: () => overrides.headSha ?? 'sha-after',
+      taskBaseSha: () => (overrides.taskBaseSha === undefined ? 'sha-before' : overrides.taskBaseSha),
+    },
+    writeReviewPromptFile: (opts) => {
+      const file = path.join(opts.dataDir, `.cairn_task_${opts.taskId}_review_prompt.md`);
+      fs.writeFileSync(file, 'review prompt');
+      return file;
+    },
+    existsSync: () => false,
+    readTasksFile: overrides.readTasksFile ?? (() => ({ data: { tasks: overrides.tasks ?? [] }, repaired: false, restored: false })),
+    blockTask: (opts) => { blocked.push(opts); },
+    appendFileSync: (_p, content) => { appended.push(content); },
+    loadCompletedIds: () => overrides.completedIds ?? new Set(),
+    counters: overrides.counters ?? createInMemoryGuardCounters(),
+    runState: overrides.runState ?? makeMemoryRunState(),
+  };
+  if (overrides.includeLog !== false) {
+    deps.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+  }
+  return { deps, logs, appended, blocked, archiveCalls };
+}
+
+describe('roundNextCommand', () => {
+  test('prints the roundNext result as JSON on stdout and exits 0', async () => {
+    writeTasks([makeTask({ id: 7 })]);
+    const h = makeHarness();
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundNextCommand({ ...input(), stdout, stderr }, h.deps);
+
+    expect(code).toBe(0);
+    expect(stderr.lines).toHaveLength(0);
+    expect(stdout.lines).toHaveLength(1);
+    const parsed = JSON.parse(stdout.lines[0]);
+    expect(parsed).toMatchObject({ verdict: 'task', taskId: 7 });
+  });
+
+  test('an unreadable tasks.json exits 1 with a one-line stderr message and no stdout', async () => {
+    fs.writeFileSync(path.join(dataDir, 'tasks.json'), '');
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundNextCommand({ ...input(), stdout, stderr }, makeHarness().deps);
+
+    expect(code).toBe(1);
+    expect(stdout.lines).toHaveLength(0);
+    expect(stderr.lines).toHaveLength(1);
+    expect(stderr.lines[0]).toContain('cairn round next');
+  });
+});
+
+describe('roundSettleCommand', () => {
+  test('retry verdict: a failed validation below the revert threshold prints a retry JSON verdict', async () => {
+    const h = makeSettleHarness({
+      tasks: [makeTask({ id: 7, status: 'in-progress' })],
+      validation: { status: 'failed', message: 'boom', failureTail: 'boom' },
+    });
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundSettleCommand({ id: 7, projectRoot, dataDir, config: makeConfig(), stdout, stderr }, h.deps);
+
+    expect(code).toBe(0);
+    expect(stdout.lines).toHaveLength(1);
+    const parsed = JSON.parse(stdout.lines[0]);
+    expect(parsed).toMatchObject({ verdict: 'retry', taskId: 7, mode: 'continue', reason: 'validation-failed' });
+    expect(stderr.lines).toHaveLength(0);
+  });
+
+  test('blocked verdict: exits 0 with a blocked JSON verdict', async () => {
+    const h = makeSettleHarness({
+      tasks: [makeTask({ id: 7, status: 'blocked', notes: 'agent gave up' })],
+      validation: { status: 'passed' },
+    });
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundSettleCommand({ id: 7, projectRoot, dataDir, config: makeConfig(), stdout, stderr }, h.deps);
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout.lines[0]);
+    expect(parsed).toMatchObject({ verdict: 'blocked', taskId: 7, reason: 'agent gave up' });
+  });
+
+  test('review verdict: a completed task with review enabled prints a review JSON verdict', async () => {
+    const h = makeSettleHarness({
+      tasks: [makeTask({ id: 7, status: 'complete' })],
+      validation: { status: 'passed' },
+      headSha: 'sha-after',
+      taskBaseSha: 'sha-before',
+    });
+    const config = makeConfig({ review: { postTask: true, maxIterations: 5 } });
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundSettleCommand({ id: 7, projectRoot, dataDir, config, stdout, stderr }, h.deps);
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout.lines[0]);
+    const reviewPromptFile = path.join(dataDir, '.cairn_task_7_review_prompt.md');
+    expect(parsed).toMatchObject({ verdict: 'review', taskId: 7, reviewPromptFile });
+    expect(h.archiveCalls).toHaveLength(1);
+  });
+
+  test('done verdict: a completed task with review disabled prints a done JSON verdict', async () => {
+    const h = makeSettleHarness({
+      tasks: [makeTask({ id: 7, status: 'complete' })],
+      validation: { status: 'passed' },
+    });
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundSettleCommand({ id: 7, projectRoot, dataDir, config: makeConfig(), stdout, stderr }, h.deps);
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout.lines[0]);
+    expect(parsed).toMatchObject({ verdict: 'done', taskId: 7, reason: 'review-disabled' });
+  });
+
+  test('already-settled verdict: a task missing from tasks.json but present in the archive exits 0', async () => {
+    const h = makeSettleHarness({ tasks: [], completedIds: new Set([7]) });
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundSettleCommand({ id: 7, projectRoot, dataDir, config: makeConfig(), stdout, stderr }, h.deps);
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout.lines[0]);
+    expect(parsed).toMatchObject({ verdict: 'already-settled', taskId: 7 });
+  });
+
+  test('unknown task id: SettleError exits 1 with a one-line stderr message and no stdout', async () => {
+    const h = makeSettleHarness({ tasks: [], completedIds: new Set() });
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundSettleCommand({ id: 999, projectRoot, dataDir, config: makeConfig(), stdout, stderr }, h.deps);
+
+    expect(code).toBe(1);
+    expect(stdout.lines).toHaveLength(0);
+    expect(stderr.lines).toHaveLength(1);
+    expect(stderr.lines[0]).toContain('999');
+  });
+
+  test('an unreadable tasks.json (TasksFileError) exits 1', async () => {
+    const h = makeSettleHarness({
+      readTasksFile: () => { throw new TasksFileError('tasks.json is corrupt'); },
+    });
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundSettleCommand({ id: 7, projectRoot, dataDir, config: makeConfig(), stdout, stderr }, h.deps);
+
+    expect(code).toBe(1);
+    expect(stdout.lines).toHaveLength(0);
+    expect(stderr.lines[0]).toContain('corrupt');
+  });
+
+  test('a run-state lock timeout (FileLockError) exits 1', async () => {
+    const h = makeSettleHarness({
+      tasks: [makeTask({ id: 7 })],
+      runState: makeThrowingRunState(new FileLockError('lock timed out')),
+    });
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundSettleCommand({ id: 7, projectRoot, dataDir, config: makeConfig(), stdout, stderr }, h.deps);
+
+    expect(code).toBe(1);
+    expect(stdout.lines).toHaveLength(0);
+    expect(stderr.lines[0]).toContain('lock timed out');
+  });
+
+  test('an invalid task id exits 1 without invoking settle', async () => {
+    const h = makeSettleHarness();
+    let validateCalled = false;
+    h.deps.validateTaskTests = async () => { validateCalled = true; return { status: 'passed' }; };
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundSettleCommand({ id: NaN, projectRoot, dataDir, config: makeConfig(), stdout, stderr }, h.deps);
+
+    expect(code).toBe(1);
+    expect(validateCalled).toBe(false);
+    expect(stdout.lines).toHaveLength(0);
+    expect(stderr.lines).toHaveLength(1);
+  });
+
+  test('a non-positive-integer --test-timeout exits 1 without invoking settle', async () => {
+    const h = makeSettleHarness();
+    let validateCalled = false;
+    h.deps.validateTaskTests = async () => { validateCalled = true; return { status: 'passed' }; };
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundSettleCommand(
+      { id: 7, projectRoot, dataDir, config: makeConfig(), testTimeoutSec: 0, stdout, stderr },
+      h.deps
+    );
+
+    expect(code).toBe(1);
+    expect(validateCalled).toBe(false);
+    expect(stderr.lines).toHaveLength(1);
+  });
+
+  test('--test-timeout in seconds is converted to ms for test validation', async () => {
+    let receivedTimeoutMs: number | undefined;
+    const h = makeSettleHarness({ tasks: [makeTask({ id: 7 })] });
+    h.deps.validateTaskTests = async (opts) => { receivedTimeoutMs = opts.timeoutMs; return { status: 'passed' }; };
+
+    await roundSettleCommand(
+      { id: 7, projectRoot, dataDir, config: makeConfig(), testTimeoutSec: 30, stdout: makeWriter(), stderr: makeWriter() },
+      h.deps
+    );
+
+    expect(receivedTimeoutMs).toBe(30000);
+  });
+
+  test('log output from settle deps is routed to stderr, never stdout', async () => {
+    const h = makeSettleHarness({
+      tasks: [makeTask({ id: 7, status: 'complete' })],
+      validation: { status: 'error', message: 'timed out' },
+    });
+    delete h.deps.log; // exercise the CLI's own default routing, not the harness's
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = await roundSettleCommand({ id: 7, projectRoot, dataDir, config: makeConfig(), stdout, stderr }, h.deps);
+
+    expect(code).toBe(0);
+    expect(stdout.lines).toHaveLength(1);
+    expect(() => JSON.parse(stdout.lines[0])).not.toThrow();
+    expect(stderr.lines.join('')).toContain('timed out');
+  });
+});
+
+describe('registerRoundCommands', () => {
+  test('registers the round command group with next and settle subcommands', () => {
+    const program = new Command();
+    registerRoundCommands(program);
+    const round = program.commands.find((c) => c.name() === 'round');
+    expect(round).toBeDefined();
+    const subNames = round!.commands.map((c) => c.name());
+    expect(subNames).toContain('next');
+    expect(subNames).toContain('settle');
+  });
+
+  test('settle has the documented options', () => {
+    const program = new Command();
+    registerRoundCommands(program);
+    const round = program.commands.find((c) => c.name() === 'round');
+    const settle = round!.commands.find((c) => c.name() === 'settle');
+    expect(settle).toBeDefined();
+    const longFlags = settle!.options.map((o) => o.long);
+    expect(longFlags).toContain('--reviewed');
+    expect(longFlags).toContain('--before-sha');
+    expect(longFlags).toContain('--test-timeout');
+    const args = settle!.registeredArguments;
+    expect(args.length).toBe(1);
+    expect(args[0].required).toBe(true);
   });
 });

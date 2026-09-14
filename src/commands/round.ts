@@ -1,15 +1,37 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { Command } from 'commander';
 import type { AgentInfo, CairnConfig, Task } from '../types';
 import { loadCompletedIds, selectNextTask, buildIterationPrompt } from '../task-selector';
 import { runHealthCheck as defaultRunHealthCheck, type HealthCheckOpts, type HealthCheckResult } from '../health-check';
-import { readTasksFile } from '../tasks-file';
+import { readTasksFile, mutateTasksFile } from '../tasks-file';
 import { captureGitSha as defaultCaptureGitSha } from '../post-task-reviewer';
 import { fileRunStateStore, newAttemptRecord, type RunStateStore } from '../run-state';
-import { reviewPromptFilePath, reviewVerdict, writeReviewPromptFile as defaultWriteReviewPromptFile, type WriteReviewPromptFileOpts } from '../settle';
+import {
+  reviewPromptFilePath,
+  reviewVerdict,
+  writeReviewPromptFile as defaultWriteReviewPromptFile,
+  settleTask,
+  defaultGitAccess,
+  type WriteReviewPromptFileOpts,
+  type SettleTaskDeps,
+  type BlockTaskOpts,
+} from '../settle';
+import { validateTaskTests as defaultValidateTaskTests, type ValidateTaskTestsOpts } from '../test-validator';
+import { archiveCompletedTasks as defaultArchiveCompletedTasks } from '../task-archiver';
+import { loadConfig, autoDetectHealthCheck } from '../config';
 import { buildSystemPrompt, resolveTaskModel } from './run';
 import { tempFilePath } from '../utils';
 import { BRAND } from '../brand';
+
+type Writer = { write: (chunk: string) => void };
+
+function defaultStdout(): Writer {
+  return { write: (chunk) => process.stdout.write(chunk) };
+}
+function defaultStderr(): Writer {
+  return { write: (chunk) => process.stderr.write(chunk) };
+}
 
 /**
  * `cairn round next` — the pick step of `/cairn-run`. Decides what the run
@@ -133,4 +155,199 @@ export async function roundNext(input: RoundNextInput, deps: RoundNextDeps = {})
     promptFile,
     next: `Launch the Agent tool with subagent_type '${BRAND.name}-task-agent', model '${model}', prompt 'Read ${promptFile} and follow it', then run: ${BRAND.name} round settle ${task.id}`,
   };
+}
+
+/**
+ * `cairn round next` as a CLI handler: prints `roundNext`'s result as a
+ * single JSON object on stdout and returns the process exit code. 1 only
+ * when `roundNext` itself could not run (an unreadable tasks.json, a lock
+ * timeout, or any other thrown error) — every resolved verdict is 0.
+ */
+export interface RoundNextCommandOpts {
+  projectRoot: string;
+  dataDir: string;
+  config: CairnConfig;
+  agents: AgentInfo[];
+  stdout?: Writer;
+  stderr?: Writer;
+}
+
+export async function roundNextCommand(opts: RoundNextCommandOpts, deps: RoundNextDeps = {}): Promise<number> {
+  const stdout = opts.stdout ?? defaultStdout();
+  const stderr = opts.stderr ?? defaultStderr();
+  try {
+    const result = await roundNext(
+      { projectRoot: opts.projectRoot, dataDir: opts.dataDir, config: opts.config, agents: opts.agents },
+      deps
+    );
+    stdout.write(JSON.stringify(result) + '\n');
+    return 0;
+  } catch (err) {
+    stderr.write(`cairn round next: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+}
+
+/**
+ * The default `blockTask` for `cairn round settle`: same behavior as the one
+ * `cairn run` builds inline in `commands/run.ts`'s `defaultDeps()` — routed
+ * through `mutateTasksFile` so the write is locked, atomic, and snapshotted.
+ */
+function defaultBlockTask({ tasksFilePath, dataDir, taskId, note }: BlockTaskOpts): void {
+  mutateTasksFile(
+    tasksFilePath,
+    (data) => {
+      const t = (data.tasks ?? []).find((x: Task) => x.id === taskId);
+      if (!t) return;
+      t.status = 'blocked';
+      t.notes = t.notes ? `${t.notes} | ${note}` : note;
+    },
+    { dataDir }
+  );
+}
+
+/**
+ * `cairn round settle <id>` as a CLI handler: resolves `settleTask`'s deps to
+ * their real implementations (each overridable for tests, the way
+ * `commands/run.ts`'s `defaultDeps()` does), calls it, and prints the verdict
+ * JSON on stdout. Exit 1 only when settle itself could not run — an
+ * unreadable tasks.json (TasksFileError), a run-state lock timeout
+ * (FileLockError), an unknown task id (SettleError), or an invalid id/option
+ * — with a one-line message on stderr; every resolved verdict, 'blocked' and
+ * 'already-settled' included, is 0.
+ */
+export interface RoundSettleCommandOpts {
+  id: number;
+  reviewed?: boolean;
+  beforeSha?: string;
+  /** Seconds; validated as a positive integer and converted to ms below. */
+  testTimeoutSec?: number;
+  projectRoot: string;
+  dataDir: string;
+  config: CairnConfig;
+  /** Defaults to `<dataDir>/tasks.json`. */
+  tasksFilePath?: string;
+  stdout?: Writer;
+  stderr?: Writer;
+}
+
+export async function roundSettleCommand(opts: RoundSettleCommandOpts, deps: Partial<SettleTaskDeps> = {}): Promise<number> {
+  const stdout = opts.stdout ?? defaultStdout();
+  const stderr = opts.stderr ?? defaultStderr();
+
+  if (!Number.isInteger(opts.id) || opts.id < 1) {
+    stderr.write(`cairn round settle: invalid task id '${opts.id}'\n`);
+    return 1;
+  }
+
+  let timeoutMs: number | undefined;
+  if (opts.testTimeoutSec !== undefined) {
+    if (!Number.isInteger(opts.testTimeoutSec) || opts.testTimeoutSec < 1) {
+      stderr.write(`cairn round settle: --test-timeout must be a positive integer number of seconds, got '${opts.testTimeoutSec}'\n`);
+      return 1;
+    }
+    timeoutMs = opts.testTimeoutSec * 1000;
+  }
+
+  const tasksFilePath = opts.tasksFilePath ?? path.join(opts.dataDir, 'tasks.json');
+  // --test-timeout is applied on top of whichever validateTaskTests is in
+  // play — the real one or an injected one — so overriding the dep for tests
+  // never silently drops the flag.
+  const baseValidateTaskTests = deps.validateTaskTests ?? defaultValidateTaskTests;
+  const validateTaskTests: SettleTaskDeps['validateTaskTests'] =
+    timeoutMs !== undefined
+      ? (o: ValidateTaskTestsOpts) => baseValidateTaskTests({ ...o, timeoutMs })
+      : baseValidateTaskTests;
+  // Any log output from settle's own deps is routed to stderr, never stdout —
+  // stdout carries the verdict JSON and nothing else.
+  const settleDeps: SettleTaskDeps = {
+    validateTaskTests,
+    archiveCompletedTasks: deps.archiveCompletedTasks ?? defaultArchiveCompletedTasks,
+    git: deps.git ?? defaultGitAccess,
+    writeReviewPromptFile: deps.writeReviewPromptFile ?? defaultWriteReviewPromptFile,
+    existsSync: deps.existsSync ?? fs.existsSync,
+    readTasksFile: deps.readTasksFile ?? readTasksFile,
+    blockTask: deps.blockTask ?? defaultBlockTask,
+    appendFileSync: deps.appendFileSync ?? (fs.appendFileSync as (p: string, content: string) => void),
+    log: deps.log ?? ((...args: unknown[]) => stderr.write(args.map(String).join(' ') + '\n')),
+    loadCompletedIds: deps.loadCompletedIds ?? loadCompletedIds,
+    runState: deps.runState,
+    counters: deps.counters,
+  };
+
+  try {
+    const { verdict } = await settleTask(
+      {
+        taskId: opts.id,
+        tasksFilePath,
+        dataDir: opts.dataDir,
+        projectRoot: opts.projectRoot,
+        config: opts.config,
+        beforeSha: opts.beforeSha,
+        reviewed: opts.reviewed,
+      },
+      settleDeps
+    );
+    stdout.write(JSON.stringify(verdict) + '\n');
+    return 0;
+  } catch (err) {
+    stderr.write(`cairn round settle: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+}
+
+/** Shared project context for both `round` subcommands, resolved from the env vars `setupProjectContext` sets. */
+function loadRoundContext(): { projectRoot: string; dataDir: string; config: CairnConfig; agents: AgentInfo[] } {
+  const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
+  const dataDir = process.env.CAIRN_DATA_DIR!;
+  const config = loadConfig(projectRoot);
+  if (!config.healthCheck) config.healthCheck = autoDetectHealthCheck(projectRoot);
+  let agents: AgentInfo[] = [];
+  try {
+    agents = JSON.parse(process.env.CAIRN_AGENTS_JSON ?? '[]') as AgentInfo[];
+  } catch {
+    // ignore parse errors
+  }
+  return { projectRoot, dataDir, config, agents };
+}
+
+/**
+ * Wire the `round` subcommand group onto a Commander program. These commands
+ * deliberately live under `round`, not `task`: task execution agents use
+ * `cairn task`, and a task agent calling settle would archive its own task
+ * and skip its own review.
+ */
+export function registerRoundCommands(program: Command): void {
+  const round = program
+    .command('round')
+    .description(`Interactive round commands used by /${BRAND.name}-run`);
+
+  round
+    .command('next')
+    .description('Pick the next round step: a pending review, a task to run, or round-done')
+    .action(async () => {
+      const { projectRoot, dataDir, config, agents } = loadRoundContext();
+      const code = await roundNextCommand({ projectRoot, dataDir, config, agents });
+      process.exit(code);
+    });
+
+  round
+    .command('settle <id>')
+    .description("Settle the last task attempt: validate tests, apply guards, archive, and gate for review")
+    .option('--reviewed', 'Close a review phase opened by a previous settle')
+    .option('--before-sha <sha>', "Override the attempt record's pre-task sha")
+    .option('--test-timeout <seconds>', 'Test validation timeout, in seconds', (v) => parseInt(v, 10))
+    .action(async (idStr: string, options: { reviewed?: boolean; beforeSha?: string; testTimeout?: number }) => {
+      const { projectRoot, dataDir, config } = loadRoundContext();
+      const code = await roundSettleCommand({
+        id: parseInt(idStr, 10),
+        reviewed: options.reviewed,
+        beforeSha: options.beforeSha,
+        testTimeoutSec: options.testTimeout,
+        projectRoot,
+        dataDir,
+        config,
+      });
+      process.exit(code);
+    });
 }
