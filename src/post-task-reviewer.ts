@@ -84,6 +84,28 @@ export function captureGitSha(projectRoot: string): string | null {
   }
 }
 
+/**
+ * The round review file the reviewer appends to, and its directory (created
+ * if missing). Shared by the headless reviewer and settle's reviewer prompt
+ * file so both name the same path.
+ */
+export function resolveReviewFilePath(
+  projectRoot: string,
+  dataDir: string
+): { reviewsDir: string; reviewFilePath: string } {
+  // The CLI owns round resolution and path computation — the reviewer agent must
+  // never compute the round or target path itself. Pre-plan reviews land in
+  // round-1.md (getRound's lazy seed).
+  const round = getRound(dataDir);
+  // Permission rules need an absolute path, and the caller's dataDir is the
+  // ALREADY-RESOLVED data dir. Never rebuild it from a brand constant — see
+  // the reviewFileRule note in spawnPostTaskReviewer.
+  const absDataDir = path.resolve(projectRoot, dataDir);
+  const reviewsDir = path.join(absDataDir, "reviews");
+  mkdirSync(reviewsDir, { recursive: true });
+  return { reviewsDir, reviewFilePath: path.join(reviewsDir, `round-${round}.md`) };
+}
+
 type SpawnerSpawnFn = (
   cmd: string,
   args: string[],
@@ -128,17 +150,7 @@ export async function spawnPostTaskReviewer(
 
   const env = { ...process.env, ANTHROPIC_API_KEY: "" };
 
-  // The CLI owns round resolution and path computation — the reviewer agent must
-  // never compute the round or target path itself. Pre-plan reviews land in
-  // round-1.md (getRound's lazy seed).
-  const round = getRound(dataDir);
-  // Permission rules need an absolute path, and the caller's dataDir is the
-  // ALREADY-RESOLVED data dir. Never rebuild it from a brand constant — see
-  // the reviewFileRule note below.
-  const absDataDir = path.resolve(projectRoot, dataDir);
-  const reviewsDir = path.join(absDataDir, "reviews");
-  mkdirSync(reviewsDir, { recursive: true });
-  const reviewFilePath = path.join(reviewsDir, `round-${round}.md`);
+  const { reviewsDir, reviewFilePath } = resolveReviewFilePath(projectRoot, dataDir);
 
   const userPrompt = buildPostTaskReviewUserPrompt({ task, diff, log, files, dataDir, reviewFilePath });
 

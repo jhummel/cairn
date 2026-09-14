@@ -1428,7 +1428,9 @@ describe('runRun', () => {
 
   test('the hoisted status re-read still feeds the post-task review gate', async () => {
     const tasks = [makeTask({ id: 1 })];
+    let n = 0;
     const deps = makeGuardDeps(tasks, {
+      captureGitSha: mock(() => `sha-${++n}`),
       spawnClaude: mock(async () => {
         tasks[0]!.status = 'complete';
         return { exitCode: 0 };
@@ -1564,31 +1566,71 @@ describe('runRun', () => {
     expect(reviewCall.beforeSha).toBe('sha-1');
   });
 
-  test('settle clears the attempt record on done; the review still gets the captured beforeSha', async () => {
+  test('archives before the review, then a reviewed settle clears the attempt record', async () => {
     const tasks = [makeTask({ id: 4 })];
     const runState = makeMemoryRunState();
-    let archivedWithRecord: boolean | null = null;
+    const order: string[] = [];
+    const appended: string[] = [];
+    let recordAtArchive: unknown;
+    let recordAtReview: unknown;
+    let n = 0;
     const deps = makeGuardDeps(tasks, {
       runState,
-      captureGitSha: mock(() => 'sha-done'),
-      runPostTaskReview: mock(async () => {}),
+      captureGitSha: mock(() => `sha-${++n}`),
+      appendFileSync: mock((_p: string, content: string) => { appended.push(content); }),
       spawnClaude: mock(async () => {
         tasks[0]!.status = 'complete';
         return { exitCode: 0 };
       }),
       archiveCompletedTasks: mock(async () => {
-        archivedWithRecord = runState.state.attempts['4'] !== undefined;
-        return { archivedCount: 1, prevNotes: null };
+        order.push('archive');
+        recordAtArchive = structuredClone(runState.state.attempts['4']);
+        return { archivedCount: 1, prevNotes: 'archived notes' };
+      }),
+      runPostTaskReview: mock(async () => {
+        order.push('review');
+        recordAtReview = structuredClone(runState.state.attempts['4']);
       }),
     });
 
     const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
     await runRun(makeRunOpts({ config, maxIterations: 1 }), deps);
 
-    expect(archivedWithRecord).toBe(false);
+    // Archive once, before the review — never a second archive afterwards.
+    expect(order).toEqual(['archive', 'review']);
+    expect(recordAtArchive).toMatchObject({ beforeSha: 'sha-1', phase: 'executing' });
+    expect(recordAtReview).toMatchObject({ beforeSha: 'sha-1', phase: 'awaiting-review' });
+    // The review is followed by a reviewed settle that closes the phase.
+    const settleLines = appended.filter(l => l.startsWith('Settle #4'));
+    expect(settleLines).toEqual(['Settle #4: review\n', 'Settle #4: done (reviewed)\n']);
     expect(runState.state.attempts['4']).toBeUndefined();
     const reviewCall = (deps.runPostTaskReview as ReturnType<typeof mock>).mock.calls[0][0];
-    expect(reviewCall.beforeSha).toBe('sha-done');
+    expect(reviewCall.beforeSha).toBe('sha-1');
+    expect(reviewCall.taskStatus).toBe('complete');
+  });
+
+  test('a completed task with no commits since beforeSha is archived without a review', async () => {
+    const tasks = [makeTask({ id: 4 })];
+    const runState = makeMemoryRunState();
+    const appended: string[] = [];
+    const deps = makeGuardDeps(tasks, {
+      runState,
+      captureGitSha: mock(() => 'sha-same'),
+      appendFileSync: mock((_p: string, content: string) => { appended.push(content); }),
+      spawnClaude: mock(async () => {
+        tasks[0]!.status = 'complete';
+        return { exitCode: 0 };
+      }),
+      archiveCompletedTasks: mock(async () => ({ archivedCount: 1, prevNotes: null })),
+    });
+
+    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    await runRun(makeRunOpts({ config, maxIterations: 1 }), deps);
+
+    expect(deps.archiveCompletedTasks).toHaveBeenCalledTimes(1);
+    expect(deps.runPostTaskReview).not.toHaveBeenCalled();
+    expect(appended).toContain('Settle #4: done (no-commits)\n');
+    expect(runState.state.attempts['4']).toBeUndefined();
   });
 
   test('clears the attempt record when a guard blocks the task', async () => {
@@ -2258,13 +2300,15 @@ describe('runRun', () => {
   test('runPostTaskReview is called after validation when task is complete', async () => {
     let callCount = 0;
     const task = makeTask({ id: 1, title: 'Test task' });
+    let shaCalls = 0;
 
     const deps = makeRunDeps({
       selectNextTask: mock(() => {
         callCount++;
         return callCount <= 1 ? task : null;
       }),
-      captureGitSha: mock(() => 'sha-before'),
+      // Pick-time sha, then a different HEAD at the review gate.
+      captureGitSha: mock(() => (shaCalls++ === 0 ? 'sha-before' : 'sha-after')),
       readTasksFile: mock(() => ({
         data: { tasks: [{ ...task, status: 'complete' as const }] },
         repaired: false,
@@ -2361,6 +2405,7 @@ describe('runRun', () => {
     const task = makeTask({ id: 1, title: 'Test task' });
     let selectCalls = 0;
     let readCalls = 0;
+    let shaCalls = 0;
     const readTasksFile = mock(() => {
       readCalls++;
       return {
@@ -2376,7 +2421,7 @@ describe('runRun', () => {
         return selectCalls <= 1 ? task : null;
       }),
       readTasksFile,
-      captureGitSha: mock(() => 'sha'),
+      captureGitSha: mock(() => `sha-${++shaCalls}`),
       runPostTaskReview: mock(async () => {}),
     });
 
@@ -2437,13 +2482,14 @@ describe('runRun', () => {
       restored: false,
     }));
     const logs: string[] = [];
+    let shaCalls = 0;
     const deps = makeRunDeps({
       selectNextTask: mock(() => {
         selectCalls++;
         return selectCalls <= 1 ? task : null;
       }),
       readTasksFile,
-      captureGitSha: mock(() => 'sha'),
+      captureGitSha: mock(() => `sha-${++shaCalls}`),
       runPostTaskReview: mock(async () => {}),
       log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
     });

@@ -25,6 +25,9 @@ const TEMP_IGNORE_SUFFIXES = [
   'tasks_snapshot.json',
   'task_*_notes.md',
   'task_*_tests.log',
+  // One pattern for both per-task prompt files: the reviewer's
+  // `task_<id>_review_prompt.md` and the task agent's `task_<id>_prompt.md`.
+  'task_*_prompt.md',
   'run_state.json',
   'run_state.json.lock',
 ] as const;

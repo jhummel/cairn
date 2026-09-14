@@ -16,7 +16,7 @@ import { loadPersonalInstructions } from '../personal-instructions';
 import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnapshotTasksFile, mutateTasksFile as defaultMutateTasksFile, TasksFileError, type TasksFile } from '../tasks-file';
 import { tempFilePath } from '../utils';
 import { BRAND, NOTES_TEMP_PREFIX } from '../brand';
-import { settleTask, createRunStateGuardCounters, type BlockTaskOpts } from '../settle';
+import { settleTask, createRunStateGuardCounters, findTaskBaseSha, type BlockTaskOpts, type SettleTaskDeps, type SettleTaskInput } from '../settle';
 import { fileRunStateStore, newAttemptRecord, type RunStateStore } from '../run-state';
 
 export type { BlockTaskOpts } from '../settle';
@@ -638,30 +638,37 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       iterationsCompleted++;
 
       // k. Settle: validate tests, apply the revert, incomplete, and stall
-      // guards, and re-read the task status (see src/settle.ts). Settle clears
-      // the attempt record on done and on any block (so an unblocked task
-      // starts over with fresh attempts); the review below uses the beforeSha
-      // captured above. The loop ignores the verdict's retry mode — it simply
-      // re-selects the task next iteration.
-      const settled = await settleTask(
-        { taskId: task.id, task, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath },
-        {
-          validateTaskTests: deps.validateTaskTests,
-          readTasksFile: deps.readTasksFile,
-          blockTask: deps.blockTask,
-          appendFileSync: deps.appendFileSync,
-          log: deps.log,
-          loadCompletedIds: deps.loadCompletedIds,
-          runState: deps.runState,
-          counters: guardCounters,
-        },
-      );
+      // guards, re-read the task status, and — for a completed task — archive
+      // it and apply the review gate (see src/settle.ts). Settle clears the
+      // attempt record on done and on any block (so an unblocked task starts
+      // over with fresh attempts). The loop ignores the verdict's retry mode —
+      // it simply re-selects the task next iteration.
+      const settleInput: SettleTaskInput = {
+        taskId: task.id, task, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath, config,
+        // cairn run reviews with an inline prompt, not a prompt file.
+        inlineReview: true,
+      };
+      const settleDeps: SettleTaskDeps = {
+        validateTaskTests: deps.validateTaskTests,
+        archiveCompletedTasks: deps.archiveCompletedTasks,
+        git: { headSha: deps.captureGitSha, taskBaseSha: findTaskBaseSha },
+        readTasksFile: deps.readTasksFile,
+        blockTask: deps.blockTask,
+        appendFileSync: deps.appendFileSync,
+        log: deps.log,
+        loadCompletedIds: deps.loadCompletedIds,
+        runState: deps.runState,
+        counters: guardCounters,
+      };
+      const settled = await settleTask(settleInput, settleDeps);
       if (settled.corrupted) corruptionEvents++;
       if (settled.blockedByGuard) blockedByGuard.add(task.id);
       const { updatedTaskStatus } = settled;
 
-      // l. Post-task review (if enabled and task completed)
-      if (config.review?.postTask && updatedTaskStatus === 'complete') {
+      // l. Post-task review. Settle has already archived the task and passed
+      // the review gate; run the headless reviewer, then settle again to close
+      // the review phase.
+      if (settled.verdict.verdict === 'review') {
         await deps.runPostTaskReview({
           projectRoot,
           dataDir,
@@ -671,10 +678,12 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
           config,
           streamOpts,
         });
+        await settleTask({ ...settleInput, reviewed: true }, settleDeps);
       }
 
-      // m. Archive completed tasks
-      const archiveResult = await deps.archiveCompletedTasks({
+      // m. Archive: settle archived when the task completed; otherwise still
+      // sweep any task an agent completed without it being this iteration's.
+      const archiveResult = settled.archive ?? await deps.archiveCompletedTasks({
         tasksFilePath,
         dataDir,
         iterationLogPath,

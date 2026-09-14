@@ -15,6 +15,20 @@ export interface ArchiveResult {
   warnings: string[];
 }
 
+/**
+ * The task with `taskId` from tasks.completed.json, or undefined when it is
+ * absent or the archive is missing or unreadable.
+ */
+export function loadArchivedTask(dataDir: string, taskId: number): Task | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(join(dataDir, 'tasks.completed.json'), 'utf-8'));
+    const tasks: unknown = Array.isArray(parsed) ? parsed : parsed?.tasks;
+    return Array.isArray(tasks) ? (tasks as Task[]).find((t) => t?.id === taskId) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function archiveCompletedTasks(opts: {
   tasksFilePath: string;
   dataDir: string;

@@ -12,13 +12,17 @@ import {
   INCOMPLETE_BLOCK_THRESHOLD,
   summarizeFailure,
   SettleError,
+  findTaskBaseSha,
+  writeReviewPromptFile,
   type SettleTaskInput,
   type SettleTaskDeps,
   type BlockTaskOpts,
   type GuardCounters,
+  type WriteReviewPromptFileOpts,
 } from '../src/settle';
+import { execFileSync } from 'child_process';
 import type { ValidationResult } from '../src/test-validator';
-import type { Task } from '../src/types';
+import type { CairnConfig, Task } from '../src/types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -62,7 +66,19 @@ interface Harness {
   setCorruption: (c: { repaired?: boolean; restored?: boolean }) => void;
   setBlockThrows: (t: boolean) => void;
   setNotes: (n: string | undefined) => void;
+  setHead: (sha: string | null) => void;
+  setTaskBaseSha: (sha: string | null) => void;
+  validations: () => number;
+  archiveCalls: Array<{ tasksFilePath: string; dataDir: string; iterationLogPath?: string }>;
+  baseShaCalls: Array<{ projectRoot: string; taskId: number }>;
+  promptWrites: Array<WriteReviewPromptFileOpts & { phaseAtWrite?: string }>;
+  promptFiles: Set<string>;
+  order: string[];
 }
+
+const PROMPT_FILE = '/proj/.cairn/.cairn_task_7_review_prompt.md';
+const NEXT_REVIEW = `Launch the post-task-reviewer agent with the prompt 'Read ${PROMPT_FILE} and follow it', then run: cairn round settle 7 --reviewed`;
+const REVIEW_ON: Pick<CairnConfig, 'review'> = { review: { postTask: true, maxIterations: 5 } };
 
 function makeHarness(): Harness {
   let validation: ValidationResult = { status: 'passed' };
@@ -72,15 +88,44 @@ function makeHarness(): Harness {
   let blockThrows = false;
   let notes: string | undefined;
   let readCount = 0;
+  let validationCount = 0;
+  let head: string | null = 'sha-head';
+  let taskBaseSha: string | null = null;
   const runState = makeMemoryRunState();
   const completedIds = new Set<number>();
   const blocked: BlockTaskOpts[] = [];
   const logs: string[] = [];
   const appended: Array<{ p: string; content: string }> = [];
   const counters = createInMemoryGuardCounters();
+  const archiveCalls: Harness['archiveCalls'] = [];
+  const baseShaCalls: Harness['baseShaCalls'] = [];
+  const promptWrites: Harness['promptWrites'] = [];
+  const promptFiles = new Set<string>();
+  const order: string[] = [];
 
   const deps: SettleTaskDeps = {
-    validateTaskTests: async () => validation,
+    validateTaskTests: async () => { validationCount++; return validation; },
+    archiveCompletedTasks: async (opts) => {
+      archiveCalls.push(opts);
+      order.push('archive');
+      // Models the real archiver: a complete task leaves tasks.json.
+      const archived = status === 'complete' ? 1 : 0;
+      if (archived) {
+        status = null;
+        completedIds.add(7);
+      }
+      return { archivedCount: archived, prevNotes: null, warnings: [] };
+    },
+    git: {
+      headSha: () => { order.push('head'); return head; },
+      taskBaseSha: (projectRoot, taskId) => { baseShaCalls.push({ projectRoot, taskId }); return taskBaseSha; },
+    },
+    writeReviewPromptFile: (opts) => {
+      promptWrites.push({ ...opts, phaseAtWrite: runState.state.attempts[String(opts.taskId)]?.phase });
+      promptFiles.add(PROMPT_FILE);
+      return PROMPT_FILE;
+    },
+    existsSync: (p) => promptFiles.has(p),
     readTasksFile: () => {
       readCount++;
       if (unreadable) throw new Error('unreadable');
@@ -117,6 +162,14 @@ function makeHarness(): Harness {
     setCorruption: (c) => { corruption = c; },
     setBlockThrows: (t) => { blockThrows = t; },
     setNotes: (n) => { notes = n; },
+    setHead: (sha) => { head = sha; },
+    setTaskBaseSha: (sha) => { taskBaseSha = sha; },
+    validations: () => validationCount,
+    archiveCalls,
+    baseShaCalls,
+    promptWrites,
+    promptFiles,
+    order,
   };
 }
 
@@ -468,9 +521,10 @@ describe('verdicts', () => {
     const h = makeHarness();
     h.runState.state.attempts['7'] = newAttemptRecord('abc', 3);
     const result = await settleTask(makeInput({ iteration: 3 }), h.deps);
-    expect(result.verdict).toEqual({ verdict: 'done', taskId: 7, next: NEXT_ROUND });
+    // No config passed: the review gate is off.
+    expect(result.verdict).toEqual({ verdict: 'done', taskId: 7, reason: 'review-disabled', next: NEXT_ROUND });
     expect(h.runState.state.attempts['7']).toBeUndefined();
-    expect(h.appended).toContainEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: done\n' });
+    expect(h.appended).toContainEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: done (review-disabled)\n' });
   });
 
   test('retry/continue after a failed validation keeps the record', async () => {
@@ -584,6 +638,271 @@ describe('verdicts', () => {
     const h = makeHarness();
     const { iterationLogPath: _omit, ...input } = makeInput();
     await settleTask(input, h.deps);
-    expect(h.appended.at(-1)).toEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: done\n' });
+    expect(h.appended.at(-1)).toEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: done (review-disabled)\n' });
+  });
+});
+
+describe('review phase', () => {
+  test('complete + passed with review enabled: archives, then returns review with the record awaiting-review', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    const result = await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+
+    expect(h.archiveCalls).toEqual([
+      { tasksFilePath: '/proj/.cairn/tasks.json', dataDir: '/proj/.cairn', iterationLogPath: '/proj/.cairn/.cairn_iterations.log' },
+    ]);
+    // Archive first, then the HEAD comparison of the review gate.
+    expect(h.order).toEqual(['archive', 'head']);
+    expect(result.archive).toEqual({ archivedCount: 1, prevNotes: null, warnings: [] });
+    expect(result.verdict).toEqual({ verdict: 'review', taskId: 7, reviewPromptFile: PROMPT_FILE, next: NEXT_REVIEW });
+    expect(h.runState.state.attempts['7']).toMatchObject({ phase: 'awaiting-review', beforeSha: 'sha-before' });
+    expect(h.promptWrites).toEqual([
+      { projectRoot: '/proj', dataDir: '/proj/.cairn', taskId: 7, beforeSha: 'sha-before', phaseAtWrite: 'awaiting-review' },
+    ]);
+    expect(h.appended.at(-1)).toEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: review\n' });
+  });
+
+  test('a repeat call while awaiting review returns review again with no second archive or validation', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+
+    const again = await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+    expect(again.verdict).toEqual({ verdict: 'review', taskId: 7, reviewPromptFile: PROMPT_FILE, next: NEXT_REVIEW });
+    expect(again.validation).toBeNull();
+    expect(again.archive).toBeNull();
+    expect(h.archiveCalls).toHaveLength(1);
+    expect(h.validations()).toBe(1);
+    // Prompt file still present: not rewritten.
+    expect(h.promptWrites).toHaveLength(1);
+    expect(h.runState.state.attempts['7']?.phase).toBe('awaiting-review');
+  });
+
+  test('a repeat call rewrites the prompt file only when it is missing', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+    h.promptFiles.clear();
+
+    const again = await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+    expect(again.verdict.verdict).toBe('review');
+    expect(h.promptWrites).toHaveLength(2);
+    expect(h.promptWrites[1]).toMatchObject({ taskId: 7, beforeSha: 'sha-before' });
+    expect(h.archiveCalls).toHaveLength(1);
+  });
+
+  test('reviewed: done with reason reviewed and the record cleared', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+
+    const result = await settleTask(makeInput({ config: REVIEW_ON, reviewed: true }), h.deps);
+    expect(result.verdict).toEqual({ verdict: 'done', taskId: 7, reason: 'reviewed', next: NEXT_ROUND });
+    expect(result.validation).toBeNull();
+    expect(h.runState.state.attempts['7']).toBeUndefined();
+    expect(h.validations()).toBe(1);
+    expect(h.archiveCalls).toHaveLength(1);
+    expect(h.appended.at(-1)).toEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: done (reviewed)\n' });
+  });
+
+  test('reviewed with no awaiting-review record: already-settled when archived, SettleError otherwise', async () => {
+    const archived = makeHarness();
+    archived.setStatus(null);
+    archived.completedIds.add(7);
+    const result = await settleTask(makeInput({ reviewed: true }), archived.deps);
+    expect(result.verdict).toEqual({ verdict: 'already-settled', taskId: 7, next: NEXT_ROUND });
+    expect(archived.validations()).toBe(0);
+
+    const executing = makeHarness();
+    executing.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    const err = await settleTask(makeInput({ reviewed: true }), executing.deps).catch((e) => e);
+    expect(err).toBeInstanceOf(SettleError);
+    expect(err.message).toContain('#7');
+    expect(executing.runState.state.attempts['7']).toBeDefined();
+    expect(executing.validations()).toBe(0);
+  });
+
+  test('gate failures return done with the matching reason, archived, record cleared, no prompt file', async () => {
+    const cases: Array<{ reason: string; config?: Pick<CairnConfig, 'review'>; sha: string | null; head: string | null }> = [
+      { reason: 'review-disabled', config: { review: { postTask: false, maxIterations: 5 } }, sha: 'sha-before', head: 'sha-head' },
+      { reason: 'review-disabled', config: undefined, sha: 'sha-before', head: 'sha-head' },
+      { reason: 'no-before-sha', config: REVIEW_ON, sha: null, head: 'sha-head' },
+      { reason: 'no-commits', config: REVIEW_ON, sha: 'sha-head', head: 'sha-head' },
+    ];
+    for (const c of cases) {
+      const h = makeHarness();
+      h.runState.state.attempts['7'] = newAttemptRecord(c.sha, 1);
+      h.setHead(c.head);
+      const result = await settleTask(makeInput({ config: c.config }), h.deps);
+      expect(result.verdict).toEqual({ verdict: 'done', taskId: 7, reason: c.reason, next: NEXT_ROUND });
+      expect(h.archiveCalls).toHaveLength(1);
+      expect(h.promptWrites).toHaveLength(0);
+      expect(h.runState.state.attempts['7']).toBeUndefined();
+    }
+  });
+
+  test('an error validation on a complete task logs a warning and still archives', async () => {
+    const h = makeHarness();
+    h.setValidation({ status: 'error', message: 'spawn ENOENT' });
+    const result = await settleTask(makeInput(), h.deps);
+    expect(result.verdict).toMatchObject({ verdict: 'done', reason: 'review-disabled' });
+    expect(h.archiveCalls).toHaveLength(1);
+    expect(h.logs.some((l) => l.includes('#7') && l.includes('spawn ENOENT'))).toBe(true);
+  });
+
+  test('retry and blocked verdicts do not archive', async () => {
+    const h = makeHarness();
+    h.setStatus('in-progress');
+    h.setValidation({ status: 'skipped' });
+    const result = await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+    expect(result.verdict.verdict).toBe('retry');
+    expect(result.archive).toBeNull();
+    expect(h.archiveCalls).toHaveLength(0);
+  });
+
+  test('a lazily created record takes beforeSha from the commit-message fallback', async () => {
+    const h = makeHarness();
+    h.setTaskBaseSha('sha-parent');
+    const result = await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+    expect(h.baseShaCalls).toEqual([{ projectRoot: '/proj', taskId: 7 }]);
+    expect(result.verdict.verdict).toBe('review');
+    expect(h.promptWrites[0]).toMatchObject({ beforeSha: 'sha-parent' });
+    expect(h.runState.state.attempts['7']?.beforeSha).toBe('sha-parent');
+  });
+
+  test('a lazily created record with no matching commit gets a null beforeSha', async () => {
+    const h = makeHarness();
+    h.setStatus('in-progress');
+    h.setValidation({ status: 'skipped' });
+    await settleTask(makeInput(), h.deps);
+    expect(h.runState.state.attempts['7']?.beforeSha).toBeNull();
+  });
+
+  test('an existing record never consults the commit-message fallback', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+    expect(h.baseShaCalls).toHaveLength(0);
+  });
+
+  test('an explicit beforeSha overrides the record and skips the fallback', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-record', 1);
+    await settleTask(makeInput({ config: REVIEW_ON, beforeSha: 'sha-override' }), h.deps);
+    expect(h.promptWrites[0]).toMatchObject({ beforeSha: 'sha-override' });
+    // Persisted so a later repeat call without the flag rewrites the same range.
+    expect(h.runState.state.attempts['7']?.beforeSha).toBe('sha-override');
+
+    const lazy = makeHarness();
+    lazy.setTaskBaseSha('sha-parent');
+    await settleTask(makeInput({ config: REVIEW_ON, beforeSha: 'sha-override' }), lazy.deps);
+    expect(lazy.baseShaCalls).toHaveLength(0);
+    expect(lazy.promptWrites[0]).toMatchObject({ beforeSha: 'sha-override' });
+  });
+
+  test('an explicit beforeSha equal to HEAD fails the gate with no-commits', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-record', 1);
+    const result = await settleTask(makeInput({ config: REVIEW_ON, beforeSha: 'sha-head' }), h.deps);
+    expect(result.verdict).toMatchObject({ verdict: 'done', reason: 'no-commits' });
+  });
+
+  test('inlineReview returns review without writing a prompt file', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    const result = await settleTask(makeInput({ config: REVIEW_ON, inlineReview: true }), h.deps);
+    expect(result.verdict).toMatchObject({ verdict: 'review', reviewPromptFile: PROMPT_FILE });
+    expect(h.promptWrites).toHaveLength(0);
+    expect(h.runState.state.attempts['7']?.phase).toBe('awaiting-review');
+  });
+});
+
+describe('findTaskBaseSha', () => {
+  let repo: string;
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: repo }).toString().trim();
+
+  beforeEach(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-settle-git-'));
+    git('init', '-q');
+  });
+
+  afterEach(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  test("resolves the parent of the oldest commit whose message contains 'Task #<id>:'", () => {
+    git('commit', '-q', '--allow-empty', '-m', 'initial');
+    const base = git('rev-parse', 'HEAD');
+    git('commit', '-q', '--allow-empty', '-m', '[proj] Task #7: first attempt');
+    git('commit', '-q', '--allow-empty', '-m', '[proj] Task #70: a different task');
+    git('commit', '-q', '--allow-empty', '-m', '[proj] Task #7: follow-up');
+    expect(findTaskBaseSha(repo, 7)).toBe(base);
+  });
+
+  test('returns null when no commit matches', () => {
+    git('commit', '-q', '--allow-empty', '-m', '[proj] Task #70: other');
+    expect(findTaskBaseSha(repo, 7)).toBeNull();
+  });
+
+  test('returns null when the matching commit is the root commit', () => {
+    git('commit', '-q', '--allow-empty', '-m', '[proj] Task #7: root');
+    expect(findTaskBaseSha(repo, 7)).toBeNull();
+  });
+
+  test('returns null outside a git repository', () => {
+    expect(findTaskBaseSha(path.join(repo, 'missing'), 7)).toBeNull();
+  });
+});
+
+describe('writeReviewPromptFile', () => {
+  let root: string;
+  let dataDir: string;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-settle-prompt-'));
+    dataDir = path.join(root, '.cairn');
+    fs.mkdirSync(dataDir);
+    fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 10, round: 3 }));
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  test('writes the reviewer prompt for the archived task to .cairn_task_<id>_review_prompt.md', () => {
+    fs.writeFileSync(
+      path.join(dataDir, 'tasks.completed.json'),
+      JSON.stringify({ tasks: [makeTask({ status: 'complete', title: 'Archived seven', tests: ['bun test test/x.test.ts'] })] }),
+    );
+    let diffArgs: unknown[] = [];
+    const file = writeReviewPromptFile({
+      projectRoot: root,
+      dataDir,
+      taskId: 7,
+      beforeSha: 'sha-before',
+      getGitDiff: (...args) => { diffArgs = args; return { diff: 'DIFF-BODY', log: 'abc123 commit', files: ['src/x.ts'] }; },
+    });
+
+    expect(file).toBe(path.join(dataDir, '.cairn_task_7_review_prompt.md'));
+    expect(diffArgs).toEqual([root, 'sha-before']);
+    const content = fs.readFileSync(file, 'utf-8');
+    expect(content).toContain('**Task #7: Archived seven**');
+    expect(content).toContain('DIFF-BODY');
+    expect(content).toContain('abc123 commit');
+    expect(content).toContain('bun test test/x.test.ts');
+    expect(content).toContain(path.join(dataDir, 'reviews', 'round-3.md'));
+    expect(fs.existsSync(path.join(dataDir, 'reviews'))).toBe(true);
+  });
+
+  test('throws SettleError when the task is not in tasks.completed.json', () => {
+    fs.writeFileSync(path.join(dataDir, 'tasks.completed.json'), JSON.stringify({ tasks: [] }));
+    expect(() => writeReviewPromptFile({
+      projectRoot: root,
+      dataDir,
+      taskId: 7,
+      beforeSha: 'sha-before',
+      getGitDiff: () => ({ diff: '', log: '', files: [] }),
+    })).toThrow(SettleError);
   });
 });

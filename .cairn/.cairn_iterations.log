@@ -500,3 +500,5 @@ Iteration 4 completed: 2026-09-14T03:58:50.388Z — SUCCESS
 Iteration 5 started: 2026-09-14T04:00:47.693Z — Task #95: Settle verdict JSON, record-based idempotency, next hints, error types
 Iteration 5 completed: 2026-09-14T04:06:51.649Z — SUCCESS
 Iteration 6 started: 2026-09-14T04:10:16.587Z — Task #96: Test validation writes a per-task log and returns a summary plus failure tail
+Iteration 6 completed: 2026-09-14T04:15:09.473Z — SUCCESS
+Iteration 7 started: 2026-09-14T04:18:03.500Z — Task #97: Review phase in settle: archive then review gate, awaiting-review, --reviewed, beforeSha fallback

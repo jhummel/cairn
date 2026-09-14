@@ -1,14 +1,20 @@
-import type { Task } from './types';
+import * as fs from 'fs';
+import { execFileSync } from 'child_process';
+import type { CairnConfig, Task } from './types';
 import type { ValidateTaskTestsOpts, ValidationResult } from './test-validator';
 import type { TasksFile } from './tasks-file';
+import type { ArchiveResult } from './task-archiver';
+import { loadArchivedTask } from './task-archiver';
+import { buildPostTaskReviewUserPrompt, captureGitSha, getGitDiff, resolveReviewFilePath } from './post-task-reviewer';
 import { BRAND } from './brand';
 import { fileRunStateStore, newAttemptRecord, type RunStateStore } from './run-state';
 import { tempFilePath } from './utils';
 
 /**
  * Post-iteration settlement: validate the task's tests, apply the
- * consecutive-revert, incomplete, and same-task stall guards, and re-read the
- * task's status.
+ * consecutive-revert, incomplete, and same-task stall guards, re-read the
+ * task's status, and — for a completed task — archive it and apply the
+ * post-task review gate.
  *
  * Shared by `cairn run` and the interactive round commands so both modes run
  * one tested implementation of the logic that decides what an iteration did.
@@ -138,6 +144,8 @@ export class SettleError extends Error {
 
 export type RetryMode = 'continue' | 'fresh';
 export type RetryReason = 'validation-failed' | 'stalled' | 'incomplete' | 'status-unknown';
+/** Why a completed task needs no (further) review. */
+export type DoneReason = 'review-disabled' | 'no-before-sha' | 'no-commits' | 'reviewed';
 
 /**
  * What a settle decided, printed as JSON by `cairn round settle`. Every
@@ -147,10 +155,83 @@ export type RetryReason = 'validation-failed' | 'stalled' | 'incomplete' | 'stat
 export type Verdict =
   | { verdict: 'retry'; taskId: number; mode: RetryMode; reason: RetryReason; failure?: string; next: string }
   | { verdict: 'blocked'; taskId: number; reason: string; next: string }
-  | { verdict: 'done'; taskId: number; reason?: string; next: string }
+  | { verdict: 'review'; taskId: number; reviewPromptFile: string; next: string }
+  | { verdict: 'done'; taskId: number; reason?: DoneReason; next: string }
   | { verdict: 'already-settled'; taskId: number; next: string };
 
 const NEXT_ROUND = `Run: ${BRAND.name} round next`;
+
+function reviewVerdict(taskId: number, reviewPromptFile: string): Verdict {
+  return {
+    verdict: 'review',
+    taskId,
+    reviewPromptFile,
+    next: `Launch the post-task-reviewer agent with the prompt 'Read ${reviewPromptFile} and follow it', then run: ${BRAND.name} round settle ${taskId} --reviewed`,
+  };
+}
+
+/** `.cairn_task_<id>_review_prompt.md` in the data dir. */
+export function reviewPromptFilePath(dataDir: string, taskId: number): string {
+  return tempFilePath(dataDir, `task_${taskId}_review_prompt.md`);
+}
+
+/** Git reads settle needs; injectable for tests. */
+export interface GitAccess {
+  /** HEAD's sha, or null when git cannot answer. */
+  headSha: (projectRoot: string) => string | null;
+  /** The sha a task's work started from when no attempt record captured it. */
+  taskBaseSha: (projectRoot: string, taskId: number) => string | null;
+}
+
+function execGit(args: string[], cwd: string): string {
+  return execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+}
+
+/**
+ * Recover a task's beforeSha from history: the parent of the oldest commit
+ * whose message contains `Task #<id>:`. The trailing colon keeps #7 from
+ * matching #70. Null when nothing matches, the match is the root commit, or
+ * git fails.
+ */
+export function findTaskBaseSha(projectRoot: string, taskId: number): string | null {
+  try {
+    const [oldest] = execGit(['log', '--reverse', '--format=%H', '--fixed-strings', `--grep=Task #${taskId}:`], projectRoot)
+      .split('\n')
+      .filter(Boolean);
+    if (!oldest) return null;
+    return execGit(['rev-parse', `${oldest}^`], projectRoot) || null;
+  } catch {
+    return null;
+  }
+}
+
+export const defaultGitAccess: GitAccess = { headSha: captureGitSha, taskBaseSha: findTaskBaseSha };
+
+export interface WriteReviewPromptFileOpts {
+  projectRoot: string;
+  dataDir: string;
+  taskId: number;
+  beforeSha: string;
+  getGitDiff?: typeof getGitDiff;
+}
+
+/**
+ * Write the post-task reviewer's prompt for an archived task to
+ * reviewPromptFilePath and return that path. The task is read from
+ * tasks.completed.json because settle archives before reviewing.
+ */
+export function writeReviewPromptFile(opts: WriteReviewPromptFileOpts): string {
+  const { projectRoot, dataDir, taskId, beforeSha } = opts;
+  const task = loadArchivedTask(dataDir, taskId);
+  if (!task) {
+    throw new SettleError(`Task #${taskId} not found in tasks.completed.json; cannot write its review prompt`);
+  }
+  const { diff, log, files } = (opts.getGitDiff ?? getGitDiff)(projectRoot, beforeSha);
+  const { reviewFilePath } = resolveReviewFilePath(projectRoot, dataDir);
+  const file = reviewPromptFilePath(dataDir, taskId);
+  fs.writeFileSync(file, buildPostTaskReviewUserPrompt({ task, diff, log, files, dataDir, reviewFilePath }));
+  return file;
+}
 
 function retryNext(taskId: number, mode: RetryMode): string {
   const settle = `${BRAND.name} round settle ${taskId}`;
@@ -173,10 +254,28 @@ export interface SettleTaskInput {
   iteration?: number;
   /** Defaults to `tempFilePath(dataDir, 'iterations.log')`. */
   iterationLogPath?: string;
+  /** Only `review.postTask` is read; absent means review is disabled. */
+  config?: Pick<CairnConfig, 'review'>;
+  /** Overrides the attempt record's beforeSha (CLI `--before-sha`). */
+  beforeSha?: string;
+  /** The reviewer has run: close the review phase (CLI `--reviewed`). */
+  reviewed?: boolean;
+  /**
+   * The caller runs the reviewer with its own inline prompt (`cairn run`), so
+   * no reviewer prompt file is written.
+   */
+  inlineReview?: boolean;
 }
 
 export interface SettleTaskDeps {
   validateTaskTests: (opts: ValidateTaskTestsOpts) => Promise<ValidationResult>;
+  archiveCompletedTasks: (opts: { tasksFilePath: string; dataDir: string; iterationLogPath?: string }) => Promise<ArchiveResult>;
+  /** Defaults to real git. */
+  git?: GitAccess;
+  /** Defaults to writeReviewPromptFile. */
+  writeReviewPromptFile?: (opts: WriteReviewPromptFileOpts) => string;
+  /** Defaults to fs.existsSync; checks for the reviewer prompt file. */
+  existsSync?: (p: string) => boolean;
   readTasksFile: (filePath: string, opts?: { dataDir?: string }) => { data: TasksFile; repaired: boolean; restored: boolean; error?: string };
   blockTask: (opts: BlockTaskOpts) => void;
   appendFileSync: (p: string, content: string) => void;
@@ -190,8 +289,10 @@ export interface SettleTaskDeps {
 
 export interface SettleTaskResult {
   verdict: Verdict;
-  /** null only for 'already-settled', which runs no validation. */
+  /** null when no validation ran: 'already-settled' and the review-phase short circuits. */
   validation: ValidationResult | null;
+  /** The archive run by this settle; null when it did not archive. */
+  archive: ArchiveResult | null;
   /** Task status re-read from tasks.json; 'unknown' when unreadable or missing. */
   updatedTaskStatus: string;
   /** True when a guard successfully forced the task to 'blocked'. */
@@ -211,13 +312,26 @@ export interface SettleTaskResult {
  *   proceeds normally.
  * - In neither file → SettleError. A tasks.json read failure propagates.
  *
- * The record is cleared on 'done' and on every block, and kept on 'retry'.
+ * A task that is complete after validation is archived, then passes through
+ * the review gate. Because archiving comes first, the review phase is keyed
+ * on the record's phase:
+ * - Gate passes → phase 'awaiting-review', reviewer prompt file written,
+ *   'review'. A repeat call in that phase returns 'review' again with no
+ *   re-validation or re-archive, rewriting the prompt file only if missing.
+ * - `reviewed` with the record awaiting review → 'done' (reason 'reviewed').
+ *   With no such record: 'already-settled' if archived, else SettleError.
+ *
+ * The record is cleared on 'done' and on every block, and kept on 'retry'
+ * and 'review'.
  */
 export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): Promise<SettleTaskResult> {
   const { taskId, tasksFilePath, dataDir, projectRoot } = input;
   const iterationLogPath = input.iterationLogPath ?? tempFilePath(dataDir, 'iterations.log');
   const store = deps.runState ?? fileRunStateStore;
   const counters = deps.counters ?? createRunStateGuardCounters(dataDir, store);
+  const git = deps.git ?? defaultGitAccess;
+  const writePromptFile = deps.writeReviewPromptFile ?? writeReviewPromptFile;
+  const existsSync = deps.existsSync ?? fs.existsSync;
   const attemptKey = String(taskId);
   let blockedByGuard = false;
   let blockNote: string | null = null;
@@ -227,23 +341,58 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
     const reason = 'reason' in verdict && verdict.reason ? ` (${verdict.reason.replace(/\s+/g, ' ').trim()})` : '';
     deps.appendFileSync(iterationLogPath, `Settle #${taskId}: ${verdict.verdict}${reason}\n`);
   };
+  // A settle that ran no validation: the task is already archived.
+  const shortCircuit = (verdict: Verdict): SettleTaskResult => {
+    logSettle(verdict);
+    return { verdict, validation: null, archive: null, updatedTaskStatus: 'complete', blockedByGuard: false, corrupted: false };
+  };
+  const clearRecord = () => {
+    store.update(dataDir, (state) => {
+      delete state.attempts[attemptKey];
+    });
+  };
+
+  let record = store.read(dataDir).attempts[attemptKey];
+
+  // Review phase. Checked before the tasks.json lookup: the task has already
+  // been archived out of tasks.json by the settle that opened the phase.
+  if (input.reviewed) {
+    if (record?.phase === 'awaiting-review') {
+      clearRecord();
+      return shortCircuit({ verdict: 'done', taskId, reason: 'reviewed', next: NEXT_ROUND });
+    }
+    if (deps.loadCompletedIds(dataDir).has(taskId)) {
+      return shortCircuit({ verdict: 'already-settled', taskId, next: NEXT_ROUND });
+    }
+    throw new SettleError(`Task #${taskId} is not awaiting review; run \`${BRAND.name} round settle ${taskId}\` without --reviewed first`);
+  }
+  if (record?.phase === 'awaiting-review') {
+    const reviewPromptFile = reviewPromptFilePath(dataDir, taskId);
+    const beforeSha = input.beforeSha ?? record.beforeSha;
+    if (!input.inlineReview && beforeSha !== null && !existsSync(reviewPromptFile)) {
+      writePromptFile({ projectRoot, dataDir, taskId, beforeSha });
+    }
+    return shortCircuit(reviewVerdict(taskId, reviewPromptFile));
+  }
 
   // Idempotency lookup. Skipped when the caller passed the task and a record
   // exists (the `cairn run` path), so that path adds no tasks.json read.
   let task = input.task;
-  let record = store.read(dataDir).attempts[attemptKey];
   if (!record || !task) {
     const found = (deps.readTasksFile(tasksFilePath, { dataDir }).data.tasks ?? []).find((t: Task) => t.id === taskId);
     if (!found) {
       if (deps.loadCompletedIds(dataDir).has(taskId)) {
-        const verdict: Verdict = { verdict: 'already-settled', taskId, next: NEXT_ROUND };
-        logSettle(verdict);
-        return { verdict, validation: null, updatedTaskStatus: 'complete', blockedByGuard: false, corrupted: false };
+        return shortCircuit({ verdict: 'already-settled', taskId, next: NEXT_ROUND });
       }
       throw new SettleError(`Task #${taskId} not found in tasks.json or tasks.completed.json`);
     }
     task ??= found;
-    record ??= store.update(dataDir, (state) => (state.attempts[attemptKey] ??= newAttemptRecord(null, input.iteration ?? state.iteration)));
+    if (!record) {
+      // No record means nothing captured the pre-task sha; recover it from
+      // the task's commits (outside the lock — it shells out to git).
+      const lazySha = input.beforeSha ?? git.taskBaseSha(projectRoot, taskId);
+      record = store.update(dataDir, (state) => (state.attempts[attemptKey] ??= newAttemptRecord(lazySha, input.iteration ?? state.iteration)));
+    }
   }
   const iteration = input.iteration ?? record.iteration;
 
@@ -358,10 +507,11 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
   // same agent; a stall always gets a fresh one; an incomplete escalates from
   // continue to fresh on its second consecutive occurrence. An unknown status
   // (unreadable re-read) retries in place — the record is kept, so the next
-  // settle re-reads.
+  // settle re-reads. A completed task is archived, then gated for review.
   const retry = (mode: RetryMode, reason: RetryReason, failure?: string): Verdict =>
     ({ verdict: 'retry', taskId, mode, reason, ...(failure ? { failure } : {}), next: retryNext(taskId, mode) });
   let verdict: Verdict;
+  let archive: ArchiveResult | null = null;
   if (blockedByGuard && blockNote !== null) {
     verdict = { verdict: 'blocked', taskId, reason: blockNote, next: NEXT_ROUND };
   } else if (updatedTaskStatus === 'blocked') {
@@ -373,19 +523,44 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
   } else if (updatedTaskStatus === 'in-progress') {
     verdict = retry(counters.get(task.id, 'incompletes') >= 2 ? 'fresh' : 'continue', 'incomplete');
   } else if (updatedTaskStatus === 'complete') {
-    verdict = { verdict: 'done', taskId, next: NEXT_ROUND };
+    if (validation.status === 'error') {
+      deps.log(`Task #${taskId}: test validation errored (${summarizeFailure(validation.message)}) — settling it as complete anyway.`);
+    }
+    archive = await deps.archiveCompletedTasks({ tasksFilePath, dataDir, iterationLogPath });
+
+    // Review gate — the same conditions runPostTaskReview applies.
+    const beforeSha = input.beforeSha ?? record.beforeSha;
+    if (!input.config?.review?.postTask) {
+      verdict = { verdict: 'done', taskId, reason: 'review-disabled', next: NEXT_ROUND };
+    } else if (beforeSha === null) {
+      verdict = { verdict: 'done', taskId, reason: 'no-before-sha', next: NEXT_ROUND };
+    } else if (git.headSha(projectRoot) === beforeSha) {
+      verdict = { verdict: 'done', taskId, reason: 'no-commits', next: NEXT_ROUND };
+    } else {
+      // Phase first, then the prompt file: if writing throws, a repeat call
+      // still sees 'awaiting-review' and retries the write rather than
+      // reporting an archived task as already settled.
+      store.update(dataDir, (state) => {
+        const r = (state.attempts[attemptKey] ??= newAttemptRecord(beforeSha, iteration));
+        r.phase = 'awaiting-review';
+        r.beforeSha = beforeSha;
+      });
+      const reviewPromptFile = input.inlineReview
+        ? reviewPromptFilePath(dataDir, taskId)
+        : writePromptFile({ projectRoot, dataDir, taskId, beforeSha });
+      verdict = reviewVerdict(taskId, reviewPromptFile);
+    }
   } else {
     verdict = retry('continue', 'status-unknown');
   }
 
   // Record lifecycle: the attempt is over on done or any block; a retry keeps
-  // it (and its counters and beforeSha) for the next attempt.
-  if (verdict.verdict !== 'retry') {
-    store.update(dataDir, (state) => {
-      delete state.attempts[attemptKey];
-    });
+  // it (and its counters and beforeSha) for the next attempt, and a review
+  // keeps it as the marker of the open review phase.
+  if (verdict.verdict !== 'retry' && verdict.verdict !== 'review') {
+    clearRecord();
   }
   logSettle(verdict);
 
-  return { verdict, validation, updatedTaskStatus, blockedByGuard, corrupted };
+  return { verdict, validation, archive, updatedTaskStatus, blockedByGuard, corrupted };
 }
