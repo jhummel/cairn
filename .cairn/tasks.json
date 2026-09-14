@@ -7,7 +7,7 @@
       "title": "Extract post-iteration logic from run.ts into settleTask (src/settle.ts)",
       "description": "Extract the post-iteration logic of `cairn run` into a new, independently tested module `src/settle.ts`. This is a PURE EXTRACTION: the behavior of `cairn run` must not change, and `test/commands/run.test.ts` must stay green without weakening any assertion.\n\nCONTEXT: Round 15 adds a second way to run a round (`/cairn-run`, an interactive session that drives new `cairn round next` / `cairn round settle` CLI commands). Both modes must share ONE tested implementation of the post-iteration logic. This task creates that shared function; later tasks (93, 94, 95, 97) extend it with persisted counters, an incomplete guard, verdict JSON and a review phase.\n\nWHAT TO MOVE: in `src/commands/run.ts` inside `runRun`, steps k (validateTaskTests), k2 (consecutive-revert guard, REVERT_BLOCK_THRESHOLD = 2), k3 (re-read the task status from tasks.json) and k4 (same-task stall guard, STALL_BLOCK_THRESHOLD = 3) — currently roughly lines 665-740. Move both threshold constants (with their doc comments) and `summarizeFailure` into `src/settle.ts` and export what run.ts needs.\n\nDESIGN:\n- Export an async `settleTask(input, deps)`. Input: task, selectedStatus (the status snapshot at selection time — keep it for now; task 94 removes it), tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath. Deps are injected with the same shapes as RunRunDeps: validateTaskTests, readTasksFile, blockTask, appendFileSync, log, plus a counters object.\n- Counters live behind an interface, e.g. `GuardCounters { get(taskId, kind): number; set(taskId, kind, n): void; clear(taskId, kind): void }` with kind 'reverts' | 'stalls', plus an exported in-memory implementation backed by Maps. runRun creates one in-memory instance per run, preserving today's per-run semantics (task 93 makes them persistent).\n- Return a result object carrying at least: the validation result, updatedTaskStatus ('unknown' when tasks.json is unreadable), whether a guard blocked the task (so runRun can keep maintaining `blockedByGuard`), and a corruption flag (repaired/restored) so runRun keeps counting corruptionEvents.\n- runRun calls settleTask and then continues with step l (post-task review) and step m (archive) exactly as today, in the same order.\n\nTESTS: create `test/settle.test.ts` with fake deps (no real processes) covering: passed validation resets reverts; failed validation increments reverts and blocks at 2 with the existing note text; a stall increments only when the task was selected pending and is still pending, and blocks at 3; any other observed status resets stalls; an unreadable tasks file leaves both guards neutral.\n\nTDD: write the failing test first, run it and watch it fail, then implement until it passes — all within this task.\n\nPINNED BINARY (self-modifying round): do NOT modify cairn.json's healthCheck value and do NOT run ./install.sh. The user has pinned ~/.local/bin/cairn to a known-good build and redirected the health check to a throwaway outfile (/tmp/cairn-healthcheck). Running `bun run build` yourself is fine.\n\nCOMMIT: stage only the files you changed (never `git add -A` or `git add .`) — cairn.json has an uncommitted user change that must not be committed.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "src/settle.ts",
         "src/commands/run.ts",
@@ -19,7 +19,10 @@
         "bun test"
       ],
       "dependencies": [],
-      "model": "opus"
+      "model": "opus",
+      "completedAt": "2026-09-14T03:37:29.821Z",
+      "completedBy": "iteration-1",
+      "notes": "Pure extraction of run.ts post-iteration steps k/k2/k3/k4 into src/settle.ts.\n\n- src/settle.ts exports: settleTask(input, deps), createInMemoryGuardCounters(), GuardCounters/GuardKind ('reverts'|'stalls'), REVERT_BLOCK_THRESHOLD (2), STALL_BLOCK_THRESHOLD (3), summarizeFailure, BlockTaskOpts, SettleTaskInput/SettleTaskDeps/SettleTaskResult.\n- Result: { validation, updatedTaskStatus ('unknown' if unreadable/missing), blockedByGuard (true only if blockTask succeeded), corrupted (re-read repaired||restored) }.\n- BlockTaskOpts moved to settle.ts (avoids settle->run import cycle); run.ts re-exports it with `export type { BlockTaskOpts } from '../settle'`.\n- runRun creates one createInMemoryGuardCounters() per run (replaces the two Maps), calls settleTask, bumps corruptionEvents / blockedByGuard from the result, then does step l (review) and m (archive) unchanged.\n- selectedStatus still in SettleTaskInput (task 94 removes it). Counter interface is where task 93 plugs in persistence.\n- test/settle.test.ts: 15 tests with fake deps. test/commands/run.test.ts untouched and green. Full suite 929 pass; bun run build OK.\n"
     },
     {
       "id": 92,
@@ -64,7 +67,10 @@
         "bun test test/settle.test.ts",
         "bun test"
       ],
-      "dependencies": [91, 92],
+      "dependencies": [
+        91,
+        92
+      ],
       "model": "opus"
     },
     {
@@ -84,7 +90,9 @@
         "bun test test/settle.test.ts",
         "bun test"
       ],
-      "dependencies": [93],
+      "dependencies": [
+        93
+      ],
       "model": "sonnet"
     },
     {
@@ -104,7 +112,9 @@
         "bun test test/settle.test.ts",
         "bun test"
       ],
-      "dependencies": [93],
+      "dependencies": [
+        93
+      ],
       "model": "opus"
     },
     {
@@ -125,7 +135,9 @@
         "bun test test/test-validator.test.ts",
         "bun test"
       ],
-      "dependencies": [91],
+      "dependencies": [
+        91
+      ],
       "model": "sonnet"
     },
     {
@@ -150,7 +162,10 @@
         "bun test test/settle.test.ts",
         "bun test"
       ],
-      "dependencies": [93, 95],
+      "dependencies": [
+        93,
+        95
+      ],
       "model": "opus"
     },
     {
@@ -173,7 +188,11 @@
         "bun test test/commands/round.test.ts",
         "bun test"
       ],
-      "dependencies": [93, 97, 100],
+      "dependencies": [
+        93,
+        97,
+        100
+      ],
       "model": "opus"
     },
     {
@@ -195,7 +214,13 @@
         "bun test test/commands/round.test.ts",
         "bun test"
       ],
-      "dependencies": [94, 95, 96, 97, 98],
+      "dependencies": [
+        94,
+        95,
+        96,
+        97,
+        98
+      ],
       "model": "sonnet"
     },
     {
@@ -234,7 +259,10 @@
         "bun test test/post-task-reviewer.test.ts",
         "bun test"
       ],
-      "dependencies": [96, 97],
+      "dependencies": [
+        96,
+        97
+      ],
       "model": "opus"
     },
     {
@@ -282,7 +310,9 @@
         "bun test test/commands/hook.test.ts",
         "bun test"
       ],
-      "dependencies": [98],
+      "dependencies": [
+        98
+      ],
       "model": "opus"
     },
     {
@@ -302,7 +332,9 @@
         "bun test test/claude-settings.test.ts",
         "bun test"
       ],
-      "dependencies": [103],
+      "dependencies": [
+        103
+      ],
       "model": "opus"
     },
     {
@@ -323,7 +355,14 @@
         "bun test test/commands/init.test.ts",
         "bun test"
       ],
-      "dependencies": [98, 99, 100, 101, 102, 104],
+      "dependencies": [
+        98,
+        99,
+        100,
+        101,
+        102,
+        104
+      ],
       "model": "opus"
     },
     {
@@ -385,7 +424,25 @@
       "tests": [
         "bun test"
       ],
-      "dependencies": [91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107],
+      "dependencies": [
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107
+      ],
       "model": "opus"
     }
   ]
