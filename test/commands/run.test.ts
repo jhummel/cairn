@@ -7,6 +7,17 @@ import { Readable, Writable, PassThrough } from 'stream';
 import { buildSystemPrompt, spawnClaude, runRun, type SystemPromptInput, type SpawnClaudeDeps, type RunRunOpts, type RunRunDeps } from '../../src/commands/run';
 import { ProcessManager } from '../../src/process';
 import type { CairnConfig, AgentInfo, Task } from '../../src/types';
+import type { RunState, RunStateStore } from '../../src/run-state';
+
+/** In-memory run-state store, so runRun tests never touch the (fake) dataDir. */
+function makeMemoryRunState(): RunStateStore & { state: RunState } {
+  const state: RunState = { iteration: 0, attempts: {} };
+  return {
+    state,
+    read: () => structuredClone(state),
+    update: <T>(_dataDir: string, fn: (s: RunState) => T): T => fn(state),
+  };
+}
 
 function makeConfig(overrides: Partial<CairnConfig> = {}): CairnConfig {
   return {
@@ -718,6 +729,7 @@ function makeRunDeps(overrides: Partial<RunRunDeps> = {}): RunRunDeps {
     findNarrationSocketPath: overrides.findNarrationSocketPath ?? mock(() => '/tmp/cairn-tts.sock'),
     sendNtfy: overrides.sendNtfy ?? mock(async () => {}),
     blockTask: overrides.blockTask ?? mock(() => undefined),
+    runState: overrides.runState ?? makeMemoryRunState(),
     log: overrides.log ?? mock(() => {}),
   };
 }
@@ -1439,6 +1451,109 @@ describe('runRun', () => {
     expect(deps.blockTask).toHaveBeenCalledTimes(1);
     expect((deps.blockTask as ReturnType<typeof mock>).mock.calls[0][0].taskId).toBe(3);
     expect(deps.runPostTaskReview).not.toHaveBeenCalled();
+  });
+
+  // --- Persistent attempt record (run state) ---
+
+  test('creates the attempt record at pick time, before spawning, with the captured beforeSha', async () => {
+    const tasks = [makeTask({ id: 4 })];
+    const runState = makeMemoryRunState();
+    const seen: unknown[] = [];
+    const deps = makeGuardDeps(tasks, {
+      runState,
+      captureGitSha: mock(() => 'sha-pick'),
+      spawnClaude: mock(async () => {
+        seen.push(structuredClone(runState.state.attempts['4']));
+        tasks[0]!.status = 'in-progress';
+        return { exitCode: 0 };
+      }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 1 }), deps);
+
+    expect(seen[0]).toEqual({
+      beforeSha: 'sha-pick', iteration: 1, reverts: 0, stalls: 0, incompletes: 0, phase: 'executing',
+    });
+  });
+
+  test('a re-pick keeps the original beforeSha, updates the iteration, and the review uses it', async () => {
+    const tasks = [makeTask({ id: 4 })];
+    const runState = makeMemoryRunState();
+    const seen: Array<{ beforeSha: string | null; iteration: number }> = [];
+    let n = 0;
+    let iter = 0;
+    const deps = makeGuardDeps(tasks, {
+      runState,
+      captureGitSha: mock(() => `sha-${++n}`),
+      spawnClaude: mock(async () => {
+        iter++;
+        const rec = runState.state.attempts['4']!;
+        seen.push({ beforeSha: rec.beforeSha, iteration: rec.iteration });
+        tasks[0]!.status = iter === 1 ? 'in-progress' : 'complete';
+        return { exitCode: 0 };
+      }),
+    });
+
+    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    await runRun(makeRunOpts({ config, maxIterations: 2 }), deps);
+
+    expect(seen).toEqual([
+      { beforeSha: 'sha-1', iteration: 1 },
+      { beforeSha: 'sha-1', iteration: 2 },
+    ]);
+    expect(deps.runPostTaskReview).toHaveBeenCalledTimes(1);
+    const reviewCall = (deps.runPostTaskReview as ReturnType<typeof mock>).mock.calls[0][0];
+    expect(reviewCall.beforeSha).toBe('sha-1');
+  });
+
+  test('clears the attempt record once a completed task has gone through review/archive', async () => {
+    const tasks = [makeTask({ id: 4 })];
+    const runState = makeMemoryRunState();
+    let archivedWithRecord: boolean | null = null;
+    const deps = makeGuardDeps(tasks, {
+      runState,
+      spawnClaude: mock(async () => {
+        tasks[0]!.status = 'complete';
+        return { exitCode: 0 };
+      }),
+      archiveCompletedTasks: mock(async () => {
+        archivedWithRecord = runState.state.attempts['4'] !== undefined;
+        return { archivedCount: 1, prevNotes: null };
+      }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 1 }), deps);
+
+    expect(archivedWithRecord).toBe(true);
+    expect(runState.state.attempts['4']).toBeUndefined();
+  });
+
+  test('clears the attempt record when a guard blocks the task', async () => {
+    const tasks = [makeTask({ id: 4 })];
+    const runState = makeMemoryRunState();
+    const deps = makeGuardDeps(tasks, { runState });
+
+    await runRun(makeRunOpts({ maxIterations: 5 }), deps);
+
+    expect(deps.blockTask).toHaveBeenCalledTimes(1);
+    expect(tasks[0]!.status).toBe('blocked');
+    expect(runState.state.attempts['4']).toBeUndefined();
+  });
+
+  test('guard counters live in the run-state store, so a restarted run resumes them', async () => {
+    const tasks = [makeTask({ id: 4 })];
+    const runState = makeMemoryRunState();
+
+    // First run: two no-op iterations, one short of the stall threshold.
+    const first = makeGuardDeps(tasks, { runState });
+    await runRun(makeRunOpts({ maxIterations: 2 }), first);
+    expect(first.blockTask).not.toHaveBeenCalled();
+    expect(runState.state.attempts['4']?.stalls).toBe(2);
+
+    // Restart with the same store: the third stall blocks immediately.
+    const second = makeGuardDeps(tasks, { runState });
+    await runRun(makeRunOpts({ maxIterations: 1 }), second);
+    expect(second.blockTask).toHaveBeenCalledTimes(1);
   });
 
   // --- Blocked-aware final summary ---

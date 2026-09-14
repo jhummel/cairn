@@ -492,3 +492,5 @@ Cairn Execution Loop Started: 2026-09-14T03:34:50.179Z
 Iteration 1 started: 2026-09-14T03:34:50.204Z — Task #91: Extract post-iteration logic from run.ts into settleTask (src/settle.ts)
 Iteration 1 completed: 2026-09-14T03:37:38.022Z — SUCCESS
 Iteration 2 started: 2026-09-14T03:39:39.118Z — Task #92: Run-state store (src/run-state.ts)
+Iteration 2 completed: 2026-09-14T03:41:19.907Z — SUCCESS
+Iteration 3 started: 2026-09-14T03:42:59.448Z — Task #93: Persist guard counters in run state; cairn task set-status clears the attempt record

@@ -16,7 +16,8 @@ import { loadPersonalInstructions } from '../personal-instructions';
 import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnapshotTasksFile, mutateTasksFile as defaultMutateTasksFile, TasksFileError, type TasksFile } from '../tasks-file';
 import { tempFilePath } from '../utils';
 import { BRAND, NOTES_TEMP_PREFIX } from '../brand';
-import { settleTask, createInMemoryGuardCounters, type BlockTaskOpts } from '../settle';
+import { settleTask, createRunStateGuardCounters, type BlockTaskOpts } from '../settle';
+import { fileRunStateStore, newAttemptRecord, type RunStateStore } from '../run-state';
 
 export type { BlockTaskOpts } from '../settle';
 
@@ -302,6 +303,7 @@ export interface RunRunDeps {
   findNarrationSocketPath: (projectRoot: string) => string;
   sendNtfy: (message: string, topic: string, opts?: NtfyOpts) => Promise<void>;
   blockTask: (opts: BlockTaskOpts) => void;
+  runState: RunStateStore;
   log: (...args: unknown[]) => void;
 }
 
@@ -358,6 +360,7 @@ function defaultDeps(): RunRunDeps {
         t.notes = t.notes ? `${t.notes} | ${note}` : note;
       }, { dataDir });
     },
+    runState: fileRunStateStore,
     log: console.log,
   };
 }
@@ -449,10 +452,11 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   let totalArchived = 0;
   let completedByFlag = false;
   let corruptionEvents = 0;
-  // taskId -> consecutive validation reverts / pending stalls. One in-memory
-  // instance per run on purpose: a livelock only matters inside a single run,
-  // so the counts reset naturally on restart and need no schema/Task field.
-  const guardCounters = createInMemoryGuardCounters();
+  // taskId -> consecutive validation reverts / pending stalls. Runtime state
+  // kept on the task's attempt record in the gitignored run-state file, so
+  // restarting `cairn run` no longer resets them; `cairn task set-status` is
+  // the reset. Still not a Task field — they never touch tasks.json.
+  const guardCounters = createRunStateGuardCounters(dataDir, deps.runState);
   // Tasks this run forced to 'blocked' — the summary's fallback count if the
   // final tasks.json read fails.
   const blockedByGuard = new Set<number>();
@@ -594,8 +598,27 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         };
       }
 
-      // i. Capture git SHA before spawn
-      const beforeSha = deps.captureGitSha(projectRoot);
+      // i. Record the attempt before spawn. A re-pick of the same task keeps
+      // the first attempt's beforeSha so the eventual review covers every
+      // attempt; only the iteration moves forward. The SHA is captured outside
+      // the run-state lock.
+      const attemptKey = String(task.id);
+      const priorAttempt = deps.runState.read(dataDir).attempts[attemptKey];
+      const capturedSha = priorAttempt ? null : deps.captureGitSha(projectRoot);
+      const beforeSha = deps.runState.update(dataDir, (state) => {
+        const record = state.attempts[attemptKey];
+        if (record) {
+          record.iteration = iteration;
+          return record.beforeSha;
+        }
+        state.attempts[attemptKey] = newAttemptRecord(capturedSha, iteration);
+        return capturedSha;
+      });
+      const clearAttemptRecord = () => {
+        deps.runState.update(dataDir, (state) => {
+          delete state.attempts[attemptKey];
+        });
+      };
 
       // j. Spawn Claude
       const { exitCode } = await deps.spawnClaude({
@@ -636,7 +659,11 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         },
       );
       if (settled.corrupted) corruptionEvents++;
-      if (settled.blockedByGuard) blockedByGuard.add(task.id);
+      if (settled.blockedByGuard) {
+        blockedByGuard.add(task.id);
+        // A human unblocking the task starts over with fresh attempts.
+        clearAttemptRecord();
+      }
       const { updatedTaskStatus } = settled;
 
       // l. Post-task review (if enabled and task completed)
@@ -660,6 +687,9 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       });
 
       totalArchived += archiveResult.archivedCount;
+
+      // The completed task has been reviewed and archived — its attempt is over.
+      if (updatedTaskStatus === 'complete') clearAttemptRecord();
 
       // l. Carry forward prevNotes
       prevNotes = archiveResult.prevNotes;

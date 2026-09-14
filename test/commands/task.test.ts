@@ -14,6 +14,8 @@ import {
   registerTaskCommands,
 } from '../../src/commands/task';
 import type { TasksFile } from '../../src/tasks-file';
+import { readRunState, updateRunState } from '../../src/run-state';
+import { tempFilePath } from '../../src/utils';
 
 let tmpDir: string;
 let tasksPath: string;
@@ -239,6 +241,58 @@ describe('task set-status', () => {
     // Original file untouched
     const t = readTasks().tasks.find((x) => x.id === 1)!;
     expect(t.status).toBe('pending');
+  });
+
+  function seedAttempt(id: number): void {
+    updateRunState(tmpDir, (s) => {
+      s.attempts[String(id)] = { beforeSha: 'abc', iteration: 1, reverts: 1, stalls: 2, incompletes: 0, phase: 'executing' };
+    });
+  }
+
+  it('(7c) clears the task attempt record so a reset task gets fresh guard attempts', () => {
+    seedAttempt(1);
+    seedAttempt(2);
+    const exitCode = taskSetStatus({ id: 1, status: 'pending', tasksPath, dataDir: tmpDir });
+    expect(exitCode).toBe(0);
+    const state = readRunState(tmpDir);
+    expect(state.attempts['1']).toBeUndefined();
+    expect(state.attempts['2']).toBeDefined();
+  });
+
+  it('(7d) skips clearing when no dataDir is given', () => {
+    seedAttempt(1);
+    const exitCode = taskSetStatus({ id: 1, status: 'pending', tasksPath });
+    expect(exitCode).toBe(0);
+    expect(readTasks().tasks.find((x) => x.id === 1)!.status).toBe('pending');
+    expect(readRunState(tmpDir).attempts['1']).toBeDefined();
+  });
+
+  it('(7e) a failure to clear the attempt record warns but still exits 0', () => {
+    // A non-empty directory where the run-state file belongs makes the atomic
+    // rename in clearAttempt fail.
+    const statePath = tempFilePath(tmpDir, 'run_state.json');
+    fs.mkdirSync(statePath);
+    fs.writeFileSync(path.join(statePath, 'blocker'), 'x');
+    const stderr: string[] = [];
+    const exitCode = taskSetStatus({
+      id: 1,
+      status: 'blocked',
+      tasksPath,
+      dataDir: tmpDir,
+      stderr: { write: (s) => stderr.push(s) },
+    });
+    expect(exitCode).toBe(0);
+    expect(readTasks().tasks.find((x) => x.id === 1)!.status).toBe('blocked');
+    expect(stderr.join('')).toMatch(/warning/i);
+  });
+
+  it('(7f) does not clear the attempt record when the task is not found', () => {
+    seedAttempt(999);
+    const exitCode = taskSetStatus({
+      id: 999, status: 'pending', tasksPath, dataDir: tmpDir, stderr: { write: () => {} },
+    });
+    expect(exitCode).not.toBe(0);
+    expect(readRunState(tmpDir).attempts['999']).toBeDefined();
   });
 });
 

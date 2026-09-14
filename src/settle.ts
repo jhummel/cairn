@@ -2,6 +2,7 @@ import type { Task } from './types';
 import type { ValidateTaskTestsOpts, ValidationResult } from './test-validator';
 import type { TasksFile } from './tasks-file';
 import { BRAND } from './brand';
+import { fileRunStateStore, newAttemptRecord, type RunStateStore } from './run-state';
 
 /**
  * Post-iteration settlement: validate the task's tests, apply the
@@ -61,9 +62,34 @@ export interface GuardCounters {
 }
 
 /**
- * Map-backed counters. In-memory and per-instance on purpose: a livelock only
- * matters inside a single run, so a fresh instance per run resets naturally on
- * restart and needs no schema/Task field.
+ * Counters stored on the task's attempt record in the run-state file
+ * (src/run-state.ts). Runtime state, not a Task field: they survive restarts
+ * of `cairn run` and separate settle invocations, and `cairn task set-status`
+ * is what resets them. Each operation is its own short locked update, so the
+ * lock is never held across test validation.
+ */
+export function createRunStateGuardCounters(dataDir: string, store: RunStateStore = fileRunStateStore): GuardCounters {
+  return {
+    get: (taskId, kind) => store.read(dataDir).attempts[String(taskId)]?.[kind] ?? 0,
+    set: (taskId, kind, n) => {
+      store.update(dataDir, (state) => {
+        const record = (state.attempts[String(taskId)] ??= newAttemptRecord(null, 0));
+        record[kind] = n;
+      });
+    },
+    clear: (taskId, kind) => {
+      store.update(dataDir, (state) => {
+        const record = state.attempts[String(taskId)];
+        if (record) record[kind] = 0;
+      });
+    },
+  };
+}
+
+/**
+ * Map-backed counters that live only as long as the instance. Nothing
+ * persists them, so they are for unit tests that exercise the guard logic
+ * without a data dir; real callers use createRunStateGuardCounters.
  */
 export function createInMemoryGuardCounters(): GuardCounters {
   const maps: Record<GuardKind, Map<number, number>> = {
@@ -94,7 +120,8 @@ export interface SettleTaskDeps {
   blockTask: (opts: BlockTaskOpts) => void;
   appendFileSync: (p: string, content: string) => void;
   log: (...args: unknown[]) => void;
-  counters: GuardCounters;
+  /** Defaults to the run-state file in `input.dataDir`. */
+  counters?: GuardCounters;
 }
 
 export interface SettleTaskResult {
@@ -109,7 +136,7 @@ export interface SettleTaskResult {
 
 export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): Promise<SettleTaskResult> {
   const { task, selectedStatus, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath } = input;
-  const { counters } = deps;
+  const counters = deps.counters ?? createRunStateGuardCounters(dataDir);
   let blockedByGuard = false;
   let corrupted = false;
 
@@ -137,8 +164,8 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
       } catch (err) {
         deps.log(`Failed to block task #${task.id}: ${err instanceof Error ? err.message : String(err)}`);
       }
-      // Start the count over: if a human unblocks the task mid-run it gets a
-      // fresh pair of attempts rather than re-blocking on the first revert.
+      // Start the count over: if a human unblocks the task it gets a fresh
+      // pair of attempts rather than re-blocking on the first revert.
       counters.clear(task.id, 'reverts');
     }
   } else if (validation.status === 'passed') {
@@ -181,8 +208,8 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
         } catch (err) {
           deps.log(`Failed to block task #${task.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
-        // Start over, so a human fixing the permissions rule mid-run gets a
-        // fresh set of attempts rather than an instant re-block.
+        // Start over, so a human fixing the permissions rule gets a fresh set
+        // of attempts rather than an instant re-block.
         counters.clear(task.id, 'stalls');
       }
     }

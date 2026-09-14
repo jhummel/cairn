@@ -1,7 +1,12 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { readRunState, updateRunState } from '../src/run-state';
 import {
   settleTask,
   createInMemoryGuardCounters,
+  createRunStateGuardCounters,
   REVERT_BLOCK_THRESHOLD,
   STALL_BLOCK_THRESHOLD,
   summarizeFailure,
@@ -130,6 +135,63 @@ describe('createInMemoryGuardCounters', () => {
     c.clear(1, 'reverts');
     expect(c.get(1, 'reverts')).toBe(0);
     expect(c.get(1, 'stalls')).toBe(1);
+  });
+});
+
+describe('createRunStateGuardCounters', () => {
+  let dataDir: string;
+
+  beforeEach(() => {
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-settle-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  test('reads 0 when no attempt record exists and clear does not create one', () => {
+    const c = createRunStateGuardCounters(dataDir);
+    expect(c.get(7, 'reverts')).toBe(0);
+    c.clear(7, 'stalls');
+    expect(readRunState(dataDir).attempts['7']).toBeUndefined();
+  });
+
+  test('set creates a default record when none exists', () => {
+    createRunStateGuardCounters(dataDir).set(7, 'stalls', 2);
+    expect(readRunState(dataDir).attempts['7']).toEqual({
+      beforeSha: null, iteration: 0, reverts: 0, stalls: 2, incompletes: 0, phase: 'executing',
+    });
+  });
+
+  test('stores counts in the existing attempt record without touching its other fields', () => {
+    updateRunState(dataDir, (s) => {
+      s.attempts['7'] = { beforeSha: 'abc', iteration: 4, reverts: 0, stalls: 0, incompletes: 1, phase: 'executing' };
+    });
+    const c = createRunStateGuardCounters(dataDir);
+    c.set(7, 'reverts', 1);
+    expect(createRunStateGuardCounters(dataDir).get(7, 'reverts')).toBe(1);
+    c.clear(7, 'reverts');
+    expect(readRunState(dataDir).attempts['7']).toEqual({
+      beforeSha: 'abc', iteration: 4, reverts: 0, stalls: 0, incompletes: 1, phase: 'executing',
+    });
+  });
+
+  test('counters survive separate settleTask calls against the same data dir', async () => {
+    const h = makeHarness();
+    h.setStatus('in-progress');
+    h.setValidation({ status: 'failed', message: 'bun test exited 1' });
+    // No injected counters: settleTask falls back to the run-state file.
+    const { counters: _unused, ...rest } = h.deps;
+    const input = makeInput({ dataDir });
+
+    const first = await settleTask({ ...input, iteration: 1 }, { ...rest });
+    expect(first.blockedByGuard).toBe(false);
+    expect(readRunState(dataDir).attempts['7']?.reverts).toBe(1);
+
+    const second = await settleTask({ ...input, iteration: 2 }, { ...rest });
+    expect(second.blockedByGuard).toBe(true);
+    expect(h.blocked).toHaveLength(1);
+    expect(readRunState(dataDir).attempts['7']?.reverts ?? 0).toBe(0);
   });
 });
 

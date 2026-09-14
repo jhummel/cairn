@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import Ajv, { type ErrorObject } from 'ajv';
 import { mutateTasksFile, type TasksFile } from '../tasks-file';
 import { reserveTaskIds } from '../task-counter';
+import { clearAttempt } from '../run-state';
 import { BRAND } from '../brand';
 import type { Task } from '../types';
 import schema from '../tasks-schema.json' with { type: 'json' };
@@ -188,6 +189,19 @@ export function taskSetStatus(opts: TaskSetStatusOpts): number {
     if (!found) {
       stderr.write(`cairn task set-status: task ${opts.id} not found\n`);
       return 1;
+    }
+    // A manual status change resets the task's guard counters. Cleared only
+    // after mutateTasksFile has returned (lock ordering: never take the
+    // run-state lock inside its callback), and best-effort: the status change
+    // itself already succeeded.
+    if (opts.dataDir) {
+      try {
+        clearAttempt(opts.dataDir, String(opts.id));
+      } catch (err) {
+        stderr.write(
+          `cairn task set-status: warning: could not clear attempt record for task ${opts.id}: ${err instanceof Error ? err.message : String(err)}\n`
+        );
+      }
     }
     return 0;
   } catch (err) {

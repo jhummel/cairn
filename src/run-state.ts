@@ -43,6 +43,17 @@ export interface RunState {
   attempts: { [taskId: string]: AttemptRecord };
 }
 
+/** Read/update access to the run-state file, injectable so callers can be tested without a real data dir. */
+export interface RunStateStore {
+  read: (dataDir: string) => RunState;
+  update: <T>(dataDir: string, fn: (state: RunState) => T) => T;
+}
+
+/** A fresh attempt record with zeroed counters. */
+export function newAttemptRecord(beforeSha: string | null, iteration: number): AttemptRecord {
+  return { beforeSha, iteration, reverts: 0, stalls: 0, incompletes: 0, phase: 'executing' };
+}
+
 function emptyRunState(): RunState {
   return { iteration: 0, attempts: {} };
 }
@@ -127,6 +138,12 @@ export function updateRunState<T>(dataDir: string, fn: (state: RunState) => T): 
     }
   }
 }
+
+/** The real, file-backed store. */
+export const fileRunStateStore: RunStateStore = {
+  read: readRunState,
+  update: updateRunState,
+};
 
 /** Read the attempt record for `taskId`, or undefined if none is recorded. */
 export function getAttempt(dataDir: string, taskId: string): AttemptRecord | undefined {
