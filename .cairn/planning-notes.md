@@ -31,7 +31,8 @@ The design was drafted in a separate discussion on 2026-09-13 and revised in thi
 
 ### Probe results (this session, run as subagents from the interactive planner)
 
-- **(a) Memory loading.** A `general-purpose` subagent and a custom `post-task-reviewer` subagent both had **CLAUDE.md and the auto-memory index (MEMORY.md)** loaded, quoting CLAUDE.md verbatim with no tool use. *This corrects the docs finding from the draft discussion, which said subagents don't load auto memory.* **`CLAUDE.local.md`: inconclusive.** Neither subagent saw a marker line, but the file was created after the parent session started, which also fits subagents reusing the parent's startup memory. Re-run from a new session.
+- **(a) Memory loading.** A `general-purpose` subagent and a custom `post-task-reviewer` subagent both had **CLAUDE.md and the auto-memory index (MEMORY.md)** loaded, quoting CLAUDE.md verbatim with no tool use. *This corrects the docs finding from the draft discussion, which said subagents don't load auto memory.*
+- **(a′) `CLAUDE.local.md` is loaded into subagents.** The in-session probe was negative because the file was created after the parent session started. From a **new** session, a `general-purpose` subagent quoted `PROBE-MARKER: kestrel-7731.` from its loaded instructions before using any tools, and saw `CLAUDE.local.md` listed as private project instructions. Only `general-purpose` was tested this way. Custom agent types loaded the same CLAUDE.md and auto-memory as `general-purpose` in probe (a), so they very likely load it too, but that's unverified.
 - **(b) Nesting works.** A subagent launched a nested subagent, and the nested one reported it also had the Agent tool, so nesting goes at least two levels deep.
 - **Reviewer tool surface.** `post-task-reviewer` as a subagent gets **every tool**, including `Agent`, `Bash`, `Write` and all MCP tools, because its frontmatter has no `tools` field.
 
@@ -195,7 +196,7 @@ Subagents follow the interactive session's permission mode, so per-agent `--allo
   - `cairn init` offers to move the content and makes sure `CLAUDE.local.md` is gitignored.
   - For one release the loader still reads `instructions.md` and prints a deprecation warning; after that, delete `personal-instructions.ts` and its four call sites.
   - `CLAUDE.local.md` applies to *all* sessions in the project, not only agents Cairn launches.
-  - Whether it reaches `/cairn-run`'s subagents depends on the fresh-session probe.
+  - It reaches `/cairn-run`'s subagents (probe a′, `general-purpose`), and headless `cairn run` agents load it too. Confirm for `cairn-task-agent` in the validation round; the one-release fallback to `instructions.md` covers the gap until then.
 - **Delete `review.maxIterations`** from `types.ts` (interface and `isValidConfig`: stop requiring the key, still accept it), `config.ts:56`, init (`:140`, `:195`, `:209`) and this repo's `cairn.json`. Existing configs that still have the key must load and validate cleanly.
 
 ### Self-modifying round
@@ -279,7 +280,7 @@ Subagents follow the interactive session's permission mode, so per-agent `--allo
 1. **Commit** the CLAUDE.md pin/unpin commands. Do **not** commit `cairn.json`'s redirected `healthCheck` or `CLAUDE.local.md`.
 2. **Pin: already done.** Re-verify with `ls -la ~/.local/bin/cairn` (a regular file, not a symlink) right before `cairn run`.
 3. **Remaining probes**, before generating tasks:
-   - **(a′)** From a **new** interactive session, with `CLAUDE.local.md` containing `PROBE-MARKER: kestrel-7731.`, launch a subagent and ask it to quote the marker without tools. This decides whether the `instructions.md` → `CLAUDE.local.md` migration fully covers `/cairn-run`. Remove the marker afterwards.
+   - **(a′) Done:** subagents load `CLAUDE.local.md`. Remove the marker line from `CLAUDE.local.md`.
    - **(c)** Hook behavior:
      - Does PreToolUse input from a subagent call actually include `agent_id` / `agent_type`, and are they absent for main-session calls?
      - Does a hook deny still block under `bypassPermissions`?
@@ -318,7 +319,7 @@ Subagents follow the interactive session's permission mode, so per-agent `--allo
     - PushNotification on `blocked` / `round-done` / non-zero exit; fresh-agent fallback.
     - A permission-mode note (bypass recommended).
     - Installed by `cairn init`. *Deps: 8, 9, 10, 11, 12.*
-16. **`instructions.md` → `CLAUDE.local.md`** (`src/`, `src/commands/init.ts`, `README.md`, `test/`): init migration offer plus a `CLAUDE.local.md` gitignore entry, deprecation warning in the loader, README section fixed (including the wrong "execution agents only" row). `test/personal-instructions.test.ts`, `test/commands/init.test.ts`. *Deps: probe (a′) for the README claim about subagents.*
+16. **`instructions.md` → `CLAUDE.local.md`** (`src/`, `src/commands/init.ts`, `README.md`, `test/`): init migration offer plus a `CLAUDE.local.md` gitignore entry, deprecation warning in the loader, README section fixed (including the wrong "execution agents only" row). `test/personal-instructions.test.ts`, `test/commands/init.test.ts`. The README can say `CLAUDE.local.md` reaches Cairn's headless agents and `/cairn-run` subagents (probe a′).
 17. **Delete `review.maxIterations`** (`src/types.ts`, `src/config.ts`, `src/commands/init.ts`, `cairn.json`, `test/`): `isValidConfig` stops requiring the key and still accepts it; about 40 test references updated. ⚠️ Edits `cairn.json`: touch **only** the `review` block.
 18. **Docs** (repo root `CLAUDE.md`, `README.md`):
     - Two ways to run a round; run state; `cairn round` commands; `cairn-task-agent`.
@@ -339,7 +340,7 @@ Directories: `src/`, `src/commands/`, `test/`, `test/commands/`, `agents/`, `com
 
 ## Open Questions
 
-- **Probe (a′): do subagents in a fresh session load `CLAUDE.local.md`?** The in-session probe was inconclusive (the file was created after the session started). Decides whether the `instructions.md` migration fully covers `/cairn-run`.
+- **Do custom agent types (`cairn-task-agent`, `post-task-reviewer`) load `CLAUDE.local.md`?** Confirmed only for `general-purpose` (probe a′). Very likely, since custom types loaded the same memory files in probe (a). Check with `cairn-task-agent` in the validation round, before the `instructions.md` fallback is deleted.
 - **Probe (c): hook specifics.** Confirm `agent_id`/`agent_type` presence, that a deny blocks under `bypassPermissions`, and the exit-code semantics for failing open. If a hook deny does *not* bind under bypass, the default mode recommendation flips to `auto`.
 - **Right value for `maxTurns` on `cairn-task-agent`**, and whether the reviewer also gets one. Pick during task generation; no data yet.
 - **Should `cairn run` also switch to prompt files,** or keep inline prompts? The reviewer changes (no test runs, test summary) apply to both modes because `settle` is shared. Sharing is simpler; keeping the prompt path separate is lower-risk mid-transition.
