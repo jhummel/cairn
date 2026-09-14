@@ -1163,6 +1163,37 @@ describe('installSlashCommands', () => {
       fs.rmSync(fakeCairnRoot, { recursive: true });
     }
   });
+
+  test('installs cairn-run.md from a cairnRoot override pointing at the real repo root', () => {
+    // Real repo root, not a fixture: this exercises the committed
+    // commands/cairn-run.md that interactive rounds are launched from.
+    const repoRoot = path.join(__dirname, '..', '..');
+    const written = installSlashCommands(tmpDir, repoRoot);
+    const destPath = path.join(tmpDir, '.claude', 'commands', 'cairn-run.md');
+    expect(written).toContain(path.join('.claude', 'commands', 'cairn-run.md'));
+    expect(fs.existsSync(destPath)).toBe(true);
+    expect(fs.readFileSync(destPath, 'utf8')).toBe(
+      fs.readFileSync(path.join(repoRoot, 'commands', 'cairn-run.md'), 'utf8')
+    );
+  });
+
+  test('cairn-run.md has description frontmatter and names every command, agent and tool the run loop needs', () => {
+    const repoRoot = path.join(__dirname, '..', '..');
+    const content = fs.readFileSync(path.join(repoRoot, 'commands', 'cairn-run.md'), 'utf8');
+    expect(content).toMatch(/^---\ndescription: .+\n---\n/);
+    for (const needle of [
+      'cairn round next',
+      'cairn round settle',
+      '--reviewed',
+      'cairn-task-agent',
+      'post-task-reviewer',
+      'SendMessage',
+      'PushNotification',
+      'bypassPermissions',
+    ]) {
+      expect(content).toContain(needle);
+    }
+  });
 });
 
 // --- installAgents tests ---
