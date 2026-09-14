@@ -455,18 +455,18 @@ describe('getConfigDefaults', () => {
     expect(defaults.healthCheck).toBe('npm run type-check');
   });
 
-  test('returns reviewMaxIterations default of 3 when no cairn.json', () => {
+  test('getConfigDefaults does not expose a reviewMaxIterations field', () => {
     const defaults = getConfigDefaults(tmpDir);
-    expect(defaults.reviewMaxIterations).toBe(3);
+    expect((defaults as Record<string, unknown>).reviewMaxIterations).toBeUndefined();
   });
 
-  test('loads reviewMaxIterations from cairn.json', () => {
+  test('ignores legacy review.maxIterations from cairn.json', () => {
     fs.writeFileSync(
       path.join(tmpDir, 'cairn.json'),
       JSON.stringify({ review: { maxIterations: 5 } })
     );
     const defaults = getConfigDefaults(tmpDir);
-    expect(defaults.reviewMaxIterations).toBe(5);
+    expect((defaults as Record<string, unknown>).reviewMaxIterations).toBeUndefined();
   });
 
   test('returns reviewPostTask default of false when no cairn.json', () => {
@@ -520,7 +520,6 @@ describe('promptForConfig', () => {
     narrationEnabled: false,
     narrationVoice: 'bf_emma',
     ntfyTopic: '',
-    reviewMaxIterations: 3,
     reviewPostTask: false,
   };
 
@@ -652,21 +651,7 @@ describe('promptForConfig', () => {
     expect(implQ).toContain('DOCS.md');
   });
 
-  test('empty answer for review.maxIterations uses default 3', async () => {
-    // All prompts empty → review.maxIterations should default to 3
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '']);
-    const config = await promptForConfig(rl, baseDefaults);
-    expect(config.review?.maxIterations).toBe(3);
-  });
-
-  test('custom review.maxIterations value is used', async () => {
-    // Prompts: name, desc, health, test, impl, truncate, claudeMd, narration, reviewMaxIterations
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '5']);
-    const config = await promptForConfig(rl, baseDefaults);
-    expect(config.review?.maxIterations).toBe(5);
-  });
-
-  test('review.maxIterations prompt shows default value in brackets', async () => {
+  test('promptForConfig does not prompt for review.maxIterations (dead key, removed)', async () => {
     const questions: string[] = [];
     const rl: PromptInterface = {
       question: async (query: string) => {
@@ -675,13 +660,13 @@ describe('promptForConfig', () => {
       },
       close: () => {},
     };
-    await promptForConfig(rl, { ...baseDefaults, reviewMaxIterations: 3 });
-    const reviewQ = questions.find(q => q.toLowerCase().includes('review') || q.toLowerCase().includes('max iterations'));
-    expect(reviewQ).toBeDefined();
-    expect(reviewQ).toContain('3');
+    const config = await promptForConfig(rl, baseDefaults);
+    const maxIterQ = questions.find(q => q.toLowerCase().includes('max iterations'));
+    expect(maxIterQ).toBeUndefined();
+    expect((config.review as Record<string, unknown> | undefined)?.maxIterations).toBeUndefined();
   });
 
-  test('promptForConfig prompts for reviewPostTask after reviewMaxIterations', async () => {
+  test('promptForConfig prompts for reviewPostTask after narration prompts', async () => {
     const questions: string[] = [];
     const rl: PromptInterface = {
       question: async (query: string) => {
@@ -696,14 +681,14 @@ describe('promptForConfig', () => {
   });
 
   test('reviewPostTask defaults to false on empty input', async () => {
-    // prompts: name, desc, health, test, impl, truncate, claudeMd, narration, reviewMaxIter, reviewPostTask
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '']);
+    // prompts: name, desc, health, test, impl, truncate, claudeMd, narration, reviewPostTask
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '']);
     const config = await promptForConfig(rl, { ...baseDefaults, reviewPostTask: false });
     expect(config.review?.postTask).toBe(false);
   });
 
   test('reviewPostTask is set to true when user answers y', async () => {
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'y']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'y']);
     const config = await promptForConfig(rl, { ...baseDefaults, reviewPostTask: false });
     expect(config.review?.postTask).toBe(true);
   });
@@ -1989,7 +1974,9 @@ describe('runInit', () => {
 
   const noopSpawn: SpawnSyncFn = () => ({ status: 0 });
 
-  // All prompts: 8 ralph.json + 1 instructions (N) + skip hooks (narration disabled)
+  // 8 base config prompts + reviewPostTask (narration disabled, so voice/ntfy are skipped);
+  // remaining prompts (create CLAUDE.local.md, install settings) fall back to their defaults
+  // once the mock's answers run out.
   function allDefaultAnswers(): string[] {
     return ['', '', '', '', '', '', '', '', 'n'];
   }
@@ -2037,8 +2024,8 @@ describe('runInit', () => {
 
   test('installs hooks when narration enabled and user accepts', async () => {
     const dataDir = path.join(tmpDir, '.cairn');
-    // 10 config prompts (narration='y', voice='', ntfy='', reviewMaxIter='', reviewPostTask='') + instructions='n' + install hooks='y'
-    const rl = createMockPrompt(['', '', '', '', '', '', '', 'y', '', '', '', '', 'n', 'y']);
+    // 9 config prompts (narration='y', voice='', ntfy='', reviewPostTask='') + create CLAUDE.local.md='n' + install hooks='y'
+    const rl = createMockPrompt(['', '', '', '', '', '', '', 'y', '', '', '', 'n', 'y']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     const hooksDir = path.join(tmpDir, '.claude', 'hooks');
     expect(fs.existsSync(path.join(hooksDir, 'narrate.sh'))).toBe(true);
@@ -2078,9 +2065,9 @@ describe('runInit', () => {
 
   test('skips the settings file when the user declines', async () => {
     const dataDir = path.join(tmpDir, '.cairn');
-    // 10 config prompts (narration disabled, so voice/ntfy are skipped),
-    // instructions='n', then settings='n'.
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '', 'n', 'n']);
+    // 9 config prompts (narration disabled, so voice/ntfy are skipped),
+    // create CLAUDE.local.md='n', then settings='n'.
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'n', 'n']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(path.join(tmpDir, '.claude', 'settings.local.json'))).toBe(false);
   });
@@ -2097,9 +2084,9 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    // 8 config prompts + reviewMaxIter + reviewPostTask (10, all default) +
+    // 9 config prompts (8 base + reviewPostTask, all default) +
     // migrate='y' + create/open CLAUDE.local.md='n'.
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '', 'y', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'y', 'n']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(path.join(tmpDir, 'CLAUDE.local.md'))).toBe(true);
     expect(fs.readFileSync(path.join(tmpDir, 'CLAUDE.local.md'), 'utf8')).toBe('* Always use TDD\n');
@@ -2110,7 +2097,7 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '', 'n', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'n', 'n']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(path.join(tmpDir, 'CLAUDE.local.md'))).toBe(false);
     expect(fs.existsSync(path.join(dataDir, 'instructions.md'))).toBe(true);
@@ -2120,7 +2107,7 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '', 'y', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'y', 'n']);
     const notIgnored: CheckIgnoreFn = () => ({ status: 1 });
     await runInit(tmpDir, dataDir, rl, noopSpawn, notIgnored);
     const output = stdoutLines.join('\n');
@@ -2131,7 +2118,7 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '', 'y', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'y', 'n']);
     const ignored: CheckIgnoreFn = () => ({ status: 0 });
     await runInit(tmpDir, dataDir, rl, noopSpawn, ignored);
     expect(stdoutLines.join('\n')).not.toContain('add CLAUDE.local.md');

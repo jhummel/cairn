@@ -11,7 +11,7 @@ export interface CairnConfig {
     voice: string;
     ntfyTopic: string;
   };
-  review?: { maxIterations: number; postTask: boolean };
+  review?: { postTask: boolean };
 }
 
 export interface Task {
@@ -63,8 +63,9 @@ export function isValidConfig(data: unknown): data is CairnConfig {
   if (d.review !== undefined) {
     if (typeof d.review !== 'object' || d.review === null) return false;
     const review = d.review as Record<string, unknown>;
-    if (typeof review.maxIterations !== 'number') return false;
     if (typeof review.postTask !== 'boolean') return false;
+    // review.maxIterations is a dead legacy key (no longer read anywhere); if present it's
+    // ignored, not validated, so existing configs that still have it keep loading cleanly.
   }
 
   return true;

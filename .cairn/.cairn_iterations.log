@@ -515,3 +515,11 @@ Iteration 11 completed: 2026-09-14T05:00:48.611Z — SUCCESS
 Iteration 12 started: 2026-09-14T05:03:35.937Z — Task #102: agents/cairn-task-agent.md: generic internal task agent with maxTurns
 Iteration 12 completed: 2026-09-14T05:06:32.721Z — SUCCESS
 Iteration 13 started: 2026-09-14T05:08:08.171Z — Task #103: cairn hook pre-tool-use: agent_type-aware containment hook (fail-open, logged)
+Iteration 13 completed: 2026-09-14T05:13:33.598Z — SUCCESS
+Iteration 14 started: 2026-09-14T05:16:09.470Z — Task #104: cairn init seeds the PreToolUse hook into .claude/settings.local.json
+Iteration 14 completed: 2026-09-14T05:19:56.205Z — SUCCESS
+Iteration 15 started: 2026-09-14T05:23:41.301Z — Task #105: /cairn-run slash command (commands/cairn-run.md)
+Iteration 15 completed: 2026-09-14T05:25:33.079Z — SUCCESS
+Iteration 16 started: 2026-09-14T05:28:50.985Z — Task #106: Migrate .cairn/instructions.md to CLAUDE.local.md (init migration, gitignore warning, deprecation, README)
+Iteration 16 completed: 2026-09-14T05:35:41.207Z — SUCCESS
+Iteration 17 started: 2026-09-14T05:38:05.326Z — Task #107: Delete dead review.maxIterations config (old key keeps validating)

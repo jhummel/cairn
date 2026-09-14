@@ -69,7 +69,6 @@ export interface ConfigDefaults {
   narrationEnabled: boolean;
   narrationVoice: string;
   ntfyTopic: string;
-  reviewMaxIterations: number;
   reviewPostTask: boolean;
 }
 
@@ -146,7 +145,6 @@ export function getConfigDefaults(projectRoot: string): ConfigDefaults {
     narrationEnabled: config.narration.enabled,
     narrationVoice: config.narration.voice,
     ntfyTopic: config.narration.ntfyTopic,
-    reviewMaxIterations: config.review?.maxIterations ?? 3,
     reviewPostTask: config.review?.postTask ?? false,
   };
 }
@@ -201,8 +199,6 @@ export async function promptForConfig(
     ntfyTopic = await promptValue(rl, 'ntfy push notification topic', defaults.ntfyTopic);
   }
 
-  const reviewMaxIterationsStr = await promptValue(rl, 'Auto-review max iterations', String(defaults.reviewMaxIterations));
-  const reviewMaxIterations = parseInt(reviewMaxIterationsStr, 10);
   const reviewPostTask = await promptBoolean(rl, 'Enable post-task review?', defaults.reviewPostTask);
 
   return {
@@ -215,7 +211,6 @@ export async function promptForConfig(
     summarize: { claudeMdPattern },
     narration: { enabled: narrationEnabled, voice: narrationVoice, ntfyTopic },
     review: {
-      maxIterations: Number.isNaN(reviewMaxIterations) ? defaults.reviewMaxIterations : reviewMaxIterations,
       postTask: reviewPostTask,
     },
   };

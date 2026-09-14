@@ -105,30 +105,30 @@ describe('loadConfig', () => {
     expect(config.projectName).toBe('my-cool-project');
   });
 
-  it('defaults review.maxIterations to 3 when not specified', () => {
+  it('does not emit review.maxIterations when not specified', () => {
     const config = loadConfig(tmpDir);
-    expect(config.review?.maxIterations).toBe(3);
+    expect(config.review?.maxIterations).toBeUndefined();
   });
 
-  it('loads review.maxIterations from cairn.json when specified', () => {
+  it('ignores legacy review.maxIterations from cairn.json instead of emitting it', () => {
     const configData = { review: { maxIterations: 5 } };
     fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
     const config = loadConfig(tmpDir);
-    expect(config.review?.maxIterations).toBe(5);
+    expect(config.review?.maxIterations).toBeUndefined();
   });
 
-  it('defaults review.maxIterations to 3 when review object is missing from cairn.json', () => {
+  it('loads cleanly when review object is missing from cairn.json', () => {
     const configData = { projectName: 'my-project' };
     fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
     const config = loadConfig(tmpDir);
-    expect(config.review?.maxIterations).toBe(3);
+    expect(config.review?.maxIterations).toBeUndefined();
   });
 
-  it('defaults review.maxIterations to 3 when review.maxIterations is missing', () => {
+  it('loads cleanly when review.maxIterations is missing', () => {
     const configData = { review: {} };
     fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
     const config = loadConfig(tmpDir);
-    expect(config.review?.maxIterations).toBe(3);
+    expect(config.review?.maxIterations).toBeUndefined();
   });
 });
 

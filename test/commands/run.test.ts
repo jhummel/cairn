@@ -1549,7 +1549,7 @@ describe('runRun', () => {
       }),
     });
 
-    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    const config = makeTestConfig({ review: { postTask: true } });
     await runRun(makeRunOpts({ config, maxIterations: 3 }), deps);
 
     expect(deps.runPostTaskReview).toHaveBeenCalledTimes(1);
@@ -1562,7 +1562,7 @@ describe('runRun', () => {
     const tasks = [makeTask({ id: 3 })];
     const deps = makeGuardDeps(tasks);
 
-    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    const config = makeTestConfig({ review: { postTask: true } });
     await runRun(makeRunOpts({ config, maxIterations: 6 }), deps);
 
     expect(deps.blockTask).toHaveBeenCalledTimes(1);
@@ -1666,7 +1666,7 @@ describe('runRun', () => {
       }),
     });
 
-    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    const config = makeTestConfig({ review: { postTask: true } });
     await runRun(makeRunOpts({ config, maxIterations: 2 }), deps);
 
     expect(seen).toEqual([
@@ -1705,7 +1705,7 @@ describe('runRun', () => {
       }),
     });
 
-    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    const config = makeTestConfig({ review: { postTask: true } });
     await runRun(makeRunOpts({ config, maxIterations: 1 }), deps);
 
     // Archive once, before the review — never a second archive afterwards.
@@ -1736,7 +1736,7 @@ describe('runRun', () => {
       archiveCompletedTasks: mock(async () => ({ archivedCount: 1, prevNotes: null })),
     });
 
-    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    const config = makeTestConfig({ review: { postTask: true } });
     await runRun(makeRunOpts({ config, maxIterations: 1 }), deps);
 
     expect(deps.archiveCompletedTasks).toHaveBeenCalledTimes(1);
@@ -2429,7 +2429,7 @@ describe('runRun', () => {
       runPostTaskReview: mock(async () => {}),
     });
 
-    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    const config = makeTestConfig({ review: { postTask: true } });
     await runRun(makeRunOpts({ config }), deps);
 
     expect(deps.runPostTaskReview).toHaveBeenCalledTimes(1);
@@ -2482,7 +2482,7 @@ describe('runRun', () => {
       runPostTaskReview: mock(async () => {}),
     });
 
-    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    const config = makeTestConfig({ review: { postTask: true } });
     await runRun(makeRunOpts({ config }), deps);
 
     expect(deps.runPostTaskReview).not.toHaveBeenCalled();
@@ -2537,7 +2537,7 @@ describe('runRun', () => {
       runPostTaskReview: mock(async () => {}),
     });
 
-    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    const config = makeTestConfig({ review: { postTask: true } });
     await runRun(makeRunOpts({ config }), deps);
 
     // Main-loop read (iter 1) + post-review re-read (iter 1) + main-loop read (iter 2, returns null)
@@ -2606,7 +2606,7 @@ describe('runRun', () => {
       log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
     });
 
-    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    const config = makeTestConfig({ review: { postTask: true } });
     await runRun(makeRunOpts({ config }), deps);
 
     // 3 reads: main-iter1 + post-review + main-iter2 — all repaired

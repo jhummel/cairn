@@ -67,8 +67,12 @@ describe('isValidConfig', () => {
     expect(isValidConfig(validConfig)).toBe(true);
   });
 
-  it('accepts config with valid review.maxIterations', () => {
-    expect(isValidConfig({ ...validConfig, review: { maxIterations: 3, postTask: false } })).toBe(true);
+  it('accepts config with review.postTask only', () => {
+    expect(isValidConfig({ ...validConfig, review: { postTask: false } })).toBe(true);
+  });
+
+  it('accepts config with legacy review.maxIterations alongside postTask (dead key, still validates)', () => {
+    expect(isValidConfig({ ...validConfig, review: { maxIterations: 3, postTask: true } })).toBe(true);
   });
 
   it('rejects review field that is not an object', () => {
@@ -76,13 +80,14 @@ describe('isValidConfig', () => {
     expect(isValidConfig({ ...validConfig, review: 42 })).toBe(false);
   });
 
-  it('rejects review without maxIterations', () => {
+  it('rejects review without postTask', () => {
     expect(isValidConfig({ ...validConfig, review: {} })).toBe(false);
+    expect(isValidConfig({ ...validConfig, review: { maxIterations: 3 } })).toBe(false);
   });
 
-  it('rejects review.maxIterations that is not a number', () => {
-    expect(isValidConfig({ ...validConfig, review: { maxIterations: '3' } })).toBe(false);
-    expect(isValidConfig({ ...validConfig, review: { maxIterations: true } })).toBe(false);
+  it('rejects review.postTask that is not a boolean', () => {
+    expect(isValidConfig({ ...validConfig, review: { postTask: 'yes' } })).toBe(false);
+    expect(isValidConfig({ ...validConfig, review: { postTask: 1 } })).toBe(false);
   });
 });
 

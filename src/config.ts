@@ -52,8 +52,9 @@ export function loadConfig(projectRoot: string): CairnConfig {
       voice: typeof narrationRaw.voice === 'string' ? narrationRaw.voice : 'bf_emma',
       ntfyTopic: typeof narrationRaw.ntfyTopic === 'string' ? narrationRaw.ntfyTopic : '',
     },
+    // reviewRaw.maxIterations is a dead legacy key: intentionally not read here, even if
+    // present in cairn.json — nothing consumes it anymore.
     review: {
-      maxIterations: typeof reviewRaw.maxIterations === 'number' ? reviewRaw.maxIterations : 3,
       postTask: typeof reviewRaw.postTask === 'boolean' ? reviewRaw.postTask : false,
     },
   };

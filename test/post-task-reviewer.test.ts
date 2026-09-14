@@ -867,7 +867,7 @@ describe("runPostTaskReview", () => {
     truncateText: false,
     summarize: { claudeMdPattern: "**/*.md" },
     narration: { enabled: false, voice: "alloy", ntfyTopic: "" },
-    review: { maxIterations: 30, postTask: true },
+    review: { postTask: true },
     ...overrides,
   });
 
@@ -897,7 +897,7 @@ describe("runPostTaskReview", () => {
       task: makeTask(),
       taskStatus: "complete",
       beforeSha: "sha123",
-      config: makeConfig({ review: { maxIterations: 30, postTask: false } }),
+      config: makeConfig({ review: { postTask: false } }),
       deps,
     });
 
