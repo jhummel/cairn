@@ -41,6 +41,19 @@ export interface SystemPromptInput {
 }
 
 /**
+ * The model a task runs on: the task's own model, else its specialist agent's
+ * model, else opus. Shared by `cairn run` and `cairn round next`.
+ */
+export function resolveTaskModel(task: Task, agents: AgentInfo[]): string {
+  if (task.model) return task.model;
+  if (task.agent) {
+    const agentInfo = agents.find(a => a.name === task.agent);
+    if (agentInfo?.model) return agentInfo.model;
+  }
+  return 'opus';
+}
+
+/**
  * Strip YAML frontmatter (--- delimited) from markdown content, returning the body.
  */
 function stripFrontmatter(content: string): string {
@@ -567,14 +580,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         break;
       }
 
-      // Resolve model — default to opus, with agent override
-      let taskModel = task.model ?? 'opus';
-      if (task.agent && !task.model) {
-        const agentInfo = agents.find(a => a.name === task.agent);
-        if (agentInfo?.model) {
-          taskModel = agentInfo.model;
-        }
-      }
+      const taskModel = resolveTaskModel(task, agents);
 
       const taskDir = task.directory ?? '';
 

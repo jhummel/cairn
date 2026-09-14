@@ -161,7 +161,8 @@ export type Verdict =
 
 const NEXT_ROUND = `Run: ${BRAND.name} round next`;
 
-function reviewVerdict(taskId: number, reviewPromptFile: string): Verdict {
+/** The 'review' verdict; also returned by `cairn round next` for a pending review. */
+export function reviewVerdict(taskId: number, reviewPromptFile: string): Extract<Verdict, { verdict: 'review' }> {
   return {
     verdict: 'review',
     taskId,
