@@ -3,6 +3,7 @@ import type { ValidateTaskTestsOpts, ValidationResult } from './test-validator';
 import type { TasksFile } from './tasks-file';
 import { BRAND } from './brand';
 import { fileRunStateStore, newAttemptRecord, type RunStateStore } from './run-state';
+import { tempFilePath } from './utils';
 
 /**
  * Post-iteration settlement: validate the task's tests, apply the
@@ -121,13 +122,57 @@ export function createInMemoryGuardCounters(): GuardCounters {
   };
 }
 
+/**
+ * Settle itself could not run: the task id is in neither tasks.json nor
+ * tasks.completed.json. Alongside TasksFileError (unreadable tasks.json after
+ * repair/recovery) and FileLockError (lock timeout), this is one of the only
+ * outcomes that should exit non-zero — every verdict, blocked and
+ * already-settled included, is a successful settle.
+ */
+export class SettleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SettleError';
+  }
+}
+
+export type RetryMode = 'continue' | 'fresh';
+export type RetryReason = 'validation-failed' | 'stalled' | 'incomplete' | 'status-unknown';
+
+/**
+ * What a settle decided, printed as JSON by `cairn round settle`. Every
+ * variant carries `next`, a short imperative hint telling the driver what to
+ * do, so a compacted or resumed driver never has to reconstruct it.
+ */
+export type Verdict =
+  | { verdict: 'retry'; taskId: number; mode: RetryMode; reason: RetryReason; failure?: string; next: string }
+  | { verdict: 'blocked'; taskId: number; reason: string; next: string }
+  | { verdict: 'done'; taskId: number; reason?: string; next: string }
+  | { verdict: 'already-settled'; taskId: number; next: string };
+
+const NEXT_ROUND = `Run: ${BRAND.name} round next`;
+
+function retryNext(taskId: number, mode: RetryMode): string {
+  const settle = `${BRAND.name} round settle ${taskId}`;
+  return mode === 'continue'
+    ? `Resume the same task agent with SendMessage, then run: ${settle}. If that agent's id is lost, launch a fresh ${BRAND.name}-task-agent with the same prompt file instead.`
+    : `Launch a fresh ${BRAND.name}-task-agent with the same prompt file, then run: ${settle}`;
+}
+
 export interface SettleTaskInput {
-  task: Task;
+  taskId: number;
+  /**
+   * The task as the caller selected it. Optional: when omitted, or when no
+   * attempt record exists, settle looks the task up in tasks.json itself.
+   */
+  task?: Task;
   tasksFilePath: string;
   dataDir: string;
   projectRoot: string;
-  iteration: number;
-  iterationLogPath: string;
+  /** Defaults to the attempt record's iteration. */
+  iteration?: number;
+  /** Defaults to `tempFilePath(dataDir, 'iterations.log')`. */
+  iterationLogPath?: string;
 }
 
 export interface SettleTaskDeps {
@@ -136,39 +181,71 @@ export interface SettleTaskDeps {
   blockTask: (opts: BlockTaskOpts) => void;
   appendFileSync: (p: string, content: string) => void;
   log: (...args: unknown[]) => void;
+  loadCompletedIds: (dataDir: string) => Set<number>;
   /** Defaults to the run-state file in `input.dataDir`. */
+  runState?: RunStateStore;
+  /** Defaults to counters on the attempt records in `runState`. */
   counters?: GuardCounters;
 }
 
-/**
- * How the next attempt at this task should be spawned, derived from the
- * guard state this settle observed. 'continue' resumes the same agent
- * (a single revert or incomplete — normal unfinished work worth retrying
- * in-place); 'fresh' spawns a new agent (a stall, or a second consecutive
- * incomplete, in case the prior agent's own context was the problem);
- * 'blocked' means a guard forced the task to 'blocked' this settle, so
- * there is no next attempt until a human unblocks it; null means none of
- * the guards have an opinion (e.g. the task completed).
- */
-export type RetryMode = 'continue' | 'fresh' | 'blocked' | null;
-
 export interface SettleTaskResult {
-  validation: ValidationResult;
+  verdict: Verdict;
+  /** null only for 'already-settled', which runs no validation. */
+  validation: ValidationResult | null;
   /** Task status re-read from tasks.json; 'unknown' when unreadable or missing. */
   updatedTaskStatus: string;
   /** True when a guard successfully forced the task to 'blocked'. */
   blockedByGuard: boolean;
   /** True when the re-read had to repair or restore tasks.json. */
   corrupted: boolean;
-  /** How the next attempt at this task should be spawned — see RetryMode. */
-  retryMode: RetryMode;
 }
 
+/**
+ * Settle one attempt at a task. Safe to call repeatedly: idempotency is keyed
+ * on the task's attempt record, not on its archived status (a later archive
+ * step must not swallow a settle that still has work to do).
+ *
+ * - No record, task gone from tasks.json but in tasks.completed.json →
+ *   'already-settled' with no side effects.
+ * - No record, task in tasks.json → the record is created lazily and settle
+ *   proceeds normally.
+ * - In neither file → SettleError. A tasks.json read failure propagates.
+ *
+ * The record is cleared on 'done' and on every block, and kept on 'retry'.
+ */
 export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): Promise<SettleTaskResult> {
-  const { task, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath } = input;
-  const counters = deps.counters ?? createRunStateGuardCounters(dataDir);
+  const { taskId, tasksFilePath, dataDir, projectRoot } = input;
+  const iterationLogPath = input.iterationLogPath ?? tempFilePath(dataDir, 'iterations.log');
+  const store = deps.runState ?? fileRunStateStore;
+  const counters = deps.counters ?? createRunStateGuardCounters(dataDir, store);
+  const attemptKey = String(taskId);
   let blockedByGuard = false;
+  let blockNote: string | null = null;
   let corrupted = false;
+
+  const logSettle = (verdict: Verdict) => {
+    const reason = 'reason' in verdict && verdict.reason ? ` (${verdict.reason.replace(/\s+/g, ' ').trim()})` : '';
+    deps.appendFileSync(iterationLogPath, `Settle #${taskId}: ${verdict.verdict}${reason}\n`);
+  };
+
+  // Idempotency lookup. Skipped when the caller passed the task and a record
+  // exists (the `cairn run` path), so that path adds no tasks.json read.
+  let task = input.task;
+  let record = store.read(dataDir).attempts[attemptKey];
+  if (!record || !task) {
+    const found = (deps.readTasksFile(tasksFilePath, { dataDir }).data.tasks ?? []).find((t: Task) => t.id === taskId);
+    if (!found) {
+      if (deps.loadCompletedIds(dataDir).has(taskId)) {
+        const verdict: Verdict = { verdict: 'already-settled', taskId, next: NEXT_ROUND };
+        logSettle(verdict);
+        return { verdict, validation: null, updatedTaskStatus: 'complete', blockedByGuard: false, corrupted: false };
+      }
+      throw new SettleError(`Task #${taskId} not found in tasks.json or tasks.completed.json`);
+    }
+    task ??= found;
+    record ??= store.update(dataDir, (state) => (state.attempts[attemptKey] ??= newAttemptRecord(null, input.iteration ?? state.iteration)));
+  }
+  const iteration = input.iteration ?? record.iteration;
 
   // k. Post-iteration: validate tests
   const validation = await deps.validateTaskTests({
@@ -189,6 +266,7 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
       try {
         deps.blockTask({ tasksFilePath, dataDir, taskId: task.id, note });
         blockedByGuard = true;
+        blockNote = note;
         deps.log(`Task #${task.id} blocked after ${reverts} consecutive validation failures — moving on.`);
         deps.appendFileSync(iterationLogPath, `Iteration ${iteration}: Task #${task.id} BLOCKED after ${reverts} consecutive validation failures\n`);
       } catch (err) {
@@ -208,12 +286,14 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
   // review gate need it, and gating it on review.postTask would silently
   // disable the guard on every project that has review turned off.
   let updatedTaskStatus = 'unknown';
+  let updatedNotes: string | undefined;
   try {
     const result = deps.readTasksFile(tasksFilePath, { dataDir });
     if (result.repaired || result.restored) corrupted = true;
     const updatedTask = (result.data.tasks ?? []).find((t: Task) => t.id === task.id);
     if (updatedTask) {
       updatedTaskStatus = updatedTask.status;
+      updatedNotes = updatedTask.notes;
     }
   } catch {
     // Unreadable: 'unknown' leaves the guard neutral and skips the review.
@@ -233,6 +313,7 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
       try {
         deps.blockTask({ tasksFilePath, dataDir, taskId: task.id, note });
         blockedByGuard = true;
+        blockNote = note;
         deps.log(`Task #${task.id} blocked after ${incompletes} consecutive iterations left 'in-progress' — moving on.`);
         deps.appendFileSync(iterationLogPath, `Iteration ${iteration}: Task #${task.id} BLOCKED after ${incompletes} consecutive iterations left 'in-progress'\n`);
       } catch (err) {
@@ -258,6 +339,7 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
       try {
         deps.blockTask({ tasksFilePath, dataDir, taskId: task.id, note });
         blockedByGuard = true;
+        blockNote = note;
         deps.log(`Task #${task.id} blocked after ${stalls} consecutive iterations that left it 'pending'. Moving on.`);
         deps.appendFileSync(iterationLogPath, `Iteration ${iteration}: Task #${task.id} BLOCKED after ${stalls} consecutive iterations still 'pending'\n`);
       } catch (err) {
@@ -271,21 +353,39 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
     counters.clear(task.id, 'stalls');
   }
 
-  // Retry mode for the next attempt: blocked wins outright; a failed
-  // validation below its threshold always resumes the same agent; a stall
-  // always gets a fresh one; an incomplete escalates from continue to fresh
-  // on its second consecutive occurrence. null means no guard has an
-  // opinion (e.g. the task completed).
-  let retryMode: RetryMode = null;
-  if (blockedByGuard) {
-    retryMode = 'blocked';
+  // Verdict. A guard block wins outright; an agent-set block reports the
+  // task's own notes. A failed validation below its threshold resumes the
+  // same agent; a stall always gets a fresh one; an incomplete escalates from
+  // continue to fresh on its second consecutive occurrence. An unknown status
+  // (unreadable re-read) retries in place — the record is kept, so the next
+  // settle re-reads.
+  const retry = (mode: RetryMode, reason: RetryReason): Verdict =>
+    ({ verdict: 'retry', taskId, mode, reason, next: retryNext(taskId, mode) });
+  let verdict: Verdict;
+  if (blockedByGuard && blockNote !== null) {
+    verdict = { verdict: 'blocked', taskId, reason: blockNote, next: NEXT_ROUND };
+  } else if (updatedTaskStatus === 'blocked') {
+    verdict = { verdict: 'blocked', taskId, reason: updatedNotes?.trim() || 'Blocked by the task agent (no notes recorded)', next: NEXT_ROUND };
   } else if (validation.status === 'failed') {
-    retryMode = 'continue';
+    verdict = retry('continue', 'validation-failed');
   } else if (updatedTaskStatus === 'pending') {
-    retryMode = 'fresh';
+    verdict = retry('fresh', 'stalled');
   } else if (updatedTaskStatus === 'in-progress') {
-    retryMode = counters.get(task.id, 'incompletes') >= 2 ? 'fresh' : 'continue';
+    verdict = retry(counters.get(task.id, 'incompletes') >= 2 ? 'fresh' : 'continue', 'incomplete');
+  } else if (updatedTaskStatus === 'complete') {
+    verdict = { verdict: 'done', taskId, next: NEXT_ROUND };
+  } else {
+    verdict = retry('continue', 'status-unknown');
   }
 
-  return { validation, updatedTaskStatus, blockedByGuard, corrupted, retryMode };
+  // Record lifecycle: the attempt is over on done or any block; a retry keeps
+  // it (and its counters and beforeSha) for the next attempt.
+  if (verdict.verdict !== 'retry') {
+    store.update(dataDir, (state) => {
+      delete state.attempts[attemptKey];
+    });
+  }
+  logSettle(verdict);
+
+  return { verdict, validation, updatedTaskStatus, blockedByGuard, corrupted };
 }

@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { readRunState, updateRunState } from '../src/run-state';
+import { readRunState, updateRunState, newAttemptRecord, type RunState, type RunStateStore } from '../src/run-state';
 import {
   settleTask,
   createInMemoryGuardCounters,
@@ -11,6 +11,7 @@ import {
   STALL_BLOCK_THRESHOLD,
   INCOMPLETE_BLOCK_THRESHOLD,
   summarizeFailure,
+  SettleError,
   type SettleTaskInput,
   type SettleTaskDeps,
   type BlockTaskOpts,
@@ -33,9 +34,25 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   } as Task;
 }
 
+function makeMemoryRunState(): RunStateStore & { state: RunState } {
+  const state: RunState = { iteration: 0, attempts: {} };
+  return {
+    state,
+    read: () => structuredClone(state),
+    update: <T>(_dataDir: string, fn: (s: RunState) => T): T => fn(state),
+  };
+}
+
+const NEXT_ROUND = 'Run: cairn round next';
+const NEXT_CONTINUE = "Resume the same task agent with SendMessage, then run: cairn round settle 7. If that agent's id is lost, launch a fresh cairn-task-agent with the same prompt file instead.";
+const NEXT_FRESH = 'Launch a fresh cairn-task-agent with the same prompt file, then run: cairn round settle 7';
+
 interface Harness {
   deps: SettleTaskDeps;
   counters: GuardCounters;
+  runState: RunStateStore & { state: RunState };
+  completedIds: Set<number>;
+  readCalls: () => number;
   blocked: BlockTaskOpts[];
   logs: string[];
   appended: Array<{ p: string; content: string }>;
@@ -44,6 +61,7 @@ interface Harness {
   setUnreadable: (u: boolean) => void;
   setCorruption: (c: { repaired?: boolean; restored?: boolean }) => void;
   setBlockThrows: (t: boolean) => void;
+  setNotes: (n: string | undefined) => void;
 }
 
 function makeHarness(): Harness {
@@ -52,6 +70,10 @@ function makeHarness(): Harness {
   let unreadable = false;
   let corruption: { repaired?: boolean; restored?: boolean } = {};
   let blockThrows = false;
+  let notes: string | undefined;
+  let readCount = 0;
+  const runState = makeMemoryRunState();
+  const completedIds = new Set<number>();
   const blocked: BlockTaskOpts[] = [];
   const logs: string[] = [];
   const appended: Array<{ p: string; content: string }> = [];
@@ -60,8 +82,9 @@ function makeHarness(): Harness {
   const deps: SettleTaskDeps = {
     validateTaskTests: async () => validation,
     readTasksFile: () => {
+      readCount++;
       if (unreadable) throw new Error('unreadable');
-      const tasks = status === null ? [] : [makeTask({ status: status as Task['status'] })];
+      const tasks = status === null ? [] : [makeTask({ status: status as Task['status'], notes })];
       return {
         data: { tasks } as any,
         repaired: corruption.repaired ?? false,
@@ -74,12 +97,17 @@ function makeHarness(): Harness {
     },
     appendFileSync: (p, content) => { appended.push({ p, content }); },
     log: (...args) => { logs.push(args.map(String).join(' ')); },
+    loadCompletedIds: () => completedIds,
     counters,
+    runState,
   };
 
   return {
     deps,
     counters,
+    runState,
+    completedIds,
+    readCalls: () => readCount,
     blocked,
     logs,
     appended,
@@ -88,12 +116,13 @@ function makeHarness(): Harness {
     setUnreadable: (u) => { unreadable = u; },
     setCorruption: (c) => { corruption = c; },
     setBlockThrows: (t) => { blockThrows = t; },
+    setNotes: (n) => { notes = n; },
   };
 }
 
 function makeInput(overrides: Partial<SettleTaskInput> = {}): SettleTaskInput {
   return {
-    task: makeTask(),
+    taskId: 7,
     tasksFilePath: '/proj/.cairn/tasks.json',
     dataDir: '/proj/.cairn',
     projectRoot: '/proj',
@@ -182,7 +211,7 @@ describe('createRunStateGuardCounters', () => {
     h.setStatus('in-progress');
     h.setValidation({ status: 'failed', message: 'bun test exited 1' });
     // No injected counters: settleTask falls back to the run-state file.
-    const { counters: _unused, ...rest } = h.deps;
+    const { counters: _unused, runState: _unusedStore, ...rest } = h.deps;
     const input = makeInput({ dataDir });
 
     const first = await settleTask({ ...input, iteration: 1 }, { ...rest });
@@ -203,7 +232,8 @@ describe('settleTask', () => {
     h.deps.validateTaskTests = async (opts) => { seen = opts; return { status: 'skipped' }; };
     const input = makeInput();
     const result = await settleTask(input, h.deps);
-    expect(seen).toEqual({ task: input.task, tasksFilePath: input.tasksFilePath, projectRoot: input.projectRoot });
+    // No task passed in: settle looked it up in tasks.json.
+    expect(seen).toEqual({ task: makeTask({ status: 'complete' }), tasksFilePath: input.tasksFilePath, projectRoot: input.projectRoot });
     expect(result.validation).toEqual({ status: 'skipped' });
   });
 
@@ -240,12 +270,12 @@ describe('settleTask', () => {
     const first = await settleTask(makeInput({ iteration: 1 }), h.deps);
     expect(h.counters.get(7, 'reverts')).toBe(1);
     expect(first.blockedByGuard).toBe(false);
-    expect(first.retryMode).toBe('continue');
+    expect(first.verdict).toMatchObject({ verdict: 'retry', mode: 'continue' });
     expect(h.blocked).toHaveLength(0);
 
     const second = await settleTask(makeInput({ iteration: 2 }), h.deps);
     expect(second.blockedByGuard).toBe(true);
-    expect(second.retryMode).toBe('blocked');
+    expect(second.verdict.verdict).toBe('blocked');
     expect(h.blocked).toHaveLength(1);
     expect(h.blocked[0]).toEqual({
       tasksFilePath: '/proj/.cairn/tasks.json',
@@ -291,14 +321,14 @@ describe('settleTask', () => {
     const r1 = await settleTask(makeInput({ iteration: 1 }), h.deps);
     expect(r1.updatedTaskStatus).toBe('pending');
     expect(h.counters.get(7, 'stalls')).toBe(1);
-    expect(r1.retryMode).toBe('fresh');
+    expect(r1.verdict).toMatchObject({ verdict: 'retry', mode: 'fresh' });
     await settleTask(makeInput({ iteration: 2 }), h.deps);
     expect(h.counters.get(7, 'stalls')).toBe(2);
     expect(h.blocked).toHaveLength(0);
 
     const r3 = await settleTask(makeInput({ iteration: 3 }), h.deps);
     expect(r3.blockedByGuard).toBe(true);
-    expect(r3.retryMode).toBe('blocked');
+    expect(r3.verdict.verdict).toBe('blocked');
     expect(h.blocked).toHaveLength(1);
     expect(h.blocked[0].taskId).toBe(7);
     expect(h.blocked[0].note).toContain("Blocked by cairn after 3 consecutive iterations in which the agent never moved the task out of 'pending'.");
@@ -337,14 +367,17 @@ describe('settleTask', () => {
     }
   });
 
-  test('an unreadable tasks file leaves both guards neutral', async () => {
+  test('an unreadable post-validation re-read leaves both guards neutral', async () => {
     const h = makeHarness();
+    // Record present and task passed in, so the only read is the re-read.
+    h.runState.state.attempts['7'] = newAttemptRecord(null, 1);
     h.setUnreadable(true);
     h.setValidation({ status: 'skipped' });
     h.counters.set(7, 'reverts', 1);
     h.counters.set(7, 'stalls', 2);
-    const result = await settleTask(makeInput(), h.deps);
+    const result = await settleTask(makeInput({ task: makeTask() }), h.deps);
     expect(result.updatedTaskStatus).toBe('unknown');
+    expect(result.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'continue', reason: 'status-unknown', next: NEXT_CONTINUE });
     expect(result.corrupted).toBe(false);
     expect(result.blockedByGuard).toBe(false);
     expect(h.counters.get(7, 'reverts')).toBe(1);
@@ -352,11 +385,12 @@ describe('settleTask', () => {
     expect(h.blocked).toHaveLength(0);
   });
 
-  test('task missing from tasks file yields unknown status', async () => {
+  test('task vanishing from tasks file during settle yields unknown status', async () => {
     const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord(null, 1);
     h.setStatus(null);
     h.counters.set(7, 'stalls', 2);
-    const result = await settleTask(makeInput(), h.deps);
+    const result = await settleTask(makeInput({ task: makeTask() }), h.deps);
     expect(result.updatedTaskStatus).toBe('unknown');
     expect(h.counters.get(7, 'stalls')).toBe(2);
   });
@@ -382,16 +416,16 @@ describe('incomplete guard', () => {
     const r1 = await settleTask(makeInput({ iteration: 1 }), h.deps);
     expect(h.counters.get(7, 'incompletes')).toBe(1);
     expect(r1.blockedByGuard).toBe(false);
-    expect(r1.retryMode).toBe('continue');
+    expect(r1.verdict).toMatchObject({ verdict: 'retry', mode: 'continue' });
 
     const r2 = await settleTask(makeInput({ iteration: 2 }), h.deps);
     expect(h.counters.get(7, 'incompletes')).toBe(2);
     expect(r2.blockedByGuard).toBe(false);
-    expect(r2.retryMode).toBe('fresh');
+    expect(r2.verdict).toMatchObject({ verdict: 'retry', mode: 'fresh' });
 
     const r3 = await settleTask(makeInput({ iteration: 3 }), h.deps);
     expect(r3.blockedByGuard).toBe(true);
-    expect(r3.retryMode).toBe('blocked');
+    expect(r3.verdict.verdict).toBe('blocked');
     expect(h.blocked).toHaveLength(1);
     expect(h.blocked[0]).toEqual({
       tasksFilePath: '/proj/.cairn/tasks.json',
@@ -426,5 +460,130 @@ describe('incomplete guard', () => {
     expect(result.blockedByGuard).toBe(false);
     expect(h.logs).toContain('Failed to block task #7: lock busy');
     expect(h.counters.get(7, 'incompletes')).toBe(0);
+  });
+});
+
+describe('verdicts', () => {
+  test('done: completed task, record cleared, one settle line logged', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('abc', 3);
+    const result = await settleTask(makeInput({ iteration: 3 }), h.deps);
+    expect(result.verdict).toEqual({ verdict: 'done', taskId: 7, next: NEXT_ROUND });
+    expect(h.runState.state.attempts['7']).toBeUndefined();
+    expect(h.appended).toContainEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: done\n' });
+  });
+
+  test('retry/continue after a failed validation keeps the record', async () => {
+    const h = makeHarness();
+    h.setStatus('in-progress');
+    h.setValidation({ status: 'failed', message: 'bun test exited 1' });
+    const result = await settleTask(makeInput(), h.deps);
+    expect(result.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'continue', reason: 'validation-failed', next: NEXT_CONTINUE });
+    expect(h.runState.state.attempts['7']).toBeDefined();
+    expect(h.appended).toContainEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: retry (validation-failed)\n' });
+  });
+
+  test('retry/fresh after a stall', async () => {
+    const h = makeHarness();
+    h.setStatus('pending');
+    h.setValidation({ status: 'skipped' });
+    const result = await settleTask(makeInput(), h.deps);
+    expect(result.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'fresh', reason: 'stalled', next: NEXT_FRESH });
+    expect(h.runState.state.attempts['7']).toBeDefined();
+  });
+
+  test('incompletes map 1 → continue, 2 → fresh', async () => {
+    const h = makeHarness();
+    h.setStatus('in-progress');
+    h.setValidation({ status: 'skipped' });
+    const r1 = await settleTask(makeInput(), h.deps);
+    expect(r1.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'continue', reason: 'incomplete', next: NEXT_CONTINUE });
+    const r2 = await settleTask(makeInput(), h.deps);
+    expect(r2.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'fresh', reason: 'incomplete', next: NEXT_FRESH });
+  });
+
+  test('a guard block yields blocked with the guard note as reason and clears the record', async () => {
+    const h = makeHarness();
+    h.setStatus('pending');
+    h.setValidation({ status: 'skipped' });
+    h.counters.set(7, 'stalls', 2);
+    const result = await settleTask(makeInput(), h.deps);
+    expect(result.verdict).toEqual({ verdict: 'blocked', taskId: 7, reason: h.blocked[0]!.note, next: NEXT_ROUND });
+    expect(h.runState.state.attempts['7']).toBeUndefined();
+  });
+
+  test('agent-set blocked yields blocked with the task notes as reason and clears the record', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('abc', 2);
+    h.setStatus('blocked');
+    h.setNotes('Needs an API key from the user');
+    h.setValidation({ status: 'skipped' });
+    const result = await settleTask(makeInput(), h.deps);
+    expect(result.verdict).toEqual({ verdict: 'blocked', taskId: 7, reason: 'Needs an API key from the user', next: NEXT_ROUND });
+    expect(result.blockedByGuard).toBe(false);
+    expect(h.blocked).toHaveLength(0);
+    expect(h.runState.state.attempts['7']).toBeUndefined();
+    expect(h.appended).toContainEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: blocked (Needs an API key from the user)\n' });
+  });
+
+  test('a second call after done (task archived) is already-settled with no side effects', async () => {
+    const h = makeHarness();
+    let validations = 0;
+    h.deps.validateTaskTests = async () => { validations++; return { status: 'passed' }; };
+    const first = await settleTask(makeInput(), h.deps);
+    expect(first.verdict.verdict).toBe('done');
+
+    // Archived: gone from tasks.json, present in tasks.completed.json.
+    h.setStatus(null);
+    h.completedIds.add(7);
+    const second = await settleTask(makeInput(), h.deps);
+    expect(second.verdict).toEqual({ verdict: 'already-settled', taskId: 7, next: NEXT_ROUND });
+    expect(validations).toBe(1);
+    expect(h.runState.state.attempts['7']).toBeUndefined();
+    expect(h.blocked).toHaveLength(0);
+    expect(h.appended.at(-1)).toEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: already-settled\n' });
+  });
+
+  test('a missing record with the task present creates the record lazily from run state', async () => {
+    const h = makeHarness();
+    h.runState.state.iteration = 5;
+    h.setStatus('in-progress');
+    h.setValidation({ status: 'skipped' });
+    const { iteration: _omit, ...input } = makeInput();
+    const result = await settleTask(input, h.deps);
+    expect(result.verdict.verdict).toBe('retry');
+    expect(h.runState.state.attempts['7']).toEqual({
+      beforeSha: null, iteration: 5, reverts: 0, stalls: 0, incompletes: 0, phase: 'executing',
+    });
+  });
+
+  test('an existing record plus a passed-in task skips the lookup read', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('abc', 1);
+    await settleTask(makeInput({ task: makeTask() }), h.deps);
+    // Only the post-validation re-read.
+    expect(h.readCalls()).toBe(1);
+  });
+
+  test('an unknown task id throws SettleError', async () => {
+    const h = makeHarness();
+    h.setStatus(null);
+    const err = await settleTask(makeInput({ taskId: 99 }), h.deps).catch((e) => e);
+    expect(err).toBeInstanceOf(SettleError);
+    expect(err.name).toBe('SettleError');
+    expect(err.message).toContain('#99');
+  });
+
+  test('the lookup read propagates a tasks.json read failure', async () => {
+    const h = makeHarness();
+    h.setUnreadable(true);
+    await expect(settleTask(makeInput(), h.deps)).rejects.toThrow('unreadable');
+  });
+
+  test('defaults the iterations log path to the data dir temp file', async () => {
+    const h = makeHarness();
+    const { iterationLogPath: _omit, ...input } = makeInput();
+    await settleTask(input, h.deps);
+    expect(h.appended.at(-1)).toEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: done\n' });
   });
 });

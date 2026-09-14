@@ -611,11 +611,6 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         state.attempts[attemptKey] = newAttemptRecord(capturedSha, iteration);
         return capturedSha;
       });
-      const clearAttemptRecord = () => {
-        deps.runState.update(dataDir, (state) => {
-          delete state.attempts[attemptKey];
-        });
-      };
 
       // j. Spawn Claude
       const { exitCode } = await deps.spawnClaude({
@@ -643,24 +638,26 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       iterationsCompleted++;
 
       // k. Settle: validate tests, apply the revert, incomplete, and stall
-      // guards, and re-read the task status (see src/settle.ts).
+      // guards, and re-read the task status (see src/settle.ts). Settle clears
+      // the attempt record on done and on any block (so an unblocked task
+      // starts over with fresh attempts); the review below uses the beforeSha
+      // captured above. The loop ignores the verdict's retry mode — it simply
+      // re-selects the task next iteration.
       const settled = await settleTask(
-        { task, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath },
+        { taskId: task.id, task, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath },
         {
           validateTaskTests: deps.validateTaskTests,
           readTasksFile: deps.readTasksFile,
           blockTask: deps.blockTask,
           appendFileSync: deps.appendFileSync,
           log: deps.log,
+          loadCompletedIds: deps.loadCompletedIds,
+          runState: deps.runState,
           counters: guardCounters,
         },
       );
       if (settled.corrupted) corruptionEvents++;
-      if (settled.blockedByGuard) {
-        blockedByGuard.add(task.id);
-        // A human unblocking the task starts over with fresh attempts.
-        clearAttemptRecord();
-      }
+      if (settled.blockedByGuard) blockedByGuard.add(task.id);
       const { updatedTaskStatus } = settled;
 
       // l. Post-task review (if enabled and task completed)
@@ -684,9 +681,6 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       });
 
       totalArchived += archiveResult.archivedCount;
-
-      // The completed task has been reviewed and archived — its attempt is over.
-      if (updatedTaskStatus === 'complete') clearAttemptRecord();
 
       // l. Carry forward prevNotes
       prevNotes = archiveResult.prevNotes;

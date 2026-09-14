@@ -1564,12 +1564,14 @@ describe('runRun', () => {
     expect(reviewCall.beforeSha).toBe('sha-1');
   });
 
-  test('clears the attempt record once a completed task has gone through review/archive', async () => {
+  test('settle clears the attempt record on done; the review still gets the captured beforeSha', async () => {
     const tasks = [makeTask({ id: 4 })];
     const runState = makeMemoryRunState();
     let archivedWithRecord: boolean | null = null;
     const deps = makeGuardDeps(tasks, {
       runState,
+      captureGitSha: mock(() => 'sha-done'),
+      runPostTaskReview: mock(async () => {}),
       spawnClaude: mock(async () => {
         tasks[0]!.status = 'complete';
         return { exitCode: 0 };
@@ -1580,10 +1582,13 @@ describe('runRun', () => {
       }),
     });
 
-    await runRun(makeRunOpts({ maxIterations: 1 }), deps);
+    const config = makeTestConfig({ review: { postTask: true, maxIterations: 5 } });
+    await runRun(makeRunOpts({ config, maxIterations: 1 }), deps);
 
-    expect(archivedWithRecord).toBe(true);
+    expect(archivedWithRecord).toBe(false);
     expect(runState.state.attempts['4']).toBeUndefined();
+    const reviewCall = (deps.runPostTaskReview as ReturnType<typeof mock>).mock.calls[0][0];
+    expect(reviewCall.beforeSha).toBe('sha-done');
   });
 
   test('clears the attempt record when a guard blocks the task', async () => {
