@@ -57,7 +57,12 @@ cairn summarize     # Update architecture docs
 | Command                | Description                                                       |
 | ---------------------- | ----------------------------------------------------------------- |
 | `cairn plan`           | Interactive planning discussion + task generation                 |
-| `cairn run [max]`      | Execute pending tasks (default: 30 iterations)                    |
+| `cairn run [max]`      | Execute pending tasks headlessly (default: 30 iterations)         |
+| `/cairn-run`           | Slash command: run a round from an interactive Claude Code session (see [Execute](#3-execute)) |
+| `cairn round next`     | Used by `/cairn-run`: pick the next step (review, task, or round-done) as JSON |
+| `cairn round settle <id> [--reviewed] [--before-sha <sha>] [--test-timeout <seconds>]` | Used by `/cairn-run`: validate, guard, archive, and gate a task attempt for review; prints a JSON verdict |
+| `cairn task <subcommand>` | Task-state mutations for agents (`start`, `complete`, `note`, `set-status`, `add`, `next-id`, `show`) |
+| `cairn hook pre-tool-use` | PreToolUse hook that contains `/cairn-run` subagents (seeded by `cairn init`; not run by hand) |
 | `cairn summarize`      | Update IMPLEMENTATION.md with current system state                |
 | `cairn init`           | Initialize `.cairn/` directory and starter `cairn.json`           |
 | `cairn status`         | Show current task list overview                                   |
@@ -87,11 +92,13 @@ It also offers to create/open `CLAUDE.local.md` at the project root for personal
 
 Re-running `cairn init` on an existing project lets you update any field — existing values are shown as defaults so you only change what you need.
 
-`cairn init` then offers (default: yes, skippable) to seed `.claude/settings.local.json` with a permission baseline — **allow** rules for read-only git inspection (`git diff`, `log`, `show`, `status`, `rev-parse`) plus rules derived from your `healthCheck` and `defaultTestCommand`. No deny rules are seeded.
+`cairn init` then offers (default: yes, skippable) to seed `.claude/settings.local.json` with a permission baseline — **allow** rules for read-only git inspection (`git diff`, `log`, `show`, `status`, `rev-parse`) plus rules derived from your `healthCheck` and `defaultTestCommand` — and to register the `/cairn-run` containment hook (`PreToolUse` → `cairn hook pre-tool-use`, matcher `Edit|Write|Bash`). No deny rules are seeded.
 
-This exists because agents that verify a task actually landed — chiefly the post-task reviewer — need to run the project's tests and inspect git history while running under normal (non-skip) permissions, not `--dangerously-skip-permissions`. Without these rules, a fresh project denies them outright in headless mode. The same allow rules also mean your own interactive sessions stop accumulating repetitive approval prompts for the same read-only git and test commands.
+The allow rules exist because the post-task reviewer inspects git history while running under normal (non-skip) permissions, not `--dangerously-skip-permissions`; in headless mode anything not allowlisted is denied outright. (The reviewer no longer runs tests — Cairn validates them before the review and hands the reviewer a summary and the log path.) The same allow rules also mean your own interactive sessions stop accumulating repetitive approval prompts for the same read-only git, health-check, and test commands. The hook is described under [Containment under /cairn-run](#containment-under-cairn-run); it does nothing for sessions that aren't `/cairn-run` subagents.
 
-Existing settings are **merged, not replaced**: `permissions.allow` is unioned with whatever is already there, and every other key in the file is left untouched. If you already have settings from plain `claude` usage, you won't lose them.
+Existing settings are **merged, not replaced**: `permissions.allow` is unioned with whatever is already there, the hook is appended only if a hook with the same command isn't already registered, and every other key in the file is left untouched. If you already have settings from plain `claude` usage, you won't lose them.
+
+`cairn init` also installs Cairn's slash commands (including `cairn-run.md`) into `.claude/commands/` and its agents (including `cairn-task-agent.md` and `post-task-reviewer.md`) into `.claude/agents/`.
 
 **One exception, and it is a repair.** An older `cairn init` seeded `deny` rules for the five mutating `cairn task` subcommands (`start`, `complete`, `set-status`, `add`, `note`). That was a bug: a project-wide deny binds *every* Claude session in the project, including `cairn run`'s own execution agents — it is not bypassed by `--dangerously-skip-permissions` — so agents were silently blocked from recording their own task state, and the loop re-ran a single task indefinitely while reporting success. Since `.claude/settings.local.json` is gitignored, nothing in `git status` reveals it. Re-running `cairn init` now strips exactly those five rules (and drops the `deny` key if that empties it). Any other deny rule you wrote yourself is kept.
 
@@ -107,6 +114,10 @@ Claude explores your codebase and discusses what to build. When the discussion f
 
 ### 3. Execute
 
+There are two ways to run a round. Both settle each task attempt with the same code (`src/settle.ts`), so guards, archival, and review behave identically.
+
+#### Headless: `cairn run`
+
 ```bash
 cairn run
 ```
@@ -115,10 +126,52 @@ Each iteration:
 
 1. Picks the highest-priority pending task (respecting dependencies)
 2. Runs a health check if configured
-3. Spawns a fresh Claude agent scoped to the task's directory
+3. Spawns a fresh `claude -p` agent scoped to the task's directory
 4. The agent implements the task, runs tests, commits, and marks it complete
-5. Post-iteration validation re-runs the task's tests — reverts to `in-progress` if they fail
-6. Completed tasks are archived to `tasks.completed.json`
+5. **Settle**, in this order — **validate → archive → review gate**:
+   - Post-iteration validation re-runs the task's tests (full output in `.cairn/.cairn_task_<id>_tests.log`) and reverts the task to `in-progress` if they fail
+   - Guards block a task that keeps failing: 2 consecutive failed validations, 3 consecutive iterations left `pending` (the agent never started it), or 3 consecutive iterations left `in-progress`. These thresholds are fixed.
+   - A completed task is archived to `tasks.completed.json`
+   - If `review.postTask` is enabled and the task made commits, the post-task reviewer runs
+
+#### Interactive: `/cairn-run`
+
+Start an interactive Claude Code session in the project (for example one you reach from your phone via Remote Control) and run:
+
+```
+/cairn-run
+```
+
+The session becomes the *run agent*. It loops over two CLI commands and acts on the JSON each prints:
+
+1. `cairn round next` → `task` (health check, then a prompt file at `.cairn/.cairn_task_<id>_prompt.md`), `review` (a review left open, picked up first), or `round-done`.
+2. For `task`, it launches a `cairn-task-agent` subagent on the prompt file, then runs `cairn round settle <id>`.
+3. Settle prints `retry` (resume the same agent, or launch a fresh one), `blocked` (push notification, move on), `review`, `done`, or `already-settled`.
+4. For `review`, it launches the `post-task-reviewer` subagent on `.cairn/.cairn_task_<id>_review_prompt.md`, then runs `cairn round settle <id> --reviewed`.
+
+Agents run one at a time and are never nested — the run agent launches the reviewer, a task agent never does. Every verdict includes a `next` hint, so a resumed or compacted session carries on exactly where it left off. Both `cairn round` commands exit `0` for every verdict (including `blocked`); a non-zero exit means the command couldn't run at all (unreadable `tasks.json`, lock timeout, unknown task id), and the run agent stops. `settle` accepts `--before-sha <sha>` to override the recorded pre-task commit and `--test-timeout <seconds>` to change the validation timeout.
+
+The `round` commands are deliberately not under `cairn task`: task agents use `cairn task`, and a task agent that settled its own task would archive it and skip its own review.
+
+**Permission mode.** `/cairn-run` can't set it — choose when launching the session:
+
+- **`bypassPermissions`** (recommended) — the round runs unattended, and the containment hook below still applies.
+- **`auto`** — may work, but its classifier can deny routine actions (`git commit`, running tests, `cairn task ...`), which show up as stalled or blocked tasks.
+- **`default` / `acceptEdits`** — the round stalls on the first permission prompt nobody is there to answer.
+
+#### Containment under /cairn-run
+
+Headless `cairn run` agents are constrained by their prompts and (for the reviewer) a scoped `--allowedTools` list. Subagents of an interactive session don't get `--allowedTools` — they follow the session's permission mode. So `cairn init` registers a PreToolUse hook, `cairn hook pre-tool-use`, that:
+
+- denies any subagent `Edit`/`Write` to `.cairn/tasks.json` (agents must use `cairn task`)
+- limits `post-task-reviewer` to writing inside `.cairn/reviews/` and to read-only git commands (`git diff`, `log`, `show`, `status`, `rev-parse`, no redirection or command substitution)
+- does nothing for main sessions or headless `cairn run` agents (they have no subagent id)
+
+Hook denies apply even under `bypassPermissions`. The hook is **fail-open**: if it errors (or `cairn` isn't on PATH), the call goes through. Errors are logged to `.cairn/.cairn_hook_errors.log`, and `cairn round next` shows a warning while that log is non-empty.
+
+#### Run state
+
+Guard counters and per-task attempt records (pre-task commit sha, revert/stall/incomplete counts, whether a review is pending) live in `.cairn/.cairn_run_state.json`, not in memory. They survive restarts of `cairn run`, separate `cairn round settle` calls, and `/cairn-run` session compaction or resume. The file is gitignored. `cairn task set-status <id> <status>` resets that task's record — so unblocking a task by hand gives it a fresh set of attempts.
 
 ### 4. Summarize
 
@@ -219,7 +272,7 @@ touch CLAUDE.local.md
 
 ### Migrating from `.cairn/instructions.md`
 
-`.cairn/instructions.md` is deprecated. Unlike `CLAUDE.local.md`, it only ever reached Cairn's own execution, post-task reviewer, `plan`, and `summarize` agents — never other Claude Code sessions in the project. Re-run `cairn init` and accept the migration prompt to move its content into `CLAUDE.local.md` (appended under a heading if `CLAUDE.local.md` already has content) and delete the old file. The loader still reads `instructions.md` when present, for one release, but logs a deprecation warning to stderr each time.
+`.cairn/instructions.md` is deprecated. Unlike `CLAUDE.local.md`, it only ever reached Cairn's own execution, post-task reviewer, `plan`, and `summarize` agents — never other Claude Code sessions in the project. Re-run `cairn init` and accept the migration prompt to move its content into `CLAUDE.local.md` (appended under a heading if `CLAUDE.local.md` already has content) and delete the old file. The loader still reads `instructions.md` when present, for one release, but logs a deprecation warning to stderr (once per process).
 
 ## Configuration
 
@@ -287,7 +340,10 @@ cairn/
 │   ├── index.ts                 # CLI entry point (Commander)
 │   ├── commands/
 │   │   ├── plan.ts              # Planning discussion + task generation
-│   │   ├── run.ts               # Core execution loop + system prompt builder
+│   │   ├── run.ts               # Headless execution loop + system prompt builder
+│   │   ├── round.ts             # `cairn round next` / `settle` (used by /cairn-run)
+│   │   ├── hook.ts              # `cairn hook pre-tool-use` containment hook
+│   │   ├── task.ts              # `cairn task` subcommands
 │   │   ├── init.ts              # Project initialization
 │   │   ├── summarize.ts         # IMPLEMENTATION.md generator
 │   │   ├── status.ts            # Task list overview
@@ -298,7 +354,12 @@ cairn/
 │   ├── config.ts                # Config loading from cairn.json
 │   ├── task-selector.ts         # Task selection logic
 │   ├── test-validator.ts        # Post-iteration test validation
+│   ├── settle.ts                # Settle an attempt: validate, guards, archive, review gate
+│   ├── run-state.ts             # Locked .cairn_run_state.json store
+│   ├── post-task-reviewer.ts    # Headless reviewer + reviewer prompt builder
 │   └── stream-filter.ts         # Stream-json formatter + narration forwarding
+├── agents/                      # Agent definitions installed into .claude/agents/ (cairn-task-agent, post-task-reviewer, ...)
+├── commands/                    # Slash commands installed into .claude/commands/ (cairn-run, generate-tasks, ...)
 ├── lib/
 │   ├── cairn_narrate.py         # Standalone TTS narration utility
 │   └── cairn_narrate_server.py  # TTS server (Kokoro + Haiku summarization)
@@ -317,7 +378,16 @@ your-project/
 │   ├── reviews/
 │   │   └── round-<N>.md        # Per-planning-round post-task review logs
 │   ├── planning-notes.md       # Output from planning discussions
-│   └── .gitignore              # Ignores temp files (and instructions.md, if still present)
+│   ├── .gitignore              # Ignores the temp files below (and instructions.md, if still present)
+│   ├── .cairn_run_state.json   # Iteration counter + per-task attempt records (temp)
+│   ├── .cairn_task_<id>_tests.log         # Test validation output (temp)
+│   ├── .cairn_task_<id>_prompt.md         # Task agent prompt from `cairn round next` (temp)
+│   ├── .cairn_task_<id>_review_prompt.md  # Reviewer prompt from `cairn round settle` (temp)
+│   └── .cairn_hook_errors.log  # Containment hook errors (temp)
+├── .claude/
+│   ├── settings.local.json     # Permission rules + containment hook seeded by cairn init
+│   ├── agents/                 # Installed by cairn init
+│   └── commands/               # Installed by cairn init
 ├── cairn.json                  # Project configuration (optional)
 ├── CLAUDE.local.md             # Personal agent preferences (gitignored — see Personal Agent Instructions)
 └── IMPLEMENTATION.md           # Architecture summary
@@ -353,7 +423,7 @@ Each task in `tasks.json`:
 ## Tips
 
 - **Edit tasks.json directly** — it's just JSON. Add, reorder, or reword tasks anytime between runs.
-- **Resume after interruption** — `cairn run` picks up where it left off. In-progress tasks are retried automatically.
+- **Resume after interruption** — `cairn run` and `/cairn-run` pick up where they left off. In-progress tasks are retried automatically, and guard counters persist in `.cairn_run_state.json`. A review left open by a crash is picked up first by `cairn round next`.
 - **Cost control** — set `model: "sonnet"` on straightforward tasks. Reserve `opus` for complex work.
 - **CLAUDE.md matters** — the execution engine loads your project's `CLAUDE.md` as system prompt context. Keep it current with conventions and patterns so agents follow your standards.
 - **CLAUDE.local.md for personal preferences** — create it with `cairn init` or by hand to steer agent behavior without committing personal preferences to the repo. It's loaded by every Claude Code session in the project, not just `cairn run`; `cairn init` warns (but won't edit `.gitignore` for you) if it isn't already ignored.
