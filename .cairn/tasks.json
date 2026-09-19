@@ -2,60 +2,12 @@
   "project": "cairn-cli-tool",
   "tasks": [
     {
-      "id": 112,
-      "priority": 4,
-      "title": "Prune orphaned executing run-state records (never awaiting-review)",
-      "description": "Stop orphaned attempt records from piling up in `.cairn/.cairn_run_state.json`.\n\nBACKGROUND: an attempt record in phase `executing` whose task is no longer in tasks.json (archived by another path, deleted, or left behind by an interrupted/misdirected run) is never removed. Round 15 left exactly such a record for archived task #99. Settle on such a task returns `already-settled` (src/settle.ts, the idempotency lookup: task not found in tasks.json but present in tasks.completed.json) but leaves the record in place.\n\nCHANGES:\n1. src/commands/round.ts `roundNext`: after reading tasks.json, prune every record with `phase === 'executing'` whose task id is not in tasks.json. Do it inside the single `store.update` that already bumps the iteration and upserts the picked task's record (task 110's `upsertAttemptRecord`), so it stays one short locked pass. On the `round-done` path there is no update today: take one short update ONLY when the snapshot actually shows orphans. NEVER prune `awaiting-review` records — their tasks are archived by design, and a pending review must survive (roundNext returns them first).\n2. src/settle.ts: when the idempotency lookup returns `already-settled` and a record exists in phase `executing`, clear it. Never clear an `awaiting-review` record there.\n3. Locking: the run-state lock may be taken before the tasks.json lock, never inside a mutateTasksFile callback. Don't hold it across the health check.\n\nTESTS:\n- test/commands/round.test.ts: an executing record for a task absent from tasks.json is pruned on the task path and on the round-done path; an awaiting-review record for an archived task survives (and is still returned first); a record for a task still in tasks.json is untouched; no write happens on round-done when there are no orphans.\n- test/settle.test.ts: already-settled clears a leftover executing record; an awaiting-review record is not cleared by that path.\n\nTDD: write the failing test first, run it and watch it fail, then implement until it passes — all within this task.\n\nLIVE-REPO HAZARD: never run `cairn round …`, `cairn hook …`, or `bun src/index.ts round|hook …` against this repository's root — a task in round 15 did, and left stale run state in .cairn/. Exercise these only through the tests, in temp directories created with fs.mkdtempSync.\n\nTYPECHECK: `bun run typecheck` (tsc --noEmit over src/) must exit 0 when you finish.\n\nPINNED BINARY (self-modifying round): do NOT modify cairn.json's healthCheck value and do NOT run ./install.sh. The user has pinned ~/.local/bin/cairn to a known-good build and redirected the health check to a throwaway outfile (/tmp/cairn-healthcheck). Running `bun run build` yourself is fine.\n\nCOMMIT: stage only the files you changed (never `git add -A` or `git add .`) — cairn.json has an uncommitted user change that must not be committed.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "src/commands/round.ts",
-        "src/settle.ts",
-        "src/run-state.ts",
-        "test/commands/round.test.ts",
-        "test/settle.test.ts"
-      ],
-      "tests": [
-        "bun test test/commands/round.test.ts test/settle.test.ts",
-        "bun run typecheck",
-        "bun test"
-      ],
-      "dependencies": [
-        110
-      ],
-      "model": "opus",
-      "completedAt": "2026-09-19T19:45:31.082Z",
-      "completedBy": "iteration-4",
-      "notes": "Orphaned `executing` run-state records are now pruned.\n\n- src/run-state.ts: new `orphanedAttemptKeys(state, liveTaskIds)` (executing records whose id is not in tasks.json; awaiting-review never counts) and `pruneOrphanedAttempts(state, liveTaskIds)` (deletes them on a state held inside store.update).\n- src/commands/round.ts `pickNext`: builds `liveTaskIds` from tasks.json after reading it. Task path: `pruneOrphanedAttempts` runs inside the existing single `store.update` that bumps the iteration and upserts the picked record (after the health check, lock not held during it). Round-done path: takes one short `store.update` only when the entry snapshot (`state`) shows orphans; otherwise no write. The pending-review path returns before tasks.json is read, so nothing is pruned there (next call prunes).\n- src/settle.ts: at the idempotency lookup, when the task is gone from tasks.json but archived and a record exists, a short locked update deletes it only if its phase under the lock is still `executing` (an awaiting-review record returns 'review' earlier anyway; the re-check covers a race). Doc comment updated. The `--reviewed` already-settled path is unchanged.\n- CLAUDE.md run-state section: one line on orphan pruning.\n- Tests: test/commands/round.test.ts new describe 'orphaned executing records' (task path prune in one update, sibling live record untouched; round-done prune without iteration bump; round-done with no orphans makes zero updates; awaiting-review survives and is returned first; awaiting-review survives both prune passes via a store whose snapshot misses it). test/settle.test.ts: already-settled clears a leftover executing record (other records untouched, no validation); awaiting-review record for archived task → 'review', record kept; lock re-check keeps a record that turned awaiting-review.\n- bun test: 1176 pass, 0 fail. bun run typecheck exits 0. cairn.json untouched.\n"
-    },
-    {
-      "id": 113,
-      "priority": 5,
-      "title": "Reviewer hook: deny git --output (a write primitive hidden in read-only git commands)",
-      "description": "Close a write hole in the /cairn-run reviewer's Bash containment.\n\nBACKGROUND: `cairn hook pre-tool-use` (src/commands/hook.ts) confines the `post-task-reviewer` subagent's Bash to read-only git inspection: every subcommand must start with a GIT_INSPECTION_RULES prefix (git diff, git log, git show, git status, git rev-parse — src/claude-settings.ts:82), and redirection (<, >), backticks and $( are denied (`isInspectionOnly`, ~line 89). But `git diff`, `git log` and `git show` accept `--output=<file>` (or `--output <file>`), which writes their output to ANY file — verified: `git log --output=<file> -1` creates the file. git rejects abbreviations (`--outp`, `--out`, `--ou` all exit 128), so matching the exact token is sufficient.\n\nCHANGES (src/commands/hook.ts):\n- Deny a reviewer Bash command when any whitespace-separated token of any subcommand is exactly `--output` or starts with `--output=`, after stripping surrounding single/double quotes from the token.\n- Do NOT deny `--output-indicator-new=…` / `--output-indicator-old=…` / `--output-indicator-context=…` (harmless diff options).\n- Update the reviewer Bash deny reason to mention that `--output` is not allowed.\n- Headless `cairn run` is out of scope: its reviewer's `--allowedTools \"Bash(git diff:*)\"` prefix rules cannot exclude an argument; that gap is documented by a later docs task. Do not change src/post-task-reviewer.ts.\n\nTESTS (test/commands/hook.test.ts): deny `git diff --output=x`, `git log --output x`, `git show HEAD --output=/tmp/y`, `git diff \"--output=x\"`, and `git status && git log --output=z`; allow `git diff --output-indicator-new=+ HEAD~1`, plain `git log --oneline -5`, and the existing allow cases.\n\nTDD: write the failing test first, run it and watch it fail, then implement until it passes — all within this task.\n\nLIVE-REPO HAZARD: never run `cairn round …`, `cairn hook …`, or `bun src/index.ts round|hook …` against this repository's root — a task in round 15 did, and left stale run state in .cairn/. Exercise these only through the tests, in temp directories created with fs.mkdtempSync.\n\nTYPECHECK: `bun run typecheck` (tsc --noEmit over src/) must exit 0 when you finish.\n\nPINNED BINARY (self-modifying round): do NOT modify cairn.json's healthCheck value and do NOT run ./install.sh. The user has pinned ~/.local/bin/cairn to a known-good build and redirected the health check to a throwaway outfile (/tmp/cairn-healthcheck). Running `bun run build` yourself is fine.\n\nCOMMIT: stage only the files you changed (never `git add -A` or `git add .`) — cairn.json has an uncommitted user change that must not be committed.",
-      "directory": "",
-      "status": "pending",
-      "files": [
-        "src/commands/hook.ts",
-        "test/commands/hook.test.ts"
-      ],
-      "tests": [
-        "bun test test/commands/hook.test.ts",
-        "bun run typecheck",
-        "bun test"
-      ],
-      "dependencies": [
-        109
-      ],
-      "model": "sonnet"
-    },
-    {
       "id": 114,
       "priority": 6,
       "title": "Settle fixes: persist a --before-sha override on a repeat awaiting-review call; pin the incomplete guard's validation-status rule",
       "description": "Two small fixes in src/settle.ts flagged by the round-15 reviews (#97, #94).\n\n1. --before-sha ON A REPEAT CALL (#97). In `settleTask`'s early `record?.phase === 'awaiting-review'` branch, `const beforeSha = input.beforeSha ?? record.beforeSha` is used only to (re)write the review prompt file when it is missing, and is never saved. So a repeat `cairn round settle <id> --before-sha <sha>` leaves the record and prompt file naming the old range. Fix: when `input.beforeSha` is given and differs from `record.beforeSha`, save it to the record (short `store.update`, same as the first gate pass does with `r.beforeSha = beforeSha`) and REWRITE the review prompt file (unless `input.inlineReview`), even if the file already exists. With no override, or the same value, behavior is unchanged (rewrite only if missing).\n\n2. INCOMPLETE GUARD (#94). The incomplete guard counts a task left `in-progress` at settle unless `validation.status === 'failed'`. That exclusion is only safe because `validateTaskTests` (src/test-validator.ts) returns `skipped` for any non-complete task and only produces `error` for complete tasks. Add a comment at the guard explaining this dependency, and a table-driven test in test/settle.test.ts over every `ValidationResult` status (`passed`, `failed`, `skipped`, `error`) combined with a re-read status of `in-progress`, pinning which ones increment `incompletes` today — so a future change to validateTaskTests or the guard fails a test instead of silently changing behavior.\n\nTESTS (test/settle.test.ts): repeat awaiting-review call with a different --before-sha persists it and rewrites the existing prompt file with the new `<sha>..HEAD` range; same/absent override leaves an existing file untouched; the incomplete-guard status table.\n\nTDD: write the failing test first, run it and watch it fail, then implement until it passes — all within this task.\n\nLIVE-REPO HAZARD: never run `cairn round …`, `cairn hook …`, or `bun src/index.ts round|hook …` against this repository's root — a task in round 15 did, and left stale run state in .cairn/. Exercise these only through the tests, in temp directories created with fs.mkdtempSync.\n\nTYPECHECK: `bun run typecheck` (tsc --noEmit over src/) must exit 0 when you finish.\n\nPINNED BINARY (self-modifying round): do NOT modify cairn.json's healthCheck value and do NOT run ./install.sh. The user has pinned ~/.local/bin/cairn to a known-good build and redirected the health check to a throwaway outfile (/tmp/cairn-healthcheck). Running `bun run build` yourself is fine.\n\nCOMMIT: stage only the files you changed (never `git add -A` or `git add .`) — cairn.json has an uncommitted user change that must not be committed.",
       "directory": "",
-      "status": "pending",
+      "status": "complete",
       "files": [
         "src/settle.ts",
         "src/test-validator.ts",
@@ -69,7 +21,10 @@
       "dependencies": [
         111
       ],
-      "model": "opus"
+      "model": "opus",
+      "completedAt": "2026-09-19T19:49:42.298Z",
+      "completedBy": "iteration-6",
+      "notes": "Settle fixes: --before-sha on a repeat awaiting-review call; incomplete guard pinned.\n\n- src/settle.ts, awaiting-review short circuit: when `input.beforeSha` is given and differs from `record.beforeSha`, it is saved to the record (short `store.update`, only if the record still exists) and the review prompt file is rewritten even if it already exists (skipped under `inlineReview`). Same or absent override: unchanged (rewrite only if missing). settleTask doc comment updated.\n- src/settle.ts, incomplete guard: comment explaining the dependency on validateTaskTests — 'skipped' for any non-complete task, 'error' only for an unreadable tasks.json or a test command that couldn't run on a complete task; only 'failed' reverts. Note: 'error' from an unreadable tasks.json can occur regardless of task status (the description said \"only for complete tasks\"; the comment states it precisely). src/test-validator.ts unchanged.\n- test/settle.test.ts: review-phase tests for a different override (persisted + rewrite, later no-flag call keeps it and doesn't rewrite), same/absent override (no rewrite), inlineReview override (persisted, no file); a real-fs test (in the writeReviewPromptFile describe, temp dir) proving the existing file is rewritten with `sha-override..HEAD`; a test.each table over passed/failed/skipped/error × re-read in-progress pinning incompletes (passed/skipped/error → 1, failed → 0 and reverts 1) and the retry reason.\n- TDD: 3 new review tests failed before the fix; the status table passed immediately (it pins current behavior by design).\n- bun test: 1193 pass, 0 fail. bun run typecheck exits 0. cairn.json untouched.\n"
     },
     {
       "id": 115,

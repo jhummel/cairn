@@ -345,7 +345,8 @@ export interface SettleTaskResult {
  * on the record's phase:
  * - Gate passes → phase 'awaiting-review', reviewer prompt file written,
  *   'review'. A repeat call in that phase returns 'review' again with no
- *   re-validation or re-archive, rewriting the prompt file only if missing.
+ *   re-validation or re-archive, rewriting the prompt file only if missing
+ *   or when a `beforeSha` override differs from the record (it is saved).
  * - `reviewed` with the record awaiting review → 'done' (reason 'reviewed').
  *   With no such record: 'already-settled' if archived, else SettleError.
  *
@@ -397,7 +398,16 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
   if (record?.phase === 'awaiting-review') {
     const reviewPromptFile = reviewPromptFilePath(dataDir, taskId);
     const beforeSha = input.beforeSha ?? record.beforeSha;
-    if (!input.inlineReview && beforeSha !== null && !existsSync(reviewPromptFile)) {
+    // A new --before-sha on a repeat call is saved and forces a rewrite, so
+    // the record and the prompt file never name a stale range.
+    const overridden = input.beforeSha !== undefined && input.beforeSha !== record.beforeSha;
+    if (overridden) {
+      store.update(dataDir, (state) => {
+        const r = state.attempts[attemptKey];
+        if (r) r.beforeSha = beforeSha;
+      });
+    }
+    if (!input.inlineReview && beforeSha !== null && (overridden || !existsSync(reviewPromptFile))) {
       writePromptFile({ projectRoot, dataDir, taskId, beforeSha });
     }
     return shortCircuit(reviewVerdict(taskId, reviewPromptFile));
@@ -489,6 +499,12 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
   // unfinished — it timed out, gave up, or otherwise never called
   // `cairn task complete`. Excluding a failed-validation revert keeps the two
   // guards disjoint: that iteration already counted as a revert, not this.
+  // Every other status counts, which relies on validateTaskTests: it returns
+  // 'skipped' for a task that is not 'complete', and 'error' only when it
+  // could not read tasks.json or a test command could not run for a
+  // complete task — so none of those can mask a real revert. If it ever
+  // reverts a task with another status, extend this exclusion (the status
+  // table in test/settle.test.ts pins the current mapping).
   if (updatedTaskStatus === 'in-progress' && validation.status !== 'failed') {
     const incompletes = counters.get(task.id, 'incompletes') + 1;
     counters.set(task.id, 'incompletes', incompletes);

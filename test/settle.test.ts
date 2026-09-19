@@ -498,6 +498,24 @@ describe('incomplete guard', () => {
     });
   });
 
+  // Pins the guard's dependency on validateTaskTests: 'failed' is excluded
+  // (it already counted as a revert), every other status counts. If either
+  // validateTaskTests or the guard changes, this table should fail first.
+  test.each([
+    { status: 'passed' as const, increments: true },
+    { status: 'failed' as const, increments: false },
+    { status: 'skipped' as const, increments: true },
+    { status: 'error' as const, increments: true },
+  ])('validation $status + re-read in-progress → increments incompletes: $increments', async ({ status, increments }) => {
+    const h = makeHarness();
+    h.setStatus('in-progress');
+    h.setValidation(status === 'failed' ? { status, message: 'bun test: 1 fail' } : status === 'error' ? { status, message: 'timeout: bun test' } : { status });
+    const result = await settleTask(makeInput(), h.deps);
+    expect(h.counters.get(7, 'incompletes')).toBe(increments ? 1 : 0);
+    expect(h.counters.get(7, 'reverts')).toBe(status === 'failed' ? 1 : 0);
+    expect(result.verdict).toMatchObject({ verdict: 'retry', reason: increments ? 'incomplete' : 'validation-failed' });
+  });
+
   test('a completed task does not count as an incomplete', async () => {
     const h = makeHarness();
     h.setStatus('complete');
@@ -807,6 +825,48 @@ describe('review phase', () => {
     expect(h.archiveCalls).toHaveLength(1);
   });
 
+  test('a repeat call with a different --before-sha persists it and rewrites the existing prompt file', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+    expect(h.promptFiles.has(PROMPT_FILE)).toBe(true);
+
+    const again = await settleTask(makeInput({ config: REVIEW_ON, beforeSha: 'sha-override' }), h.deps);
+    expect(again.verdict).toEqual({ verdict: 'review', taskId: 7, reviewPromptFile: PROMPT_FILE, next: NEXT_REVIEW });
+    expect(h.runState.state.attempts['7']).toMatchObject({ phase: 'awaiting-review', beforeSha: 'sha-override' });
+    expect(h.promptWrites).toHaveLength(2);
+    expect(h.promptWrites[1]).toMatchObject({ taskId: 7, beforeSha: 'sha-override' });
+    expect(h.validations()).toBe(1);
+    expect(h.archiveCalls).toHaveLength(1);
+
+    // A later call without the flag keeps the persisted override and leaves the file alone.
+    await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+    expect(h.runState.state.attempts['7']?.beforeSha).toBe('sha-override');
+    expect(h.promptWrites).toHaveLength(2);
+  });
+
+  test('a repeat call with the same --before-sha, or none, leaves an existing prompt file untouched', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+
+    await settleTask(makeInput({ config: REVIEW_ON, beforeSha: 'sha-before' }), h.deps);
+    await settleTask(makeInput({ config: REVIEW_ON }), h.deps);
+    expect(h.promptWrites).toHaveLength(1);
+    expect(h.runState.state.attempts['7']?.beforeSha).toBe('sha-before');
+  });
+
+  test('a repeat call with a different --before-sha under inlineReview persists it without writing a prompt file', async () => {
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
+    await settleTask(makeInput({ config: REVIEW_ON, inlineReview: true }), h.deps);
+
+    const again = await settleTask(makeInput({ config: REVIEW_ON, inlineReview: true, beforeSha: 'sha-override' }), h.deps);
+    expect(again.verdict.verdict).toBe('review');
+    expect(h.runState.state.attempts['7']?.beforeSha).toBe('sha-override');
+    expect(h.promptWrites).toHaveLength(0);
+  });
+
   test('reviewed: done with reason reviewed and the record cleared', async () => {
     const h = makeHarness();
     h.runState.state.attempts['7'] = newAttemptRecord('sha-before', 1);
@@ -1024,6 +1084,24 @@ describe('writeReviewPromptFile', () => {
     expect(content).toContain('## Test Validation (already run by cairn — do not re-run)');
     expect(content).toMatch(/earlier settle/i);
     expect(content).toContain(path.join(dataDir, '.cairn_task_7_tests.log'));
+  });
+
+  test('a repeat awaiting-review settle with a new --before-sha rewrites the existing file with the new range', async () => {
+    archiveSeven();
+    const h = makeHarness();
+    h.runState.state.attempts['7'] = { ...newAttemptRecord('sha-before', 1), phase: 'awaiting-review' };
+    const deps: SettleTaskDeps = { ...h.deps, writeReviewPromptFile, existsSync: fs.existsSync };
+    const input = makeInput({ projectRoot: root, dataDir, tasksFilePath: path.join(dataDir, 'tasks.json'), config: REVIEW_ON });
+
+    await settleTask(input, deps);
+    const file = path.join(dataDir, '.cairn_task_7_review_prompt.md');
+    expect(fs.readFileSync(file, 'utf-8')).toContain('git diff sha-before..HEAD');
+
+    await settleTask({ ...input, beforeSha: 'sha-override' }, deps);
+    const content = fs.readFileSync(file, 'utf-8');
+    expect(content).toContain('git diff sha-override..HEAD');
+    expect(content).not.toContain('sha-before');
+    expect(h.runState.state.attempts['7']?.beforeSha).toBe('sha-override');
   });
 
   test('throws SettleError when the task is not in tasks.completed.json', () => {
