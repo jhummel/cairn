@@ -343,6 +343,88 @@ describe('preToolUseHookCommand', () => {
     expect(JSON.parse(stdout).hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
+  // A /cairn-run session started from a shell `cairn` launched inherits
+  // CAIRN_PROJECT_ROOT. The hook must follow the tool call's own cwd instead,
+  // or a hook aimed at project B contains it against project A's paths.
+  describe('CAIRN_PROJECT_ROOT vs the payload cwd', () => {
+    let envRoot: string; // project A — named by the env var
+    let envDataDir: string;
+
+    beforeEach(() => {
+      envRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-hook-env-')));
+      envDataDir = path.join(envRoot, '.cairn');
+      fs.mkdirSync(path.join(envDataDir, 'reviews'), { recursive: true });
+      fs.mkdirSync(path.join(dataDir, 'reviews'), { recursive: true });
+      process.env.CAIRN_PROJECT_ROOT = envRoot;
+    });
+
+    afterEach(() => {
+      fs.rmSync(envRoot, { recursive: true, force: true });
+    });
+
+    test('the tasks.json deny resolves to the payload cwd project, not the env var project', () => {
+      const code = preToolUseHookCommand({
+        stdinText: payload(subagent('general-purpose', 'Write', { file_path: path.join(dataDir, 'tasks.json'), content: '{}' })),
+        ...writers(),
+      });
+      expect(code).toBe(0);
+      expect(JSON.parse(stdout).hookSpecificOutput.permissionDecisionReason).toContain(path.join(dataDir, 'tasks.json'));
+    });
+
+    test("the env var project's tasks.json is not the contained one", () => {
+      const code = preToolUseHookCommand({
+        stdinText: payload(subagent('general-purpose', 'Write', { file_path: path.join(envDataDir, 'tasks.json'), content: '{}' })),
+        ...writers(),
+      });
+      expect(code).toBe(0);
+      expect(stdout).toBe('');
+    });
+
+    test("the reviewer's reviews/ scope resolves to the payload cwd project", () => {
+      const allowed = preToolUseHookCommand({
+        stdinText: payload(reviewer('Write', { file_path: path.join(dataDir, 'reviews', 'round-1.md'), content: 'x' })),
+        ...writers(),
+      });
+      expect(allowed).toBe(0);
+      expect(stdout).toBe('');
+
+      const denied = preToolUseHookCommand({
+        stdinText: payload(reviewer('Write', { file_path: path.join(envDataDir, 'reviews', 'round-1.md'), content: 'x' })),
+        ...writers(),
+      });
+      expect(denied).toBe(0);
+      expect(JSON.parse(stdout).hookSpecificOutput.permissionDecisionReason).toContain(path.join(dataDir, 'reviews'));
+    });
+
+    test('with no cwd in the payload, CAIRN_PROJECT_ROOT still wins', () => {
+      const { cwd: _drop, ...noCwd } = subagent('general-purpose', 'Write', {
+        file_path: path.join(envDataDir, 'tasks.json'),
+        content: '{}',
+      });
+      expect('cwd' in noCwd).toBe(false);
+      const code = preToolUseHookCommand({ stdinText: JSON.stringify(noCwd), ...writers() });
+      expect(code).toBe(0);
+      expect(JSON.parse(stdout).hookSpecificOutput.permissionDecisionReason).toContain(path.join(envDataDir, 'tasks.json'));
+    });
+
+    test('the fail-open error log follows the payload cwd project, not the env var project', () => {
+      const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-hook-bare-')));
+      try {
+        const code = preToolUseHookCommand({
+          stdinText: JSON.stringify({ ...subagent('general-purpose', 'Write', { file_path: 'x', content: '' }), cwd: bare }),
+          ...writers(),
+        });
+        // No data dir under `bare` → fail open, and nothing may be written to A.
+        expect(code).toBe(1);
+        expect(stdout).toBe('');
+        expect(fs.existsSync(hookErrorLogPath(envDataDir))).toBe(false);
+        expect(fs.readdirSync(bare)).toEqual([]);
+      } finally {
+        fs.rmSync(bare, { recursive: true, force: true });
+      }
+    });
+  });
+
   test('a failure writing the error log is swallowed', () => {
     fs.mkdirSync(hookErrorLogPath(dataDir)); // a directory can't be appended to
     const code = preToolUseHookCommand({ stdinText: 'garbage', cwd: projectRoot, ...writers() });

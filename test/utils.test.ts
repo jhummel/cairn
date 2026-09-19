@@ -94,6 +94,22 @@ describe('findProjectRoot', () => {
     expect(findProjectRoot(tempDir)).toBe('/some/explicit/path');
   });
 
+  it('ignores CAIRN_PROJECT_ROOT with { ignoreEnv: true } and walks up from cwd', () => {
+    process.env.CAIRN_PROJECT_ROOT = '/some/explicit/path';
+    const nested = join(tempDir, 'a', 'b');
+    mkdirSync(nested, { recursive: true });
+    mkdirSync(join(tempDir, '.cairn'));
+    expect(findProjectRoot(nested, { ignoreEnv: true })).toBe(tempDir);
+    // The default behavior must be untouched.
+    expect(findProjectRoot(nested)).toBe('/some/explicit/path');
+  });
+
+  it('{ ignoreEnv: false } keeps the env var winning', () => {
+    process.env.CAIRN_PROJECT_ROOT = '/some/explicit/path';
+    mkdirSync(join(tempDir, '.cairn'));
+    expect(findProjectRoot(tempDir, { ignoreEnv: false })).toBe('/some/explicit/path');
+  });
+
   it('finds .cairn/ directory in the given cwd', () => {
     mkdirSync(join(tempDir, '.cairn'));
     expect(findProjectRoot(tempDir)).toBe(tempDir);

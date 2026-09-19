@@ -164,7 +164,11 @@ export function denyOutput(reason: string): object {
 
 export interface PreToolUseHookCommandOpts {
   stdinText: string;
-  /** Fallback for locating the error log when stdin has no usable `cwd`. Defaults to process.cwd(). */
+  /**
+   * Fallback used to resolve the project (and so the error log) when the
+   * payload carries no usable `cwd`. Resolved the ordinary way, env var first.
+   * Defaults to process.cwd().
+   */
   cwd?: string;
   stdout?: Writer;
   stderr?: Writer;
@@ -178,7 +182,16 @@ export interface PreToolUseHookCommandOpts {
 export function preToolUseHookCommand(opts: PreToolUseHookCommandOpts): number {
   const stdout = opts.stdout ?? { write: (c) => process.stdout.write(c) };
   const stderr = opts.stderr ?? { write: (c) => process.stderr.write(c) };
-  let cwd = opts.cwd ?? process.cwd();
+  const fallbackCwd = opts.cwd ?? process.cwd();
+  // The tool call's own cwd, once the payload has been parsed. A /cairn-run
+  // session started from a shell that `cairn` launched inherits
+  // CAIRN_PROJECT_ROOT, which would otherwise win over this cwd and point the
+  // hook at the wrong project — so when the payload supplies one, resolve from
+  // it alone. One resolver for both the decision and the error log, so a deny
+  // and its log can never name different projects.
+  let payloadCwd: string | null = null;
+  const resolveProjectRoot = (): string =>
+    payloadCwd !== null ? findProjectRoot(payloadCwd, { ignoreEnv: true }) : findProjectRoot(fallbackCwd);
   let dataDir: string | null = null;
 
   try {
@@ -187,10 +200,10 @@ export function preToolUseHookCommand(opts: PreToolUseHookCommandOpts): number {
       throw new Error('stdin is not a JSON object');
     }
     const input = parsed as PreToolUseInput;
-    if (typeof input.cwd === 'string') cwd = input.cwd;
+    if (typeof input.cwd === 'string' && input.cwd !== '') payloadCwd = input.cwd;
     if (isFastPathAllow(input)) return 0;
 
-    const projectRoot = findProjectRoot(cwd);
+    const projectRoot = resolveProjectRoot();
     const resolvedDataDir = findDataDir(projectRoot);
     if (!fs.existsSync(resolvedDataDir)) {
       throw new Error(`data dir not found: ${resolvedDataDir}`);
@@ -212,7 +225,7 @@ export function preToolUseHookCommand(opts: PreToolUseHookCommandOpts): number {
       // Nothing left to report to.
     }
     try {
-      const logDir = dataDir ?? findDataDir(findProjectRoot(cwd));
+      const logDir = dataDir ?? findDataDir(resolveProjectRoot());
       if (fs.existsSync(logDir)) {
         fs.appendFileSync(hookErrorLogPath(logDir), `${new Date().toISOString()} ${message.replace(/\n/g, ' ')}\n`);
       }

@@ -56,20 +56,33 @@ export function tempFilePath(dataDir: string, suffix: string): string {
   return join(dataDir, `${BRAND.tempPrefix}${suffix}`);
 }
 
+export interface FindProjectRootOptions {
+  /**
+   * Skip step 1 (the CAIRN_PROJECT_ROOT env var) and resolve purely from
+   * `cwd`. Only for callers that are handed a cwd belonging to a *different*
+   * project than the one this process was launched for — notably
+   * `cairn hook pre-tool-use`, which receives the tool call's own cwd in its
+   * PreToolUse payload while possibly inheriting CAIRN_PROJECT_ROOT from the
+   * shell that launched the session. Every ordinary cairn command must leave
+   * this off: commands spawned by cairn rely on the env var winning.
+   */
+  ignoreEnv?: boolean;
+}
+
 /**
  * Find the project root directory. Detection order:
- * 1. CAIRN_PROJECT_ROOT env var
+ * 1. CAIRN_PROJECT_ROOT env var (unless `opts.ignoreEnv`)
  * 2. Walk upward from cwd looking for a .cairn/ directory
  * 3. Git root via `git rev-parse --show-toplevel`
  * 4. Fall back to cwd
  *
  * Port of find_project_root() from the original shell implementation.
  */
-export function findProjectRoot(cwd?: string): string {
+export function findProjectRoot(cwd?: string, opts: FindProjectRootOptions = {}): string {
   const startDir = cwd ?? process.cwd();
 
   // 1. Env var
-  if (process.env.CAIRN_PROJECT_ROOT) {
+  if (!opts.ignoreEnv && process.env.CAIRN_PROJECT_ROOT) {
     return process.env.CAIRN_PROJECT_ROOT;
   }
 
