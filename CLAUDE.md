@@ -27,7 +27,7 @@ bun run typecheck
 cairn --version
 ```
 
-`bun run typecheck` covers `src/` only — `test/` is not type-checked yet (it has ~43 pre-existing type errors, deferred to a later round). Neither `bun build --compile` nor `bun test` type-checks, so a task's `tests` array should include `bun run typecheck` alongside `bun test`.
+`bun run typecheck` covers both `src/` and `test/` (`tsconfig.json`'s `include`; `rootDir` is deliberately unset so files outside `src/` are accepted — `bun build --compile` ignores `rootDir`/`outDir`, so this cannot affect the build). Neither `bun build --compile` nor `bun test` type-checks, so a task's `tests` array should include `bun run typecheck` alongside `bun test`.
 
 ## Architecture
 

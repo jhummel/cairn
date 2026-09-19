@@ -813,7 +813,7 @@ function makeRunDeps(overrides: Partial<RunRunDeps> = {}): RunRunDeps {
     runHealthCheck: overrides.runHealthCheck ?? mock(async () => ({ status: 'skipped' as const })),
     spawnClaude: overrides.spawnClaude ?? mock(async () => ({ exitCode: 0 })),
     validateTaskTests: overrides.validateTaskTests ?? mock(async () => ({ status: 'passed' as const })),
-    archiveCompletedTasks: overrides.archiveCompletedTasks ?? mock(async () => ({ archivedCount: 0, prevNotes: null })),
+    archiveCompletedTasks: overrides.archiveCompletedTasks ?? mock(async () => ({ archivedCount: 0, prevNotes: null, warnings: [] })),
     captureGitSha: overrides.captureGitSha ?? mock(() => null),
     runPostTaskReview: overrides.runPostTaskReview ?? mock(async () => {}),
     runPlan: overrides.runPlan ?? mock(async () => {}),
@@ -991,7 +991,7 @@ describe('runRun', () => {
       runHealthCheck: mock(async () => ({ status: 'ok' as const })),
       spawnClaude: mock(async () => ({ exitCode: 0 })),
       validateTaskTests: mock(async () => ({ status: 'passed' as const })),
-      archiveCompletedTasks: mock(async () => ({ archivedCount: 1, prevNotes: 'did stuff' })),
+      archiveCompletedTasks: mock(async () => ({ archivedCount: 1, prevNotes: 'did stuff', warnings: [] })),
     });
 
     await runRun(makeRunOpts(), deps);
@@ -1087,6 +1087,7 @@ describe('runRun', () => {
       archiveCompletedTasks: mock(async () => ({
         archivedCount: 1,
         prevNotes: callCount === 1 ? 'notes from first task' : null,
+        warnings: [],
       })),
     });
 
@@ -1474,7 +1475,7 @@ describe('runRun', () => {
       // 'complete': models the task being re-opened mid-run.
       archiveCompletedTasks: mock(async () => {
         if (iter === 2) tasks[0]!.status = 'pending';
-        return { archivedCount: 0, prevNotes: null };
+        return { archivedCount: 0, prevNotes: null, warnings: [] };
       }),
       blockTask: mock((o: { taskId: number }) => {
         blockedAtIter = iter;
@@ -1725,7 +1726,7 @@ describe('runRun', () => {
       archiveCompletedTasks: mock(async () => {
         order.push('archive');
         recordAtArchive = structuredClone(runState.state.attempts['4']);
-        return { archivedCount: 1, prevNotes: 'archived notes' };
+        return { archivedCount: 1, prevNotes: 'archived notes', warnings: [] };
       }),
       runPostTaskReview: mock(async () => {
         order.push('review');
@@ -1761,7 +1762,7 @@ describe('runRun', () => {
         tasks[0]!.status = 'complete';
         return { exitCode: 0 };
       }),
-      archiveCompletedTasks: mock(async () => ({ archivedCount: 1, prevNotes: null })),
+      archiveCompletedTasks: mock(async () => ({ archivedCount: 1, prevNotes: null, warnings: [] })),
     });
 
     const config = makeTestConfig({ review: { postTask: true } });
@@ -1811,7 +1812,7 @@ describe('runRun', () => {
         return false;
       }),
       readTasksFile: mock(() => ({ data: { tasks }, repaired: false, restored: false })),
-      log: mock((msg: string) => { logs.push(String(msg)); }),
+      log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
       ...overrides,
     });
   }
@@ -1855,7 +1856,7 @@ describe('runRun', () => {
     const deps = makeRunDeps({
       readTasksFile: mock(() => ({ data: { tasks }, repaired: false, restored: false })),
       selectNextTask: mock(() => null),
-      log: mock((msg: string) => { logs.push(String(msg)); }),
+      log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
     });
 
     await runRun(makeRunOpts(), deps);
@@ -2054,9 +2055,10 @@ describe('runRun', () => {
     await runRun(makeRunOpts(), deps);
 
     const calls = (deps.appendFileSync as ReturnType<typeof mock>).mock.calls;
-    const startLog = calls.find(([, content]: [string, string]) =>
-      content.includes('Iteration 1') && content.includes('#7') && content.includes('Build widget')
-    );
+    const startLog = calls.find((call: unknown[]) => {
+      const content = String(call[1]);
+      return content.includes('Iteration 1') && content.includes('#7') && content.includes('Build widget');
+    });
     expect(startLog).toBeDefined();
   });
 
@@ -2074,9 +2076,10 @@ describe('runRun', () => {
     await runRun(makeRunOpts(), deps);
 
     const calls = (deps.appendFileSync as ReturnType<typeof mock>).mock.calls;
-    const endLog = calls.find(([, content]: [string, string]) =>
-      content.includes('Iteration 1') && content.includes('SUCCESS')
-    );
+    const endLog = calls.find((call: unknown[]) => {
+      const content = String(call[1]);
+      return content.includes('Iteration 1') && content.includes('SUCCESS');
+    });
     expect(endLog).toBeDefined();
   });
 
@@ -2094,9 +2097,10 @@ describe('runRun', () => {
     await runRun(makeRunOpts(), deps);
 
     const calls = (deps.appendFileSync as ReturnType<typeof mock>).mock.calls;
-    const timeoutLog = calls.find(([, content]: [string, string]) =>
-      content.includes('TIMEOUT')
-    );
+    const timeoutLog = calls.find((call: unknown[]) => {
+      const content = String(call[1]);
+      return content.includes('TIMEOUT');
+    });
     expect(timeoutLog).toBeDefined();
   });
 
@@ -2114,9 +2118,10 @@ describe('runRun', () => {
     await runRun(makeRunOpts(), deps);
 
     const calls = (deps.appendFileSync as ReturnType<typeof mock>).mock.calls;
-    const failLog = calls.find(([, content]: [string, string]) =>
-      content.includes('FAILED') && content.includes('exit code: 2')
-    );
+    const failLog = calls.find((call: unknown[]) => {
+      const content = String(call[1]);
+      return content.includes('FAILED') && content.includes('exit code: 2');
+    });
     expect(failLog).toBeDefined();
   });
 
@@ -2297,7 +2302,7 @@ describe('runRun', () => {
         callCount++;
         return callCount <= 2 ? makeTask({ id: callCount }) : null;
       }),
-      archiveCompletedTasks: mock(async () => ({ archivedCount: 1, prevNotes: null })),
+      archiveCompletedTasks: mock(async () => ({ archivedCount: 1, prevNotes: null, warnings: [] })),
       log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
     });
 
@@ -2381,7 +2386,7 @@ describe('runRun', () => {
     const logs: string[] = [];
     const deps = makeRunDeps({
       selectNextTask: mock(() => null),
-      log: mock((msg: string) => { logs.push(msg); }),
+      log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
     });
 
     await runRun(makeRunOpts(), deps);

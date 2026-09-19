@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { CYAN, DIM, GREEN, RED, YELLOW, BOLD, RESET, shortPath, fmtTool, fmtResult, processStream, sendToNarrate, sendNtfy } from '../src/stream-filter';
+import { CYAN, DIM, GREEN, RED, YELLOW, BOLD, RESET, shortPath, fmtTool, fmtResult, processStream, sendToNarrate, sendNtfy, type NtfyOpts } from '../src/stream-filter';
 import { Readable, Writable } from 'stream';
 import net from 'net';
 import { tmpdir } from 'os';
@@ -352,7 +352,7 @@ describe('processStream', () => {
     // These are no-op placeholders for task 3
     await processStream(linesStream([event]), writable, {
       narrate: (_text: string) => {},
-      ntfy: (_msg: string, _opts?: Record<string, string>) => {},
+      ntfy: (_msg: string, _opts?: NtfyOpts) => {},
       taskContext: 'test task',
     });
     const out = output();
@@ -452,10 +452,10 @@ describe('sendNtfy', () => {
   it('sends POST request to ntfy.sh/<topic>', async () => {
     const calls: { url: string; init: RequestInit }[] = [];
     const origFetch = globalThis.fetch;
-    globalThis.fetch = (url: any, init: any) => {
-      calls.push({ url: url.toString(), init });
+    globalThis.fetch = ((url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: url.toString(), init: init ?? {} });
       return Promise.resolve(new Response('', { status: 200 }));
-    };
+    }) as unknown as typeof fetch;
     try {
       await sendNtfy('test message', 'my-topic');
       expect(calls.length).toBe(1);
@@ -470,10 +470,10 @@ describe('sendNtfy', () => {
   it('sets Title, Priority, Tags headers when provided', async () => {
     const calls: { headers: Record<string, string> }[] = [];
     const origFetch = globalThis.fetch;
-    globalThis.fetch = (_url: any, init: any) => {
-      calls.push({ headers: init.headers as Record<string, string> });
+    globalThis.fetch = ((_url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ headers: (init?.headers ?? {}) as Record<string, string> });
       return Promise.resolve(new Response('', { status: 200 }));
-    };
+    }) as unknown as typeof fetch;
     try {
       await sendNtfy('msg', 'topic', { title: 'My Title', priority: '3', tags: 'check' });
       expect(calls[0].headers['Title']).toBe('My Title');
@@ -487,10 +487,10 @@ describe('sendNtfy', () => {
   it('omits headers not provided in opts', async () => {
     const calls: { headers: Record<string, string> }[] = [];
     const origFetch = globalThis.fetch;
-    globalThis.fetch = (_url: any, init: any) => {
-      calls.push({ headers: init.headers as Record<string, string> });
+    globalThis.fetch = ((_url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ headers: (init?.headers ?? {}) as Record<string, string> });
       return Promise.resolve(new Response('', { status: 200 }));
-    };
+    }) as unknown as typeof fetch;
     try {
       await sendNtfy('msg', 'topic', { title: 'Only Title' });
       expect(calls[0].headers['Title']).toBe('Only Title');
@@ -503,7 +503,7 @@ describe('sendNtfy', () => {
 
   it('catches network errors silently', async () => {
     const origFetch = globalThis.fetch;
-    globalThis.fetch = () => Promise.reject(new Error('network error'));
+    globalThis.fetch = (() => Promise.reject(new Error('network error'))) as unknown as typeof fetch;
     try {
       // Should not throw
       await sendNtfy('msg', 'topic');
