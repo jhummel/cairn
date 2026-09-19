@@ -149,7 +149,7 @@ The session becomes the *run agent*. It loops over two CLI commands and acts on 
 3. Settle prints `retry` (resume the same agent, or launch a fresh one), `blocked` (push notification, move on), `review`, `done`, or `already-settled`.
 4. For `review`, it launches the `post-task-reviewer` subagent on `.cairn/.cairn_task_<id>_review_prompt.md`, then runs `cairn round settle <id> --reviewed`.
 
-Agents run one at a time and are never nested — the run agent launches the reviewer, a task agent never does. Every verdict includes a `next` hint, so a resumed or compacted session carries on exactly where it left off. Both `cairn round` commands exit `0` for every verdict (including `blocked`); a non-zero exit means the command couldn't run at all (unreadable `tasks.json`, lock timeout, unknown task id), and the run agent stops. `settle` accepts `--before-sha <sha>` to override the recorded pre-task commit and `--test-timeout <seconds>` to change the validation timeout.
+Agents run one at a time and are never nested — the run agent launches the reviewer, a task agent never does. A `retry` verdict carries the task agent's `promptFile` and `model` (and its `next` names them), so a relaunch never depends on remembered values. Every verdict includes a `next` hint, so a resumed or compacted session carries on exactly where it left off. Both `cairn round` commands exit `0` for every verdict (including `blocked`); a non-zero exit means the command couldn't run at all (unreadable `tasks.json`, lock timeout, unknown task id), and the run agent stops. `settle` accepts `--before-sha <sha>` to override the recorded pre-task commit and `--test-timeout <seconds>` to change the validation timeout.
 
 The `round` commands are deliberately not under `cairn task`: task agents use `cairn task`, and a task agent that settled its own task would archive it and skip its own review.
 
@@ -164,14 +164,14 @@ The `round` commands are deliberately not under `cairn task`: task agents use `c
 Headless `cairn run` agents are constrained by their prompts and (for the reviewer) a scoped `--allowedTools` list. Subagents of an interactive session don't get `--allowedTools` — they follow the session's permission mode. So `cairn init` registers a PreToolUse hook, `cairn hook pre-tool-use`, that:
 
 - denies any subagent `Edit`/`Write` to `.cairn/tasks.json` (agents must use `cairn task`)
-- limits `post-task-reviewer` to writing inside `.cairn/reviews/` and to read-only git commands (`git diff`, `log`, `show`, `status`, `rev-parse`, no redirection or command substitution)
+- limits `post-task-reviewer` to writing inside `.cairn/reviews/` and to read-only git commands (`git diff`, `log`, `show`, `status`, `rev-parse`, no redirection, command substitution, or git's file-writing `--output` option)
 - does nothing for main sessions or headless `cairn run` agents (they have no subagent id)
 
 Hook denies apply even under `bypassPermissions`. The hook is **fail-open**: if it errors (or `cairn` isn't on PATH), the call goes through. Errors are logged to `.cairn/.cairn_hook_errors.log`, and `cairn round next` shows a warning while that log is non-empty.
 
 #### Run state
 
-Guard counters and per-task attempt records (pre-task commit sha, revert/stall/incomplete counts, whether a review is pending) live in `.cairn/.cairn_run_state.json`, not in memory. They survive restarts of `cairn run`, separate `cairn round settle` calls, and `/cairn-run` session compaction or resume. The file is gitignored. `cairn task set-status <id> <status>` resets that task's record — so unblocking a task by hand gives it a fresh set of attempts.
+Guard counters and per-task attempt records (pre-task commit sha, revert/stall/incomplete counts, whether a review is pending) live in `.cairn/.cairn_run_state.json`, not in memory. They survive restarts of `cairn run`, separate `cairn round settle` calls, and `/cairn-run` session compaction or resume. The file is gitignored. Picking a task records its pre-task sha (a re-pick keeps the first attempt's), and `cairn round next` prunes `executing` records whose task has left `tasks.json` (never ones awaiting review). `cairn task set-status <id> <status>` resets that task's record — so unblocking a task by hand gives it a fresh set of attempts.
 
 ### 4. Summarize
 
@@ -389,7 +389,7 @@ your-project/
 │   ├── agents/                 # Installed by cairn init
 │   └── commands/               # Installed by cairn init
 ├── cairn.json                  # Project configuration (optional)
-├── CLAUDE.local.md             # Personal agent preferences (gitignored — see Personal Agent Instructions)
+├── CLAUDE.local.md             # Personal agent preferences (add to .gitignore yourself — `cairn init` only warns; see Personal Agent Instructions)
 └── IMPLEMENTATION.md           # Architecture summary
 ```
 

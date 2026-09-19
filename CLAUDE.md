@@ -20,9 +20,14 @@ bun run build
 # Run tests
 bun test
 
+# Type-check (tsc --noEmit)
+bun run typecheck
+
 # Verify
 cairn --version
 ```
+
+`bun run typecheck` covers `src/` only — `test/` is not type-checked yet (it has ~43 pre-existing type errors, deferred to a later round). Neither `bun build --compile` nor `bun test` type-checks, so a task's `tests` array should include `bun run typecheck` alongside `bun test`.
 
 ## Architecture
 
@@ -52,7 +57,7 @@ cairn --version
 
 Both modes go through the same `settleTask()`. They differ only in who launches the agents and how the reviewer gets its prompt: `cairn run` passes `inlineReview: true` and builds the reviewer prompt in-process; `cairn round settle` writes it to `.cairn_task_<id>_review_prompt.md`.
 
-`cairn round next` verdicts: `review` (an open review phase in run state — picked up first, lowest task id first, so a crash between settle and the reviewer never loses a review), `task` (runs the health check, bumps the run-state iteration, writes `.cairn_task_<id>_prompt.md` = `buildSystemPrompt({ mode: 'subagent' })` + the iteration prompt), or `round-done` (with a `blocked` count). It also adds a `warnings` array when `.cairn_hook_errors.log` is non-empty. `cairn round settle` verdicts: `retry` (`mode: continue|fresh`, `reason: validation-failed|stalled|incomplete|status-unknown`, optional `failure` tail, plus the task agent's `promptFile` and resolved `model` so a relaunch needs no remembered values), `blocked`, `review`, `done` (`reason: review-disabled|no-before-sha|no-commits|reviewed`), `already-settled`. Settle is idempotent — keyed on the attempt record, not archived status.
+`cairn round next` verdicts: `review` (an open review phase in run state — picked up first, lowest task id first, so a crash between settle and the reviewer never loses a review), `task` (runs the health check, bumps the run-state iteration, writes `.cairn_task_<id>_prompt.md` = `buildSystemPrompt({ mode: 'subagent' })` + the iteration prompt), or `round-done` (with a `blocked` count). It also adds a `warnings` array when `.cairn_hook_errors.log` is non-empty. `cairn round settle` verdicts: `retry` (`mode: continue|fresh`, `reason: validation-failed|stalled|incomplete|status-unknown`, optional `failure` tail, plus the task agent's `promptFile` and resolved `model`, both also named in the verdict's `next`, so the run agent never relies on remembered values for a relaunch), `blocked`, `review`, `done` (`reason: review-disabled|no-before-sha|no-commits|reviewed`), `already-settled`. Settle is idempotent — keyed on the attempt record, not archived status.
 
 **Exit codes**: both round commands exit **0 for every verdict**, `blocked` and `already-settled` included. Non-zero (1, one line on stderr) means the command itself could not run: unreadable `tasks.json` after repair/recovery (`TasksFileError`), a lock timeout (`FileLockError`), a task id in neither `tasks.json` nor `tasks.completed.json` (`SettleError`), or an invalid id/option.
 
@@ -65,6 +70,8 @@ Round runtime state lives in `.cairn/.cairn_run_state.json` (gitignored; `src/ru
 - **It is on disk, not in memory.** Guard counters and attempt records survive `cairn run` restarts, separate `cairn round settle` invocations, and `/cairn-run` session compaction or resume. (The top-level `iteration` counter is bumped by `cairn round next`; `cairn run` numbers iterations with its own per-invocation loop counter and stamps that onto the attempt record.)
 - A re-pick of a task keeps the **first** attempt's `beforeSha`, so the eventual review covers every attempt. With no record at all, settle recovers `beforeSha` from git: the parent of the oldest commit whose message contains `Task #<id>:`.
 - Settle **clears** the record on `done` and on every block, and **keeps** it on `retry` and `review`. Orphans — `executing` records whose task is no longer in `tasks.json` — are pruned by `cairn round next` and cleared by a settle that returns `already-settled`; `awaiting-review` records are never pruned. `cairn task set-status` also clears the task's record (after the tasks.json write, best-effort) — that is how a human unblocking a task gives it fresh attempts.
+- **Picking records the sha under the lock.** `cairn round next` creates or updates the attempt record — pre-task `beforeSha` (HEAD at pick time) and the iteration — in one short locked update; a re-pick keeps the first attempt's `beforeSha`.
+- **Orphan pruning.** `cairn round next` prunes `executing` records whose task is no longer in `tasks.json`, never `awaiting-review` ones (their task is archived by design). A settle that returns `already-settled` clears a leftover `executing` record for that task.
 - **Thresholds are fixed, not configurable**: `REVERT_BLOCK_THRESHOLD` 2 (consecutive failed validations), `STALL_BLOCK_THRESHOLD` 3 (task still `pending` — the agent never ran `cairn task start`), `INCOMPLETE_BLOCK_THRESHOLD` 3 (task left `in-progress` without a failed validation). An incomplete retry escalates from `continue` to `fresh` on its second consecutive occurrence; a stall always retries `fresh`.
 - **Locking**: critical sections must be short (`acquireLock` breaks locks older than 60s, test validation can run 120s per command), so the run-state lock is never held across validation, agents, or health checks. The run-state lock may be taken before the `tasks.json` lock, never inside a `mutateTasksFile` callback.
 - An unparseable run-state file reads as empty rather than throwing — unlike `tasks.json`, it is disposable.
@@ -162,10 +169,12 @@ The containment layer is therefore a **PreToolUse hook**, `cairn hook pre-tool-u
 
 - **No `agent_id`** → allow immediately, with no project lookup. That covers main sessions, `generate-tasks`, and every headless `cairn run` agent — the hook is a no-op for all of them, which is why seeding it project-wide is safe.
 - **Any subagent** `Edit`/`Write` whose resolved `file_path` is the data dir's `tasks.json` → deny, pointing at the `cairn task` subcommands.
-- **`agent_type: post-task-reviewer`** → `Edit`/`Write` only inside `<dataDir>/reviews/`; `Bash` only when every subcommand starts with a `GIT_INSPECTION_RULES` prefix, and never with redirection (`<`, `>`), backticks, or `$(`.
+- **`agent_type: post-task-reviewer`** → `Edit`/`Write` only inside `<dataDir>/reviews/`; `Bash` only when every subcommand starts with a `GIT_INSPECTION_RULES` prefix, and never with redirection (`<`, `>`), backticks, or `$(`. It also denies git's `--output` / `--output=<file>` option (matched as an exact token, after quote removal), which writes to a file and would otherwise hide a write primitive inside an allowed read-only command.
 - Everything else → allow.
 
 A deny is **exit 0 with JSON** on stdout: `{ "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "..." } }`. The hook is **fail-open**: any internal error (unparseable stdin, data dir not found, …) exits **1** — never a deny, never exit 2 — and is appended to `.cairn/.cairn_hook_errors.log`, which `cairn round next` surfaces in its `warnings` array. `cairn hook` skips `index.ts`'s preAction so it starts fast and a malformed `cairn.json` cannot crash it.
+
+**Remaining headless gap.** `cairn run`'s reviewer is contained by `--allowedTools` prefix rules (`Bash(git diff:*)` etc.), which cannot exclude an argument, so a headless reviewer could still run `git diff --output=<file>`. This is accepted as defense in depth: the reviewer follows its prompt, and the hook's `--output` rule covers the `/cairn-run` path where the hook applies.
 
 Hook probe facts — established empirically; record them here so they are never re-derived:
 
@@ -195,6 +204,8 @@ The fix used during past self-modifying rounds — worth reusing for any future 
 2. **Redirect the health check to a throwaway outfile.** Point `healthCheck` at `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck` instead of the real `dist/cairn` output, so a build-outfile-path task doesn't corrupt the binary developers are actively using.
 3. **Tell agents both values are user-managed for the round.** Any task whose file scope could plausibly touch `install.sh`, `package.json`'s build script, or `healthCheck` should say so explicitly in its description (e.g. "do NOT modify `cairn.json`'s `healthCheck` value — the user has pinned the binary and redirected the health check to a throwaway outfile"). Without that, an unrelated task can innocently "fix" the health check back to the real outfile and re-introduce the self-modification hazard mid-round.
 4. **Revert both manually once the round finishes.** Un-pin the binary (re-run `./install.sh`) and restore `healthCheck` to its real value. Neither is done automatically — both are explicitly user-managed for the duration of the round.
+
+**Never run `cairn round …` or `cairn hook …` (or `bun src/index.ts round|hook …`) against the project root during a self-modifying round** — only in temp dirs. `round next` and `round settle` write `.cairn/.cairn_run_state.json` and prompt files in the real project, and round 15 left stale run state behind that way.
 
 ### Commands
 
