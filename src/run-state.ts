@@ -54,6 +54,38 @@ export function newAttemptRecord(beforeSha: string | null, iteration: number): A
   return { beforeSha, iteration, reverts: 0, stalls: 0, incompletes: 0, phase: 'executing' };
 }
 
+/**
+ * Create-or-refresh `taskId`'s attempt record on a state object the caller
+ * already holds inside `store.update`. A missing record is created with
+ * `headSha`; an existing one keeps its `beforeSha` (so the review covers every
+ * attempt) and only takes the new iteration. Deciding existence here, under
+ * the lock, is what keeps a record cleared by `cairn task set-status` after
+ * an unlocked read from being recreated with a null beforeSha. The caller
+ * captures `headSha` before taking the lock — never shell out inside it.
+ */
+export function upsertAttemptRecord(state: RunState, taskId: number, iteration: number, headSha: string | null): AttemptRecord {
+  const key = String(taskId);
+  const existing = state.attempts[key];
+  if (existing) {
+    existing.iteration = iteration;
+    return existing;
+  }
+  const record = newAttemptRecord(headSha, iteration);
+  state.attempts[key] = record;
+  return record;
+}
+
+/** `upsertAttemptRecord` in its own short locked update. */
+export function ensureAttemptRecord(
+  dataDir: string,
+  taskId: number,
+  iteration: number,
+  headSha: string | null,
+  store: RunStateStore,
+): AttemptRecord {
+  return store.update(dataDir, (state) => ({ ...upsertAttemptRecord(state, taskId, iteration, headSha) }));
+}
+
 function emptyRunState(): RunState {
   return { iteration: 0, attempts: {} };
 }

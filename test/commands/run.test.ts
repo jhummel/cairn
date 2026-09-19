@@ -1678,6 +1678,34 @@ describe('runRun', () => {
     expect(reviewCall.beforeSha).toBe('sha-1');
   });
 
+  test('a record cleared between an earlier read and the locked update gets the captured HEAD, never null', async () => {
+    // e.g. `cairn task set-status` clears the record after a read: read()
+    // still shows it, but the state inside update() lacks it.
+    const tasks = [makeTask({ id: 4 })];
+    const stale: RunState = { iteration: 0, attempts: { '4': { beforeSha: 'old-sha', iteration: 1, reverts: 0, stalls: 0, incompletes: 0, phase: 'executing' } } };
+    const live: RunState = { iteration: 0, attempts: {} };
+    const runState: RunStateStore = {
+      read: () => structuredClone(stale),
+      update: <T>(_dataDir: string, fn: (s: RunState) => T): T => fn(live),
+    };
+    const seen: unknown[] = [];
+    const deps = makeGuardDeps(tasks, {
+      runState,
+      captureGitSha: mock(() => 'sha-head'),
+      spawnClaude: mock(async () => {
+        seen.push(structuredClone(live.attempts['4']));
+        tasks[0]!.status = 'in-progress';
+        return { exitCode: 0 };
+      }),
+    });
+
+    await runRun(makeRunOpts({ maxIterations: 1 }), deps);
+
+    expect(seen[0]).toEqual({
+      beforeSha: 'sha-head', iteration: 1, reverts: 0, stalls: 0, incompletes: 0, phase: 'executing',
+    });
+  });
+
   test('archives before the review, then a reviewed settle clears the attempt record', async () => {
     const tasks = [makeTask({ id: 4 })];
     const runState = makeMemoryRunState();

@@ -7,6 +7,10 @@ import {
   updateRunState,
   getAttempt,
   clearAttempt,
+  newAttemptRecord,
+  upsertAttemptRecord,
+  ensureAttemptRecord,
+  fileRunStateStore,
   type RunState,
   type AttemptRecord,
 } from '../src/run-state';
@@ -136,5 +140,52 @@ describe('run-state', () => {
     expect(getAttempt(dataDir, '5')).toBeUndefined();
     // Other state (iteration) is untouched.
     expect(readRunState(dataDir).iteration).toBe(0);
+  });
+
+  describe('upsertAttemptRecord', () => {
+    test('creates a fresh record with the given sha when none exists', () => {
+      const state: RunState = { iteration: 4, attempts: {} };
+      const record = upsertAttemptRecord(state, 9, 4, 'sha-head');
+      expect(record).toEqual(newAttemptRecord('sha-head', 4));
+      expect(state.attempts['9']).toBe(record);
+    });
+
+    test('an existing record keeps its beforeSha and counters and takes the new iteration', () => {
+      const state: RunState = {
+        iteration: 5,
+        attempts: { '9': { ...newAttemptRecord('first-sha', 2), reverts: 1, stalls: 2 } },
+      };
+      const record = upsertAttemptRecord(state, 9, 5, 'new-head');
+      expect(record).toEqual({ ...newAttemptRecord('first-sha', 5), reverts: 1, stalls: 2 });
+      expect(state.attempts['9']).toBe(record);
+    });
+
+    test('a null head only lands on a brand-new record', () => {
+      const state: RunState = { iteration: 0, attempts: {} };
+      expect(upsertAttemptRecord(state, 1, 1, null).beforeSha).toBeNull();
+      expect(upsertAttemptRecord(state, 1, 2, 'later-sha').beforeSha).toBeNull();
+    });
+  });
+
+  describe('ensureAttemptRecord', () => {
+    test('creates the record in the file store and returns it', () => {
+      const record = ensureAttemptRecord(dataDir, 3, 1, 'sha-1', fileRunStateStore);
+      expect(record).toEqual(newAttemptRecord('sha-1', 1));
+      expect(getAttempt(dataDir, '3')).toEqual(newAttemptRecord('sha-1', 1));
+    });
+
+    test('a second call keeps the first beforeSha and bumps the iteration on disk', () => {
+      ensureAttemptRecord(dataDir, 3, 1, 'sha-1', fileRunStateStore);
+      const record = ensureAttemptRecord(dataDir, 3, 2, 'sha-2', fileRunStateStore);
+      expect(record).toEqual(newAttemptRecord('sha-1', 2));
+      expect(getAttempt(dataDir, '3')).toEqual(newAttemptRecord('sha-1', 2));
+    });
+
+    test('recreates the record with the given sha after it was cleared', () => {
+      ensureAttemptRecord(dataDir, 3, 1, 'sha-1', fileRunStateStore);
+      clearAttempt(dataDir, '3');
+      ensureAttemptRecord(dataDir, 3, 2, 'sha-2', fileRunStateStore);
+      expect(getAttempt(dataDir, '3')).toEqual(newAttemptRecord('sha-2', 2));
+    });
   });
 });

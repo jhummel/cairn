@@ -17,7 +17,7 @@ import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnap
 import { tempFilePath } from '../utils';
 import { BRAND, NOTES_TEMP_PREFIX } from '../brand';
 import { settleTask, createRunStateGuardCounters, findTaskBaseSha, type BlockTaskOpts, type SettleTaskDeps, type SettleTaskInput } from '../settle';
-import { fileRunStateStore, newAttemptRecord, type RunStateStore } from '../run-state';
+import { ensureAttemptRecord, fileRunStateStore, type RunStateStore } from '../run-state';
 
 export type { BlockTaskOpts } from '../settle';
 
@@ -646,20 +646,11 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
 
       // i. Record the attempt before spawn. A re-pick of the same task keeps
       // the first attempt's beforeSha so the eventual review covers every
-      // attempt; only the iteration moves forward. The SHA is captured outside
-      // the run-state lock.
-      const attemptKey = String(task.id);
-      const priorAttempt = deps.runState.read(dataDir).attempts[attemptKey];
-      const capturedSha = priorAttempt ? null : deps.captureGitSha(projectRoot);
-      const beforeSha = deps.runState.update(dataDir, (state) => {
-        const record = state.attempts[attemptKey];
-        if (record) {
-          record.iteration = iteration;
-          return record.beforeSha;
-        }
-        state.attempts[attemptKey] = newAttemptRecord(capturedSha, iteration);
-        return capturedSha;
-      });
+      // attempt; only the iteration moves forward. HEAD is captured outside
+      // the run-state lock, unconditionally — whether a record exists is
+      // decided under the lock.
+      const headSha = deps.captureGitSha(projectRoot);
+      const { beforeSha } = ensureAttemptRecord(dataDir, task.id, iteration, headSha, deps.runState);
 
       // j. Spawn Claude
       const { exitCode } = await deps.spawnClaude({

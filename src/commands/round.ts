@@ -6,7 +6,7 @@ import { loadCompletedIds, selectNextTask, buildIterationPrompt } from '../task-
 import { runHealthCheck as defaultRunHealthCheck, type HealthCheckOpts, type HealthCheckResult } from '../health-check';
 import { readTasksFile, mutateTasksFile } from '../tasks-file';
 import { captureGitSha as defaultCaptureGitSha } from '../post-task-reviewer';
-import { fileRunStateStore, newAttemptRecord, type RunStateStore } from '../run-state';
+import { fileRunStateStore, upsertAttemptRecord, type RunStateStore } from '../run-state';
 import {
   reviewPromptFilePath,
   reviewVerdict,
@@ -135,19 +135,14 @@ async function pickNext(input: RoundNextInput, deps: RoundNextDeps): Promise<Rou
   const healthResult = await (deps.runHealthCheck ?? defaultRunHealthCheck)({ healthCheck: config.healthCheck, projectRoot });
 
   // 4–5. Attempt record and iteration, in one short locked update. A re-pick
-  // keeps the first attempt's beforeSha so the review covers every attempt;
-  // HEAD is captured outside the lock, and only for a new record.
-  const attemptKey = String(task.id);
-  const capturedSha = state.attempts[attemptKey] ? null : (deps.captureGitSha ?? defaultCaptureGitSha)(projectRoot);
+  // keeps the first attempt's beforeSha so the review covers every attempt.
+  // HEAD is captured outside the lock, unconditionally — whether a record
+  // exists is decided under the lock, not from the entry read above.
+  const headSha = (deps.captureGitSha ?? defaultCaptureGitSha)(projectRoot);
   const iteration = store.update(dataDir, (s) => {
     const next = s.iteration + 1;
     s.iteration = next;
-    const record = s.attempts[attemptKey];
-    if (record) {
-      record.iteration = next;
-    } else {
-      s.attempts[attemptKey] = newAttemptRecord(capturedSha, next);
-    }
+    upsertAttemptRecord(s, task.id, next, headSha);
     return next;
   });
 

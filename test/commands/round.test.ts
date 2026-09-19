@@ -260,12 +260,37 @@ describe('roundNext', () => {
 
       await roundNext(input(), h.deps);
 
-      expect(h.shaCalls).toHaveLength(0);
+      // HEAD is captured unconditionally, but the existing record wins.
+      expect(h.shaCalls).toEqual([projectRoot]);
       expect(readRunState(dataDir).attempts['7']).toEqual({
         ...newAttemptRecord('original-sha', 3),
         reverts: 1,
         incompletes: 1,
       });
+    });
+
+    test('a record cleared between the entry read and the locked update gets the captured HEAD, never null', async () => {
+      // e.g. `cairn task set-status` clears the record during the health
+      // check: read() still shows it, but the state inside update() lacks it.
+      writeTasks([makeTask({ id: 7, status: 'in-progress' })]);
+      const stale: RunState = { iteration: 2, attempts: { '7': newAttemptRecord('original-sha', 2) } };
+      let live: RunState = { iteration: 2, attempts: {} };
+      const store: RunStateStore = {
+        read: () => structuredClone(stale),
+        update: <T>(_dataDir: string, fn: (s: RunState) => T): T => {
+          const s = structuredClone(live);
+          const result = fn(s);
+          live = s;
+          return result;
+        },
+      };
+      const h = makeHarness();
+      h.setHead('head-now');
+
+      const result = await roundNext(input(), { ...h.deps, runState: store });
+
+      expect(result).toMatchObject({ verdict: 'task', taskId: 7, iteration: 3 });
+      expect(live.attempts['7']).toEqual(newAttemptRecord('head-now', 3));
     });
 
     test('iteration increments across calls and is stored on the record', async () => {
