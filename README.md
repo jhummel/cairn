@@ -102,7 +102,7 @@ Existing settings are **merged, not replaced**: `permissions.allow` is unioned w
 
 **One exception, and it is a repair.** An older `cairn init` seeded `deny` rules for the five mutating `cairn task` subcommands (`start`, `complete`, `set-status`, `add`, `note`). That was a bug: a project-wide deny binds *every* Claude session in the project, including `cairn run`'s own execution agents — it is not bypassed by `--dangerously-skip-permissions` — so agents were silently blocked from recording their own task state, and the loop re-ran a single task indefinitely while reporting success. Since `.claude/settings.local.json` is gitignored, nothing in `git status` reveals it. Re-running `cairn init` now strips exactly those five rules (and drops the `deny` key if that empties it). Any other deny rule you wrote yourself is kept.
 
-Cairn deliberately does not edit `.gitignore` or your global git config — add `.claude/settings.local.json` to your own `.gitignore` yourself. Claude Code only auto-ignores that file when Claude Code itself creates it.
+Cairn deliberately does not edit your project's root `.gitignore` or your global git config — add `.claude/settings.local.json` to your own `.gitignore` yourself. Claude Code only auto-ignores that file when Claude Code itself creates it. (This is unrelated to `.cairn/.gitignore`, which `cairn init` does write and, on re-init, append missing entries to — see [Per-project data](#per-project-data-created-by-cairn-init).)
 
 ### 2. Plan
 
@@ -164,7 +164,7 @@ The `round` commands are deliberately not under `cairn task`: task agents use `c
 Headless `cairn run` agents are constrained by their prompts and (for the reviewer) a scoped `--allowedTools` list. Subagents of an interactive session don't get `--allowedTools` — they follow the session's permission mode. So `cairn init` registers a PreToolUse hook, `cairn hook pre-tool-use`, that:
 
 - denies any subagent `Edit`/`Write` to `.cairn/tasks.json` (agents must use `cairn task`)
-- limits `post-task-reviewer` to writing inside `.cairn/reviews/` and to read-only git commands (`git diff`, `log`, `show`, `status`, `rev-parse`, no redirection, command substitution, or git's file-writing `--output` option)
+- limits `post-task-reviewer` to writing inside `.cairn/reviews/` and to read-only git commands (`git diff`, `log`, `show`, `status`, `rev-parse`), denying redirection, backticks, or a `$` anywhere in the command (which subsumes command substitution, `${VAR}` expansion, bare `$VAR`, and `$'...'` quoting) plus git's file-writing `--output` option as a second, exact-token check
 - does nothing for main sessions or headless `cairn run` agents (they have no subagent id)
 
 Hook denies apply even under `bypassPermissions`. The hook is **fail-open**: if it errors (or `cairn` isn't on PATH), the call goes through. Errors are logged to `.cairn/.cairn_hook_errors.log`, and `cairn round next` shows a warning while that log is non-empty.
@@ -378,7 +378,7 @@ your-project/
 │   ├── reviews/
 │   │   └── round-<N>.md        # Per-planning-round post-task review logs
 │   ├── planning-notes.md       # Output from planning discussions
-│   ├── .gitignore              # Ignores the temp files below (and instructions.md, if still present)
+│   ├── .gitignore              # Ignores the temp files below (and instructions.md, if still present); re-init appends any missing entries, never reorders/removes
 │   ├── .cairn_run_state.json   # Iteration counter + per-task attempt records (temp)
 │   ├── .cairn_task_<id>_tests.log         # Test validation output (temp)
 │   ├── .cairn_task_<id>_prompt.md         # Task agent prompt from `cairn round next` (temp)
