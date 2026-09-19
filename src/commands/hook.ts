@@ -81,6 +81,21 @@ function isInside(dir: string, target: string): boolean {
 }
 
 /**
+ * True when a subcommand passes git's `--output` / `--output=<file>` option,
+ * which makes `git diff|log|show` write to an arbitrary file. git rejects
+ * abbreviations, so the exact token suffices; `--output-indicator-*` is harmless
+ * and does not match. Shell quoting characters are stripped from each token
+ * first, so `"--output=x"` and `--out"put"=x` are caught as the shell will
+ * deliver them.
+ */
+function hasOutputOption(subcommand: string): boolean {
+  return subcommand
+    .split(/\s+/)
+    .map((token) => token.replace(/['"\\$]/g, ''))
+    .some((token) => token === '--output' || token.startsWith('--output='));
+}
+
+/**
  * A reviewer Bash command is allowed only when every subcommand is a git
  * inspection command. Command substitution and redirection are refused
  * outright: `git diff > f` and `git diff $(rm x)` start with an allowed prefix
@@ -90,6 +105,7 @@ function isInspectionOnly(command: string): boolean {
   if (/[`<>]|\$\(/.test(command)) return false;
   const subcommands = splitSubcommands(command);
   if (subcommands.length === 0) return false;
+  if (subcommands.some(hasOutputOption)) return false;
   const prefixes = reviewerBashPrefixes();
   return subcommands.every((cmd) => prefixes.some((p) => cmd === p || cmd.startsWith(`${p} `)));
 }
@@ -122,7 +138,7 @@ export function decidePreToolUse(input: PreToolUseInput, ctx: HookContext): Hook
     if (typeof command === 'string' && isInspectionOnly(command)) return ALLOW;
     return {
       decision: 'deny',
-      reason: `${REVIEWER_AGENT_TYPE} may only run read-only git inspection commands (${reviewerBashPrefixes().join(', ')}), without redirection or command substitution.`,
+      reason: `${REVIEWER_AGENT_TYPE} may only run read-only git inspection commands (${reviewerBashPrefixes().join(', ')}), without redirection, command substitution, or the --output option (which writes files).`,
     };
   }
 

@@ -158,6 +158,28 @@ describe('decidePreToolUse', () => {
       });
     }
 
+    // `--output=<file>` makes git diff/log/show write to any file.
+    for (const command of [
+      'git diff --output=x',
+      'git log --output x',
+      'git show HEAD --output=/tmp/y',
+      'git diff "--output=x"',
+      "git diff '--output' x",
+      'git status && git log --output=z',
+    ]) {
+      test(`Bash ${JSON.stringify(command)} → deny mentioning --output`, () => {
+        const result = decidePreToolUse(reviewer('Bash', { command }), CTX);
+        if (result.decision !== 'deny') throw new Error('expected deny');
+        expect(result.reason).toContain('--output');
+      });
+    }
+
+    for (const command of ['git diff --output-indicator-new=+ HEAD~1', 'git diff --output-indicator-old=- --output-indicator-context=x', 'git log --oneline -5']) {
+      test(`Bash ${JSON.stringify(command)} → allow`, () => {
+        expect(decidePreToolUse(reviewer('Bash', { command }), CTX)).toEqual({ decision: 'allow' });
+      });
+    }
+
     test('Write to tasks.json → deny with the tasks.json reason', () => {
       const result = decidePreToolUse(reviewer('Write', { file_path: CTX.tasksFilePath, content: '' }), CTX);
       if (result.decision !== 'deny') throw new Error('expected deny');
