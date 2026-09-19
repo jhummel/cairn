@@ -180,6 +180,34 @@ describe('decidePreToolUse', () => {
       });
     }
 
+    // `$` anywhere (not just `$(`) must be denied outright: it subsumes `$(`,
+    // `${…}` brace expansion (which `hasOutputOption`'s old strip-then-check
+    // missed — `--output${X}=f` survived stripping as `--output{X}=f`, matching
+    // neither `--output` nor `--output=`), bare `$VAR`, and `$'...'` ANSI-C quoting.
+    for (const command of ['git log --output${X}=/tmp/f', 'git diff $X', "git show $'--output=x'"]) {
+      test(`Bash ${JSON.stringify(command)} → deny (shell variable/expansion)`, () => {
+        const result = decidePreToolUse(reviewer('Bash', { command }), CTX);
+        expect(result.decision).toBe('deny');
+      });
+    }
+
+    // Quoting variants of `--output=` that contain no `$` must still be caught
+    // by the exact-token check in `hasOutputOption`.
+    for (const command of ['git diff --output"="x', "git diff --outpu't'=x", 'git diff --output\\=x']) {
+      test(`Bash ${JSON.stringify(command)} → deny mentioning --output`, () => {
+        const result = decidePreToolUse(reviewer('Bash', { command }), CTX);
+        if (result.decision !== 'deny') throw new Error('expected deny');
+        expect(result.reason).toContain('--output');
+      });
+    }
+
+    // Plain inspection commands with no `$`, redirection, or `--output` stay allowed.
+    for (const command of ['git diff abc123..def456', 'git log --oneline -5', 'git status']) {
+      test(`Bash ${JSON.stringify(command)} → allow (still, no $ present)`, () => {
+        expect(decidePreToolUse(reviewer('Bash', { command }), CTX)).toEqual({ decision: 'allow' });
+      });
+    }
+
     test('Write to tasks.json → deny with the tasks.json reason', () => {
       const result = decidePreToolUse(reviewer('Write', { file_path: CTX.tasksFilePath, content: '' }), CTX);
       if (result.decision !== 'deny') throw new Error('expected deny');
