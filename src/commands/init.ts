@@ -72,6 +72,40 @@ export interface ConfigDefaults {
   reviewPostTask: boolean;
 }
 
+/** Non-comment, non-blank lines of `GITIGNORE_CONTENT`, trimmed. */
+function currentGitignoreEntries(): string[] {
+  return GITIGNORE_CONTENT.split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'));
+}
+
+const GITIGNORE_MERGE_HEADER = '# Added by cairn init (missing entries)';
+
+/**
+ * Append-only merge for an existing `.gitignore`: appends whichever of
+ * `GITIGNORE_CONTENT`'s non-comment lines are missing from `gitignorePath`,
+ * under a short header, and returns how many were added.
+ *
+ * Matching is trimmed exact-string, position-independent — an entry already
+ * present anywhere in the file (the legacy `.ralph_*` block, a user's own
+ * line, mid-file or at the end) counts as present. Existing lines are never
+ * reordered, rewritten, or removed; a file that is already missing nothing
+ * is left untouched (not even a trailing-newline rewrite).
+ */
+export function mergeGitignoreEntries(gitignorePath: string): number {
+  const existing = fs.readFileSync(gitignorePath, 'utf8');
+  const existingLines = new Set(
+    existing.split('\n').map((line) => line.trim()).filter((line) => line !== ''),
+  );
+  const missing = currentGitignoreEntries().filter((entry) => !existingLines.has(entry));
+  if (missing.length === 0) return 0;
+
+  const base = existing.endsWith('\n') ? existing : `${existing}\n`;
+  const addition = `${GITIGNORE_MERGE_HEADER}\n${missing.join('\n')}\n`;
+  fs.writeFileSync(gitignorePath, base + addition);
+  return missing.length;
+}
+
 export function initCoreFiles(projectRoot: string, dataDir: string): void {
   // dataDir's basename reflects whichever layout the caller resolved (current
   // brand for a fresh init, legacy for a re-init on an existing project) — never
@@ -91,6 +125,11 @@ export function initCoreFiles(projectRoot: string, dataDir: string): void {
   if (!fs.existsSync(gitignorePath)) {
     fs.writeFileSync(gitignorePath, GITIGNORE_CONTENT);
     console.log(`  Created: ${dirName}/.gitignore`);
+  } else {
+    const added = mergeGitignoreEntries(gitignorePath);
+    if (added > 0) {
+      console.log(`  Updated: ${dirName}/.gitignore (added ${added} entries)`);
+    }
   }
 
   // Create tasks.json inside the data directory

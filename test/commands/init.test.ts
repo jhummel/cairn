@@ -116,15 +116,125 @@ describe('initCoreFiles', () => {
     expect(stdoutLines.join('\n')).toContain('Created: .cairn/.gitignore');
   });
 
-  test('does not overwrite existing .gitignore', () => {
+  test('does not overwrite existing .gitignore, but appends missing entries', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     const gitignorePath = path.join(dataDir, '.gitignore');
     const originalContent = '# custom\n';
     fs.writeFileSync(gitignorePath, originalContent);
     initCoreFiles(tmpDir, dataDir);
-    expect(fs.readFileSync(gitignorePath, 'utf8')).toBe(originalContent);
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    expect(content.startsWith(originalContent)).toBe(true);
+    expect(content).toContain('.cairn_run_state.json');
     expect(stdoutLines.join('\n')).not.toContain('Created: .cairn/.gitignore');
+    expect(stdoutLines.join('\n')).toMatch(/Updated: \.cairn\/\.gitignore \(added \d+ entries\)/);
+  });
+
+  // --- existing-.gitignore append-only merge (round 17) ---
+
+  test('an old-style file with only the legacy .ralph_* block gains the missing current entries', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    const gitignorePath = path.join(dataDir, '.gitignore');
+    const legacyContent =
+      '# Ralph temp files (tasks.json and planning-notes.md are tracked)\n' +
+      '.ralph_complete\n' +
+      '.ralph_iterations.log\n' +
+      '.ralph_prev_notes\n' +
+      '.ralph_task_meta\n' +
+      '.ralph_completed_ids\n' +
+      '.ralph_tasks_snapshot.json\n' +
+      '.ralph_task_*_notes.md\n' +
+      'instructions.md\n';
+    fs.writeFileSync(gitignorePath, legacyContent);
+
+    initCoreFiles(tmpDir, dataDir);
+
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    // Old content survives byte-for-byte, untouched.
+    expect(content.startsWith(legacyContent)).toBe(true);
+    // The entries missing from the legacy block are appended.
+    expect(content).toContain('.cairn_run_state.json');
+    expect(content).toContain('.cairn_run_state.json.lock');
+    expect(content).toContain('.cairn_task_*_prompt.md');
+    expect(content).toContain('.cairn_task_*_tests.log');
+    expect(content).toContain('.cairn_hook_errors.log');
+    const output = stdoutLines.join('\n');
+    expect(output).toMatch(/Updated: \.cairn\/\.gitignore \(added 12 entries\)/);
+  });
+
+  test('a file that already has every entry mid-file is left unchanged with no output', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    const gitignorePath = path.join(dataDir, '.gitignore');
+    // Every current entry is present, but not in GITIGNORE_CONTENT's order and
+    // not at the end of the file — a trailing user line comes after them.
+    const mixedContent =
+      '# my custom header\n' +
+      '.cairn_hook_errors.log\n' +
+      '.cairn_run_state.json.lock\n' +
+      '.cairn_run_state.json\n' +
+      '.cairn_task_*_prompt.md\n' +
+      '.cairn_task_*_tests.log\n' +
+      '.cairn_task_*_notes.md\n' +
+      '.cairn_tasks_snapshot.json\n' +
+      '.cairn_completed_ids\n' +
+      '.cairn_task_meta\n' +
+      '.cairn_prev_notes\n' +
+      '.cairn_iterations.log\n' +
+      '.cairn_complete\n' +
+      '.ralph_task_*_notes.md\n' +
+      'instructions.md\n' +
+      '# a trailing user comment, after every entry\n' +
+      'node_modules/\n';
+    fs.writeFileSync(gitignorePath, mixedContent);
+
+    initCoreFiles(tmpDir, dataDir);
+
+    expect(fs.readFileSync(gitignorePath, 'utf8')).toBe(mixedContent);
+    expect(stdoutLines.join('\n')).not.toContain('.gitignore');
+  });
+
+  test('user-added lines are preserved when entries are appended', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    const gitignorePath = path.join(dataDir, '.gitignore');
+    const userContent = '# my notes\nmy-scratch-dir/\n*.local\n';
+    fs.writeFileSync(gitignorePath, userContent);
+
+    initCoreFiles(tmpDir, dataDir);
+
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    expect(content.startsWith(userContent)).toBe(true);
+    expect(content).toContain('my-scratch-dir/');
+    expect(content).toContain('*.local');
+    expect(content).toContain('.cairn_run_state.json');
+  });
+
+  test('a second init on an already-merged file adds nothing', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    const gitignorePath = path.join(dataDir, '.gitignore');
+    fs.writeFileSync(gitignorePath, '# custom\n');
+
+    initCoreFiles(tmpDir, dataDir);
+    const afterFirstMerge = fs.readFileSync(gitignorePath, 'utf8');
+
+    stdoutLines = [];
+    initCoreFiles(tmpDir, dataDir);
+
+    expect(fs.readFileSync(gitignorePath, 'utf8')).toBe(afterFirstMerge);
+    expect(stdoutLines.join('\n')).not.toContain('.gitignore');
+  });
+
+  test('init never touches the repository root .gitignore', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    const rootGitignorePath = path.join(tmpDir, '.gitignore');
+    fs.writeFileSync(rootGitignorePath, '# root gitignore\nnode_modules/\n');
+
+    initCoreFiles(tmpDir, dataDir);
+
+    expect(fs.readFileSync(rootGitignorePath, 'utf8')).toBe('# root gitignore\nnode_modules/\n');
   });
 
   test('creates .cairn/tasks.json with project name and empty tasks', () => {

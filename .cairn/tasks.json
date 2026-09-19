@@ -1,4 +1,162 @@
 {
   "project": "cairn-cli-tool",
-  "tasks": []
+  "tasks": [
+    {
+      "id": 117,
+      "priority": 1,
+      "title": "cairn init: add missing entries to an existing .cairn/.gitignore",
+      "description": "Today `initCoreFiles()` (src/commands/init.ts:91) writes `GITIGNORE_CONTENT` only when `.cairn/.gitignore` does not exist, so every project initialized before round 15 is missing the run-state, prompt-file, test-log and hook-error entries (`.cairn_run_state.json`, `.cairn_run_state.json.lock`, `.cairn_task_*_prompt.md`, `.cairn_task_*_tests.log`, `.cairn_hook_errors.log`) and an agent's `git add -A` can commit those files.\n\nAdd an append-only merge for the existing-file case: compare the existing file's lines (trimmed, exact string match, WHEREVER in the file they appear — position independent) against the lines of `GITIGNORE_CONTENT`, and append only the missing non-comment lines under a short comment header. Never reorder, rewrite or remove an existing line — the legacy `.ralph_*` block and any user additions must survive byte-for-byte. Print `  Updated: <dirName>/.gitignore (added N entries)` when N > 0 and print nothing when nothing was added. `init` must still never touch the repository's root `.gitignore`.\n\nTests (TDD — write the failing test first, watch it fail, then make it pass): an old-style file containing only the legacy `.ralph_*` block gains the missing current entries; a file that already contains all the entries MID-FILE (not at the end) is left unchanged with no output; user-added lines are preserved; a second `init` adds nothing — the existing re-init test at test/commands/init.test.ts:170 must still pass.\n\nNEVER run `cairn round …`, `cairn hook …`, `cairn init`, or `bun src/index.ts round|hook|init …` against this repository's root, and never spawn a real post-task reviewer against this repo. Exercise these code paths only in temp directories created with `fs.mkdtempSync`.\n\nDo NOT modify `cairn.json`'s `healthCheck` value and do NOT modify `package.json`'s `build` script — the binary is pinned for this round and the health check is redirected to /tmp/cairn-healthcheck. Do NOT run `./install.sh`. `cairn.json` has an uncommitted user change: stage only the files you changed.",
+      "directory": "",
+      "status": "complete",
+      "files": [
+        "src/commands/init.ts",
+        "test/commands/init.test.ts"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet",
+      "completedAt": "2026-09-19T22:32:32.819Z",
+      "completedBy": "iteration-1",
+      "notes": "# Task #117 — cairn init: add missing entries to an existing .cairn/.gitignore\n\n## What changed\n\n`src/commands/init.ts`:\n- Added `currentGitignoreEntries()` — returns `GITIGNORE_CONTENT`'s non-comment,\n  non-blank lines, trimmed.\n- Added `mergeGitignoreEntries(gitignorePath)` (exported) — append-only merge:\n  reads the existing file, builds a `Set` of its trimmed non-blank lines\n  (position-independent), diffs against `currentGitignoreEntries()`, and\n  appends only the missing ones under a new `# Added by cairn init (missing\n  entries)` header. Returns the count appended (0 if nothing missing). Never\n  rewrites, reorders, or removes existing lines; if nothing is missing the\n  file is not touched at all (not even a trailing-newline normalization).\n- `initCoreFiles()`'s existing-`.gitignore` branch now calls\n  `mergeGitignoreEntries()` instead of doing nothing, and prints\n  `  Updated: <dirName>/.gitignore (added N entries)` when N > 0, nothing when\n  N is 0. The fresh-file branch (`fs.writeFileSync(gitignorePath,\n  GITIGNORE_CONTENT)`) is unchanged, so a brand-new project still gets a\n  `Created:` message and root `.gitignore` is still never touched (only\n  `dataDir/.gitignore` is read/written).\n\n`test/commands/init.test.ts`:\n- Rewrote the old \"does not overwrite existing .gitignore\" test (it asserted\n  byte-for-byte equality with a bare `# custom\\n` file, which is exactly the\n  behavior this task changes) into \"does not overwrite existing .gitignore,\n  but appends missing entries\" — content still starts with the original text,\n  gains the new entries, and prints the `Updated: ... (added N entries)` line.\n- Added the four TDD tests the task asked for:\n  - old-style file with only the legacy `.ralph_*` block (using the pre-round\n    GITIGNORE_CONTENT format: `.ralph_complete`, `.ralph_iterations.log`,\n    etc.) gains the 12 missing `.cairn_*` entries, original content preserved\n    byte-for-byte, prints \"added 12 entries\".\n  - a file that already has every current entry, in different order and\n    mid-file (a trailing user comment + `node_modules/` follow), is left\n    byte-for-byte unchanged with no `.gitignore`-related stdout line.\n  - user-added lines (`my-scratch-dir/`, `*.local`) survive a merge that adds\n    the missing cairn entries.\n  - a second `initCoreFiles()` call on an already-merged file changes nothing\n    and prints nothing.\n  - explicit test that init never touches the project root's `.gitignore`.\n- Confirmed the existing idempotency test at (now) test/commands/init.test.ts\n  around line 170 (\"is idempotent — running twice produces same files\") still\n  passes unmodified: a freshly-created `.gitignore` already contains every\n  `GITIGNORE_CONTENT` line, so the second run's merge is a no-op.\n\n## Verification\n\n- `bun test test/commands/init.test.ts` — 179 pass, 0 fail.\n- `bun run typecheck` — clean.\n- `bun test` (full suite) — 1200 pass, 0 fail.\n- All exploration/build/test work was local TS edits and `bun test`/`bun run\n  typecheck` only. No `cairn round`, `cairn hook`, `cairn init`, or\n  `bun src/index.ts round|hook|init` was run against this repo's root, and no\n  real post-task reviewer was spawned. Did not touch `cairn.json`'s\n  `healthCheck`, `package.json`'s `build` script, or run `./install.sh`.\n\n## Follow-ups / discovered issues\n\nNone found unrelated to this task.\n\nCANARY-17\n"
+    },
+    {
+      "id": 118,
+      "priority": 2,
+      "title": "Hook: deny $ anywhere in reviewer Bash; fold Writer into cli-io.ts",
+      "description": "Confirmed hole (probed during planning): `hasOutputOption()` (src/commands/hook.ts) strips `'`, `\"`, `\\` and `$` from each token but leaves braces, so `git log --output${X}=/tmp/f` becomes `--output{X}=/tmp/f`, matches neither `--output` nor `--output=`, is ALLOWED, and bash then expands `${X}` to nothing and git writes the file. The pre-check regex at hook.ts:105 (/[`<>]|\\$\\(/) only catches backticks, `<`, `>` and `$(`.\n\nFix: in `isInspectionOnly()`, deny any reviewer Bash command containing `$` ANYWHERE, replacing the strip-`$`-then-check approach; this subsumes `$(`, `${…}`, `$VAR` and `$'…'` ANSI-C quoting. Keep the exact-token `--output` / `--output=` check as a second layer (stop stripping `$` in `hasOutputOption` since `$` is now denied outright). This is safe for legitimate use: the `${range}` in src/post-task-reviewer.ts's prompt is a JS template literal filled in before the reviewer ever sees it, so the reviewer's git commands never contain a literal `$`. Update the deny reason text to mention shell variables/expansion alongside redirection, command substitution and `--output`.\n\nAlso fold hook.ts:30's local `Writer` type declaration into an import from src/cli-io.ts (the other copies moved there in #115).\n\nTests (TDD — write the failing test first, watch it fail, then make it pass): newly denied — `git log --output${X}=/tmp/f`, `git diff $X`, `git show $'--output=x'`; still allowed — a plain `git diff <sha>..<sha>` range, `git log --oneline -5`, `git status`; still denied — the existing quoting variants (`--output\"=\"…`, `--outpu't'=…`, `--output\\=…`) and redirection.\n\nNEVER run `cairn round …`, `cairn hook …`, `cairn init`, or `bun src/index.ts round|hook|init …` against this repository's root, and never spawn a real post-task reviewer against this repo. Exercise these code paths only in temp directories created with `fs.mkdtempSync`.\n\nDo NOT modify `cairn.json`'s `healthCheck` value and do NOT modify `package.json`'s `build` script — the binary is pinned for this round and the health check is redirected to /tmp/cairn-healthcheck. Do NOT run `./install.sh`. `cairn.json` has an uncommitted user change: stage only the files you changed.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/hook.ts",
+        "src/cli-io.ts",
+        "test/commands/hook.test.ts"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet"
+    },
+    {
+      "id": 119,
+      "priority": 3,
+      "title": "Hook: find the project from the tool call's cwd, not CAIRN_PROJECT_ROOT",
+      "description": "`findProjectRoot()` (src/utils.ts:68) checks `CAIRN_PROJECT_ROOT` first, and the hook calls it with the tool call's `cwd` (hook.ts:187), so the environment variable wins. A /cairn-run session started from a shell cairn launched therefore resolves the hook's `tasksFilePath` and `reviewsDir` to the wrong project — observed during planning, where a hook aimed at a temp repo resolved to this repo instead.\n\nFix: when the PreToolUse payload has a usable string `cwd`, the hook resolves the project by walking up from that `cwd` for a `.cairn/` directory, IGNORING `CAIRN_PROJECT_ROOT`; with no usable `cwd`, fall back to today's behavior (env var, then `process.cwd()`). The same resolution must be used for the fail-open error-log location (hook.ts:209), so a deny and its error log never point at different projects. Suggested shape: an options argument on `findProjectRoot` (e.g. `{ ignoreEnv: true }`) or a small walk-only helper exported from src/utils.ts.\n\nDO NOT change `findProjectRoot`'s default behavior — every other cairn command relies on the env var winning, and changing it would break commands spawned by cairn.\n\nTest (TDD — write the failing test first, watch it fail, then make it pass): with `CAIRN_PROJECT_ROOT` set to temp project A and the payload's `cwd` inside temp project B, the reviewer's `reviews/` scope and the `tasks.json` deny rule both resolve to B; with no `cwd` in the payload, A still wins. Save and restore `process.env.CAIRN_PROJECT_ROOT` around the tests.\n\nNEVER run `cairn round …`, `cairn hook …`, `cairn init`, or `bun src/index.ts round|hook|init …` against this repository's root, and never spawn a real post-task reviewer against this repo. Exercise these code paths only in temp directories created with `fs.mkdtempSync`.\n\nDo NOT modify `cairn.json`'s `healthCheck` value and do NOT modify `package.json`'s `build` script — the binary is pinned for this round and the health check is redirected to /tmp/cairn-healthcheck. Do NOT run `./install.sh`. `cairn.json` has an uncommitted user change: stage only the files you changed.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/hook.ts",
+        "src/utils.ts",
+        "test/commands/hook.test.ts",
+        "test/utils.test.ts"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [
+        118
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 120,
+      "priority": 4,
+      "title": "test/ type errors, batch A",
+      "description": "`test/` is not yet covered by `bun run typecheck` and has 38 type errors; this task fixes 19 of them. By file: test/post-task-reviewer.test.ts 11 x TS2345 (nearly all the same argument-type mismatch on `buildPostTaskReviewUserPrompt`'s input object); test/config.test.ts 4 x TS2339 (`maxIterations` accessed on `{ postTask: boolean }` — a leftover of the config field deleted in round 16); test/commands/init.test.ts 2 x TS2352 (`ConfigDefaults` -> `Record<string, unknown>` cast); test/index.test.ts 1 x TS18048 (`args` possibly undefined); test/settle.test.ts 1 x TS2769.\n\nTo see the errors, write a TEMPORARY tsconfig that `extends` `./tsconfig.json`, sets `\"rootDir\": \".\"` and `\"include\": [\"src\", \"test\"]`, run `tsc --noEmit -p <that file>`, and DELETE it when done — do not modify the real tsconfig.json (task #122 turns the gate on).\n\nFix the TEST code, not `src/` types, unless a `src/` type is genuinely wrong — if it is, fix it and say so explicitly in the completion notes. Prefer typed helpers or `as unknown as T` casts at mock boundaries over loosening `src/` signatures. Do not add `// @ts-expect-error` or `// @ts-ignore` except as a genuine last resort, with a comment explaining why. `bun test` must stay green. Note that plain `bun run typecheck` cannot yet catch regressions here — that gate arrives in #122.\n\nPractice TDD where it applies: when a fix changes behavior rather than only types, write the failing test first.\n\nDo NOT modify `cairn.json`'s `healthCheck` value and do NOT modify `package.json`'s `build` script — the binary is pinned for this round and the health check is redirected to /tmp/cairn-healthcheck. Do NOT run `./install.sh`. `cairn.json` has an uncommitted user change: stage only the files you changed.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "test/post-task-reviewer.test.ts",
+        "test/config.test.ts",
+        "test/commands/init.test.ts",
+        "test/index.test.ts",
+        "test/settle.test.ts",
+        "tsconfig.json"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [
+        117
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 121,
+      "priority": 5,
+      "title": "Headless reviewer: --disallowedTools closes the same --output hole",
+      "description": "`cairn run`'s headless reviewer is contained only by `--allowedTools` prefix rules (`Bash(git diff:*)` etc.), which cannot exclude an argument — so it can still run `git diff --output=<file>` (CLAUDE.md calls this the \"remaining headless gap\").\n\nA probe run during planning CONFIRMED both the hole and the fix: with `--allowedTools \"Bash(git log:*)\"` and no deny, `git log --output=/tmp/f` ran and wrote the file; adding `Bash(*--output*)` blocked both the plain form and the `--output${X}=` variable form; adding `Bash(*$*)` plus the quote patterns also blocked the split-quoting form `git log --out\"put\"=/tmp/f`. `git log --oneline -3` still ran (no false positives).\n\nAdd a `--disallowedTools` argument to the reviewer spawn in `spawnPostTaskReviewer` (src/post-task-reviewer.ts) carrying that validated list — `Bash(*--output*)`, `Bash(*--out*)`, `Bash(*$*)` and the quote patterns (`Bash(*\")` and the single-quote equivalent) — and define the list as an exported constant BESIDE `GIT_INSPECTION_RULES` in src/claude-settings.ts, so the headless deny rules and the hook's parsed checks stay visibly paired even though they can't be made identical.\n\nWatch the pattern syntax: the probe found `Bash(git log:* --output*)` matches nothing (the `:` prefix form does not combine with a trailing wildcard), so use the forms listed above verbatim.\n\nTest (TDD — write the failing test first, watch it fail, then make it pass): assert the spawn is invoked with `--disallowedTools` followed by the expected value — use the existing injected `spawn` dependency. NEVER spawn a real reviewer against this repo, and do not try to re-probe Claude Code's matching behavior from a unit test.\n\nKnown and accepted limit, to document rather than solve: deny patterns match raw command text while the hook parses the command, so /cairn-run remains the stronger layer — this is defense in depth against a trusted agent, not a sandbox.\n\nNEVER run `cairn round …`, `cairn hook …`, `cairn init`, or `bun src/index.ts round|hook|init …` against this repository's root. Exercise these code paths only in temp directories created with `fs.mkdtempSync`.\n\nDo NOT modify `cairn.json`'s `healthCheck` value and do NOT modify `package.json`'s `build` script — the binary is pinned for this round and the health check is redirected to /tmp/cairn-healthcheck. Do NOT run `./install.sh`. `cairn.json` has an uncommitted user change: stage only the files you changed.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/post-task-reviewer.ts",
+        "src/claude-settings.ts",
+        "test/post-task-reviewer.test.ts"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [
+        120
+      ],
+      "model": "sonnet"
+    },
+    {
+      "id": 122,
+      "priority": 6,
+      "title": "test/ type errors, batch B, then turn the gate on",
+      "description": "Fix the remaining 19 `test/` type errors and then extend the type-check gate to `test/`. By file: test/commands/run.test.ts 14 errors (TS2322 mock type mismatches — `Mock<…>` vs `(...args: unknown[]) => void`, archive-mock return types — plus TS2769 overload failures); test/stream-filter.test.ts 5 errors (TS2741 `fetch` mocks missing `preconnect`, one TS2322).\n\nThen update tsconfig.json: add `\"test\"` to `include`, and change or remove `\"rootDir\": \"src\"` (set `\".\"` or delete it — it currently rejects files outside `src/`). `bun build --compile` ignores `rootDir`/`outDir`, so this cannot affect the build; leave `outDir` alone.\n\nFinally, run `bun run typecheck` and fix any type errors introduced by the new tests from #117–#121 — the gate must exit 0 with `test/` included.\n\nSame rules as batch A: fix test code rather than loosening `src/` signatures, prefer typed helpers or `as unknown as T` at mock boundaries, and avoid `@ts-expect-error`/`@ts-ignore` except as a commented last resort. `bun test` must stay green.\n\nDO NOT modify `package.json`'s `build` script or `cairn.json`'s `healthCheck` while you are in these config files — the binary is pinned for this round and the health check is redirected to /tmp/cairn-healthcheck. Do NOT run `./install.sh`. `cairn.json` has an uncommitted user change: stage only the files you changed.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "test/commands/run.test.ts",
+        "test/stream-filter.test.ts",
+        "tsconfig.json"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [
+        117,
+        118,
+        119,
+        120,
+        121
+      ],
+      "model": "opus"
+    },
+    {
+      "id": 123,
+      "priority": 7,
+      "title": "Docs: CLAUDE.md and README.md for the round-17 changes",
+      "description": "Update the docs to match what this round shipped. Docs only — no code changes.\n\nIn CLAUDE.md:\n1. Development — `bun run typecheck` now covers `src/` AND `test/`; remove the paragraph about `test/`'s ~43 pre-existing type errors being deferred.\n2. Enforcement under /cairn-run — the reviewer's Bash scope now denies any command containing `$` (shell expansion, subsuming `$(`, `${…}`, `$VAR`, `$'…'`), with the exact-token `--output` check kept as a second layer; and the hook now resolves the project by walking up from the tool call's `cwd`, ignoring `CAIRN_PROJECT_ROOT`, falling back to the env var only when the payload has no usable `cwd` (including for the error-log path).\n3. Replace the \"Remaining headless gap\" paragraph: the headless reviewer now spawns with `--disallowedTools`, a probe established that deny wildcards DO match an argument mid-command, and the residual limit is that deny patterns match raw text while the hook parses the command — so the hook stays the stronger layer.\n4. Per-project data layout — `cairn init` now adds missing entries to an existing `.cairn/.gitignore` (append-only, never reorders or removes).\n5. Run state — merge the two duplicated bullets (\"Picking records the sha under the lock\" and \"Orphan pruning\") into the bullets above them that already say the same thing.\n\nIn README.md: matching updates to the reviewer-containment line (~line 167) and the `.gitignore` / `cairn init` lines (~lines 105, 381).\n\nDo NOT modify `cairn.json`'s `healthCheck` value and do NOT modify `package.json`'s `build` script — the binary is pinned for this round and the health check is redirected to /tmp/cairn-healthcheck. Do NOT run `./install.sh`. `cairn.json` has an uncommitted user change: stage only the files you changed.",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "CLAUDE.md",
+        "README.md"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [
+        117,
+        118,
+        119,
+        120,
+        121,
+        122
+      ],
+      "model": "sonnet"
+    }
+  ]
 }
