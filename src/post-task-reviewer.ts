@@ -11,7 +11,7 @@ import { getRound } from "./task-counter";
 import type { Task } from "./types";
 import type { CairnConfig } from "./types";
 import { loadPersonalInstructions } from "./personal-instructions";
-import { GIT_INSPECTION_RULES } from "./claude-settings";
+import { GIT_INSPECTION_RULES, REVIEWER_DISALLOWED_BASH_RULES } from "./claude-settings";
 import { BRAND } from "./brand";
 
 /**
@@ -204,11 +204,20 @@ export async function spawnPostTaskReviewer(
     ...GIT_INSPECTION_RULES,
   ].join(",");
 
+  // --allowedTools grants git inspection by PREFIX (e.g. Bash(git diff:*)),
+  // which cannot exclude an argument — so `git diff --output=<file>` still
+  // matches and writes a file. --disallowedTools layers a substring-based
+  // deny on top to close that hole; see REVIEWER_DISALLOWED_BASH_RULES
+  // (src/claude-settings.ts) for the probe that validated these patterns and
+  // the accepted limit (deny matches raw text, not a parsed command line —
+  // the /cairn-run PreToolUse hook is the stronger layer where it applies).
   const args = [
     "-p",
     ...buildAgentArgs("post-task-reviewer", "Sr. Dev code reviewer", projectRoot),
     "--allowedTools",
     allowedTools,
+    "--disallowedTools",
+    REVIEWER_DISALLOWED_BASH_RULES.join(","),
     "--output-format",
     "stream-json",
     "--model",

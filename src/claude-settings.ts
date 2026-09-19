@@ -88,6 +88,42 @@ export const GIT_INSPECTION_RULES: readonly string[] = [
 ];
 
 /**
+ * Closes the headless reviewer's `--output` hole alongside GIT_INSPECTION_RULES:
+ * an `--allowedTools` prefix rule like `Bash(git diff:*)` cannot exclude an
+ * argument, so `git diff --output=<file>` (a write, not an inspection) still
+ * matches it. These are `--disallowedTools` rules layered on top of that
+ * allowlist for the same headless spawn (see `spawnPostTaskReviewer` in
+ * src/post-task-reviewer.ts).
+ *
+ * Kept as a visibly separate list rather than folded into GIT_INSPECTION_RULES
+ * because the two can never be made identical: one is an allow-prefix grant,
+ * the other a deny-substring block, and they are passed to different flags.
+ *
+ * Validated by probe during planning (round 17): with `--allowedTools
+ * "Bash(git log:*)"` and no deny, `git log --output=/tmp/f` ran and wrote the
+ * file. Adding `Bash(*--output*)` blocked both the plain form and the
+ * `--output${X}=` variable-expansion form. Adding `Bash(*$*)` plus the quote
+ * patterns also blocked the split-quoting form `git log --out"put"=/tmp/f`.
+ * `git log --oneline -3` still ran afterward (no false positives). Note that
+ * `Bash(git log:* --output*)` matches nothing — the `:*` prefix form does not
+ * combine with a trailing wildcard — so these are plain `Bash(*...*)` globs,
+ * not scoped to the `git` prefix.
+ *
+ * Deny patterns match raw command text, not a parsed command line — unlike
+ * the /cairn-run PreToolUse hook (src/commands/hook.ts), which actually
+ * parses subcommands and tokens. This list is defense in depth against a
+ * trusted agent following its prompt, not a sandbox; the hook remains the
+ * stronger layer where it applies.
+ */
+export const REVIEWER_DISALLOWED_BASH_RULES: readonly string[] = [
+  'Bash(*--output*)',
+  'Bash(*--out*)',
+  'Bash(*$*)',
+  `Bash(*")`,
+  "Bash(*')",
+];
+
+/**
  * Split a shell command into its trimmed, non-empty subcommands the way Claude
  * Code does before matching each one against the allowlist: on `&&`, `||`, `;`,
  * `|`, `&` and newlines.

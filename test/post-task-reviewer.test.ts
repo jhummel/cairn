@@ -15,6 +15,7 @@ import {
 import type { Task } from "../src/types";
 import type { CairnConfig } from "../src/types";
 import { BRAND } from "../src/brand";
+import { REVIEWER_DISALLOWED_BASH_RULES } from "../src/claude-settings";
 
 let tmpDir: string;
 
@@ -339,6 +340,31 @@ describe("spawnPostTaskReviewer", () => {
     expect(args).toContain("--agents");
     expect(args).toContain("--agent");
     expect(args[args.indexOf("--agent") + 1]).toBe("post-task-reviewer");
+  });
+
+  test("closes the --output hole with --disallowedTools", async () => {
+    const child = createMockChild();
+    let spawnArgs: string[] = [];
+    const mockSpawn = (cmd: string, args: string[]) => {
+      spawnArgs = args;
+      setTimeout(() => child.emit("close", 0), 10);
+      return child as any;
+    };
+
+    await spawnPostTaskReviewer({
+      projectRoot: spawnTmpDir,
+      dataDir: join(spawnTmpDir, ".cairn"),
+      task: sampleTask,
+      diff: "some diff",
+      log: "some log",
+      files: ["src/widget.ts"],
+      deps: { spawn: mockSpawn, processStreamFn: async () => {} },
+    });
+
+    expect(spawnArgs).toContain("--disallowedTools");
+    expect(spawnArgs[spawnArgs.indexOf("--disallowedTools") + 1]).toBe(
+      REVIEWER_DISALLOWED_BASH_RULES.join(",")
+    );
   });
 
   test("allowlist rule follows the resolved data dir (.cairn/)", async () => {
