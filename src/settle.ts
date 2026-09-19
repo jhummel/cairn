@@ -333,8 +333,9 @@ export interface SettleTaskResult {
  * on the task's attempt record, not on its archived status (a later archive
  * step must not swallow a settle that still has work to do).
  *
- * - No record, task gone from tasks.json but in tasks.completed.json →
- *   'already-settled' with no side effects.
+ * - Task gone from tasks.json but in tasks.completed.json →
+ *   'already-settled'; its only side effect is clearing a leftover
+ *   `executing` record.
  * - No record, task in tasks.json → the record is created lazily and settle
  *   proceeds normally.
  * - In neither file → SettleError. A tasks.json read failure propagates.
@@ -409,6 +410,14 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
     const found = (deps.readTasksFile(tasksFilePath, { dataDir }).data.tasks ?? []).find((t: Task) => t.id === taskId);
     if (!found) {
       if (deps.loadCompletedIds(dataDir).has(taskId)) {
+        // A leftover executing record would never be cleared otherwise. The
+        // phase is re-checked under the lock: an awaiting-review record must
+        // survive (its task is archived by design).
+        if (record) {
+          store.update(dataDir, (state) => {
+            if (state.attempts[attemptKey]?.phase === 'executing') delete state.attempts[attemptKey];
+          });
+        }
         return shortCircuit({ verdict: 'already-settled', taskId, next: NEXT_ROUND });
       }
       throw new SettleError(`Task #${taskId} not found in tasks.json or tasks.completed.json`);

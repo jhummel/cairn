@@ -316,6 +316,110 @@ describe('roundNext', () => {
     });
   });
 
+  describe('orphaned executing records', () => {
+    /** The file-backed store, counting update() calls. */
+    function countingStore(): { store: RunStateStore; updates: () => number } {
+      let updates = 0;
+      return {
+        updates: () => updates,
+        store: {
+          read: readRunState,
+          update: <T>(dir: string, fn: (s: RunState) => T): T => {
+            updates++;
+            return updateRunState(dir, fn);
+          },
+        },
+      };
+    }
+
+    test('on the task path, an executing record for a task absent from tasks.json is pruned in the same update', async () => {
+      writeTasks([makeTask({ id: 7 }), makeTask({ id: 8, status: 'blocked' })]);
+      updateRunState(dataDir, (state) => {
+        state.iteration = 3;
+        state.attempts['99'] = newAttemptRecord('orphan-sha', 2);
+        state.attempts['8'] = { ...newAttemptRecord('eight-sha', 3), reverts: 1 };
+      });
+      const { store, updates } = countingStore();
+
+      const result = await roundNext(input(), { ...makeHarness().deps, runState: store });
+
+      expect(result).toMatchObject({ verdict: 'task', taskId: 7, iteration: 4 });
+      expect(updates()).toBe(1);
+      const state = readRunState(dataDir);
+      expect(state.attempts['99']).toBeUndefined();
+      // A record for a task still in tasks.json is untouched.
+      expect(state.attempts['8']).toEqual({ ...newAttemptRecord('eight-sha', 3), reverts: 1 });
+      expect(state.attempts['7']).toEqual(newAttemptRecord('sha-head', 4));
+    });
+
+    test('on the round-done path, an executing orphan is pruned and the iteration is not bumped', async () => {
+      writeTasks([makeTask({ id: 1, status: 'blocked' })]);
+      updateRunState(dataDir, (state) => {
+        state.iteration = 5;
+        state.attempts['99'] = newAttemptRecord('orphan-sha', 5);
+        state.attempts['1'] = newAttemptRecord('one-sha', 4);
+      });
+      const { store, updates } = countingStore();
+
+      const result = await roundNext(input(), { ...makeHarness().deps, runState: store });
+
+      expect(result).toMatchObject({ verdict: 'round-done', blocked: 1 });
+      expect(updates()).toBe(1);
+      const state = readRunState(dataDir);
+      expect(state.iteration).toBe(5);
+      expect(state.attempts['99']).toBeUndefined();
+      expect(state.attempts['1']).toEqual(newAttemptRecord('one-sha', 4));
+    });
+
+    test('round-done with no orphans takes no run-state update', async () => {
+      writeTasks([makeTask({ id: 1, status: 'blocked' })]);
+      updateRunState(dataDir, (state) => {
+        state.attempts['1'] = newAttemptRecord('one-sha', 4);
+      });
+      const { store, updates } = countingStore();
+
+      const result = await roundNext(input(), { ...makeHarness().deps, runState: store });
+
+      expect(result).toMatchObject({ verdict: 'round-done' });
+      expect(updates()).toBe(0);
+    });
+
+    test('an awaiting-review record for an archived task is never pruned and is still returned first', async () => {
+      writeTasks([makeTask({ id: 7 })]);
+      updateRunState(dataDir, (state) => {
+        state.attempts['3'] = { ...newAttemptRecord('sha-before', 1), phase: 'awaiting-review' };
+      });
+      const h = makeHarness();
+
+      const first = await roundNext(input(), h.deps);
+      expect(first).toMatchObject({ verdict: 'review', taskId: 3 });
+      expect(readRunState(dataDir).attempts['3'].phase).toBe('awaiting-review');
+    });
+
+    test('an awaiting-review record survives the task-path and round-done-path prunes', async () => {
+      const review = { ...newAttemptRecord('sha-before', 1), phase: 'awaiting-review' as const };
+      // Simulate a snapshot read that misses the review (e.g. opened by a
+      // concurrent settle after the entry read) so the prune pass runs.
+      const live: RunState = { iteration: 1, attempts: { '3': review, '99': newAttemptRecord('orphan', 1) } };
+      const store: RunStateStore = {
+        read: () => ({ iteration: 1, attempts: { '99': newAttemptRecord('orphan', 1) } }),
+        update: <T>(_dir: string, fn: (s: RunState) => T): T => fn(live),
+      };
+
+      writeTasks([makeTask({ id: 7 })]);
+      await roundNext(input(), { ...makeHarness().deps, runState: store });
+      expect(live.attempts['3']).toEqual(review);
+      expect(live.attempts['99']).toBeUndefined();
+
+      live.attempts['99'] = newAttemptRecord('orphan', 1);
+      writeTasks([]);
+      const done = await roundNext(input(), { ...makeHarness().deps, runState: store });
+      expect(done).toMatchObject({ verdict: 'round-done' });
+      expect(live.attempts['3']).toEqual(review);
+      expect(live.attempts['99']).toBeUndefined();
+    });
+  });
+
   describe('prompt file', () => {
     test('contains the subagent-mode system prompt, a separator, and the iteration prompt', async () => {
       const config = makeConfig();

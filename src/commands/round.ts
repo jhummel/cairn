@@ -6,7 +6,7 @@ import { loadCompletedIds, selectNextTask, buildIterationPrompt, resolveTaskMode
 import { runHealthCheck as defaultRunHealthCheck, type HealthCheckOpts, type HealthCheckResult } from '../health-check';
 import { readTasksFile, mutateTasksFile } from '../tasks-file';
 import { captureGitSha as defaultCaptureGitSha } from '../post-task-reviewer';
-import { fileRunStateStore, upsertAttemptRecord, type RunStateStore } from '../run-state';
+import { fileRunStateStore, upsertAttemptRecord, orphanedAttemptKeys, pruneOrphanedAttempts, type RunStateStore } from '../run-state';
 import {
   reviewPromptFilePath,
   taskPromptFilePath,
@@ -115,7 +115,14 @@ async function pickNext(input: RoundNextInput, deps: RoundNextDeps): Promise<Rou
   // throws TasksFileError.
   const tasks: Task[] = readTasksFile(path.join(dataDir, 'tasks.json'), { dataDir }).data.tasks ?? [];
   const task = selectNextTask(tasks, loadCompletedIds(dataDir));
+  // Executing records whose task left tasks.json are orphans (awaiting-review
+  // ones never are). They are pruned in the task path's single update below;
+  // round-done takes an update only when the snapshot shows one.
+  const liveTaskIds = new Set(tasks.map((t) => t.id));
   if (!task) {
+    if (orphanedAttemptKeys(state, liveTaskIds).length > 0) {
+      store.update(dataDir, (s) => pruneOrphanedAttempts(s, liveTaskIds));
+    }
     const blocked = tasks.filter((t) => t.status === 'blocked').length;
     return {
       verdict: 'round-done',
@@ -132,12 +139,13 @@ async function pickNext(input: RoundNextInput, deps: RoundNextDeps): Promise<Rou
   // 3. Health check — no run-state lock held while it runs.
   const healthResult = await (deps.runHealthCheck ?? defaultRunHealthCheck)({ healthCheck: config.healthCheck, projectRoot });
 
-  // 4–5. Attempt record and iteration, in one short locked update. A re-pick
+  // 4–5. Attempt record, iteration, and orphan prune, in one short locked update. A re-pick
   // keeps the first attempt's beforeSha so the review covers every attempt.
   // HEAD is captured outside the lock, unconditionally — whether a record
   // exists is decided under the lock, not from the entry read above.
   const headSha = (deps.captureGitSha ?? defaultCaptureGitSha)(projectRoot);
   const iteration = store.update(dataDir, (s) => {
+    pruneOrphanedAttempts(s, liveTaskIds);
     const next = s.iteration + 1;
     s.iteration = next;
     upsertAttemptRecord(s, task.id, next, headSha);

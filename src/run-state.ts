@@ -75,6 +75,25 @@ export function upsertAttemptRecord(state: RunState, taskId: number, iteration: 
   return record;
 }
 
+/**
+ * Keys of `executing` records whose task is not in `liveTaskIds` (tasks.json)
+ * — records orphaned by an archive through another path, a deletion, or an
+ * interrupted run. `awaiting-review` records are never orphans: their tasks
+ * are archived by design and the pending review must survive.
+ */
+export function orphanedAttemptKeys(state: RunState, liveTaskIds: Set<number>): string[] {
+  return Object.entries(state.attempts)
+    .filter(([key, record]) => record.phase === 'executing' && !liveTaskIds.has(Number(key)))
+    .map(([key]) => key);
+}
+
+/** Delete `orphanedAttemptKeys` from a state the caller holds inside `store.update`. */
+export function pruneOrphanedAttempts(state: RunState, liveTaskIds: Set<number>): void {
+  for (const key of orphanedAttemptKeys(state, liveTaskIds)) {
+    delete state.attempts[key];
+  }
+}
+
 /** `upsertAttemptRecord` in its own short locked update. */
 export function ensureAttemptRecord(
   dataDir: string,

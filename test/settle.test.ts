@@ -643,6 +643,52 @@ describe('verdicts', () => {
     expect(h.appended.at(-1)).toEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: already-settled\n' });
   });
 
+  test('already-settled clears a leftover executing record for the archived task', async () => {
+    const h = makeHarness();
+    h.setStatus(null);
+    h.completedIds.add(7);
+    h.runState.state.attempts['7'] = newAttemptRecord('sha-orphan', 3);
+    h.runState.state.attempts['8'] = newAttemptRecord('sha-eight', 3);
+
+    const result = await settleTask(makeInput(), h.deps);
+
+    expect(result.verdict).toEqual({ verdict: 'already-settled', taskId: 7, next: NEXT_ROUND });
+    expect(h.validations()).toBe(0);
+    expect(h.runState.state.attempts['7']).toBeUndefined();
+    expect(h.runState.state.attempts['8']).toEqual(newAttemptRecord('sha-eight', 3));
+  });
+
+  test('an awaiting-review record for an archived task is never cleared as already-settled', async () => {
+    const h = makeHarness();
+    h.setStatus(null);
+    h.completedIds.add(7);
+    const review = { ...newAttemptRecord('sha-before', 3), phase: 'awaiting-review' as const };
+    h.runState.state.attempts['7'] = review;
+
+    const result = await settleTask(makeInput(), h.deps);
+
+    expect(result.verdict.verdict).toBe('review');
+    expect(h.runState.state.attempts['7']).toEqual(review);
+  });
+
+  test('the already-settled clear re-checks the phase under the lock and keeps a record that turned awaiting-review', async () => {
+    const h = makeHarness();
+    h.setStatus(null);
+    h.completedIds.add(7);
+    const review = { ...newAttemptRecord('sha-before', 3), phase: 'awaiting-review' as const };
+    const live: RunState = { iteration: 3, attempts: { '7': review } };
+    // The unlocked read still sees the record executing; the live state has moved on.
+    h.deps.runState = {
+      read: () => ({ iteration: 3, attempts: { '7': newAttemptRecord('sha-before', 3) } }),
+      update: <T>(_dir: string, fn: (s: RunState) => T): T => fn(live),
+    };
+
+    const result = await settleTask(makeInput(), h.deps);
+
+    expect(result.verdict.verdict).toBe('already-settled');
+    expect(live.attempts['7']).toEqual(review);
+  });
+
   test('a missing record with the task present creates the record lazily from run state', async () => {
     const h = makeHarness();
     h.runState.state.iteration = 5;
