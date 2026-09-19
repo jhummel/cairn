@@ -206,6 +206,13 @@ describe("buildPostTaskReviewUserPrompt", () => {
     expect(prompt).toContain("Full output: /p/.cairn/.cairn_task_42_tests.log");
   });
 
+  test("renders a placeholder when the task has no description", () => {
+    const { description: _omit, ...noDesc } = sampleTask;
+    const prompt = buildPostTaskReviewUserPrompt({ task: noDesc, reviewFilePath: "/p/review.md", diff: "", log: "", files: [] });
+    expect(prompt).not.toContain("undefined");
+    expect(prompt).toContain("### Description\n(no description)");
+  });
+
   test("omits the Test Validation section when no summary is passed", () => {
     const prompt = buildPostTaskReviewUserPrompt({ task: sampleTask, diff: "", log: "", files: [] });
     expect(prompt).not.toContain("## Test Validation");

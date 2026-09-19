@@ -49,7 +49,7 @@ export function buildPostTaskReviewUserPrompt(opts: {
   task: {
     id: number;
     title: string;
-    description: string;
+    description?: string;
     files?: string[];
     tests?: string[];
     directory?: string;
@@ -78,7 +78,7 @@ ${testSummary}
 ${task.directory ? `Directory: ${task.directory}` : ""}
 
 ### Description
-${task.description}
+${task.description || "(no description)"}
 
 ### Expected Files
 ${filesList}
@@ -144,7 +144,7 @@ export interface SpawnPostTaskReviewerOpts {
   task: {
     id: number;
     title: string;
-    description: string;
+    description?: string;
     files?: string[];
     tests?: string[];
     directory?: string;
