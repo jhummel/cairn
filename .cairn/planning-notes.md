@@ -61,7 +61,14 @@ The CLI half of `/cairn-run` works. No real agent round has run through it yet.
    | `test/settle.test.ts` | 1 | TS2769 |
 
    Including `test/` also needs `rootDir` changed. `tsconfig.json` has `"rootDir": "src"`, which rejects files outside `src/`. `bun build --compile` ignores `rootDir` and `outDir`, so changing them doesn't affect the build.
-5. **Small nits from the round-16 review:**
+5. **Round 16's probe 4 was run this session: `--disallowedTools` wildcards DO match an argument mid-command.** The headless `--output` gap can be closed.
+   - Control, `--allowedTools "Bash(git log:*)"` with no deny: `git log --output=/tmp/f` **ran and wrote the file**. The headless hole is confirmed, not theoretical.
+   - Blocked by `Bash(*--output*)`, `Bash(git * --output*)` and `Bash(git log --output*)` alike: the plain form and the `--output${X}=` variable form.
+   - **Not** blocked by `Bash(*--output*)`: split quoting, `git log --out"put"=/tmp/f`. Deny patterns match the raw command text, not a parsed command, so they can't reach parity with the hook.
+   - Blocked once `Bash(*$*)`, `Bash(*--out*)` and `Bash(*")` are added.
+   - No false positives: `git log --oneline -3` still ran under `Bash(*--output*),Bash(*$*)`.
+   - Watch the pattern syntax: `Bash(git log:* --output*)` matched nothing and the command ran. The `:` prefix form doesn't combine with a trailing wildcard. Any shipped rule needs a test.
+6. **Small nits from the round-16 review:**
    - `src/commands/hook.ts:30` keeps its own `Writer` type; the other copies moved to `src/cli-io.ts` in #115.
    - CLAUDE.md's Run state section has two bullets ("Picking records the sha under the lock", "Orphan pruning") that repeat the bullets above them (#116).
 
@@ -106,6 +113,15 @@ The CLI half of `/cairn-run` works. No real agent round has run through it yet.
   - the quoting variants stay denied
 - Update the deny reason text to mention shell variables.
 - Fold `hook.ts`'s local `Writer` type into `src/cli-io.ts`.
+
+### Headless reviewer: close the same hole with `--disallowedTools`
+
+Probe 4 (finding 5) says this works, so the round-16 "remaining headless gap" can go.
+
+- Add `--disallowedTools` to the headless reviewer spawn in `src/post-task-reviewer.ts`: `Bash(*--output*)`, `Bash(*$*)`, and the quote patterns that blocked the split-quoting form (`Bash(*")`, plus the single-quote equivalent).
+- Keep the list beside `GIT_INSPECTION_RULES` in `src/claude-settings.ts` so the headless rules and the hook's checks stay visibly paired, even though they can't be identical.
+- **Known limit, to be documented rather than solved:** deny patterns match raw text. The hook parses the command, so `/cairn-run` stays the stronger layer. This is defense in depth against a trusted agent, not a sandbox.
+- Test what can be tested in-repo: that the reviewer spawn passes the expected `--disallowedTools` argument. The behavior itself is established by the probe above and shouldn't be re-probed from a test.
 
 ### Hook: find the project from the tool call's `cwd`
 
@@ -238,7 +254,7 @@ The CLI half of `/cairn-run` works. No real agent round has run through it yet.
    - `cairn.json` (`maxIterations` removed, `defaultTestCommand` updated) *before* pinning, so the `healthCheck` redirect is the only uncommitted change during the round
 2. **Pin** (CLAUDE.md procedure): `bun run build`, copy `dist/cairn` over the symlink, verify it's a regular file; set `healthCheck` to `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck`.
 3. **Canary:** add the temporary CANARY-17 line to `CLAUDE.local.md`.
-4. **Optional probe (headless `--output`, round 16's probe 4):** from a throwaway repo, check whether `claude -p --allowedTools "Bash(git log:*)" --disallowedTools "Bash(git * --output*)"` blocks `git log --output=x`. The result decides whether headless `cairn run` can get the same rule later.
+4. ~~Optional probe (headless `--output`)~~ — **done this session; see Context finding 5.** It succeeded, so task 2b closes the headless gap.
 5. **Generate tasks** (`/generate-tasks`), then launch a fresh `claude --permission-mode bypassPermissions` **from a plain terminal** in the repo and run `/cairn-run`.
 
 **Round tasks** (IDs from #117; each TDD; tests = `bun run typecheck` + `bun test`). No specialist agents apply.
@@ -254,12 +270,14 @@ The CLI half of `/cairn-run` works. No real agent round has run through it yet.
    - still allowed: plain sha-range diffs
    - still denied: the quoting variants
    ⚠️ Hook hazard: temp dirs only; the binary is pinned.
+2b. **Headless reviewer `--disallowedTools`** (`src/post-task-reviewer.ts`, `src/claude-settings.ts`, `test/post-task-reviewer.test.ts`). Add the deny list the probe validated (`Bash(*--output*)`, `Bash(*$*)`, the quote patterns); keep it beside `GIT_INSPECTION_RULES`; assert the spawn passes it. Don't re-probe behavior from a test. ⚠️ Never spawn a real reviewer against this repo. *Deps: 4 (batch A owns `test/post-task-reviewer.test.ts`) — or fold into task 4 if the ordering gets awkward.*
 3. **Hook: find the project from the tool call's `cwd`, not `CAIRN_PROJECT_ROOT`** (`src/commands/hook.ts`, `src/utils.ts`, `test/commands/hook.test.ts`, `test/utils.test.ts` if present). Walk up from the tool call's `cwd` ignoring the environment variable; fall back to today's behavior when there's no `cwd` (including the error-log path). Don't change `findProjectRoot`'s default. Test with the environment variable pointing at A and the `cwd` in B. ⚠️ Hook hazard. *Deps: 2 (same file).*
 4. **`test/` type errors, batch A** (`test/post-task-reviewer.test.ts`, `test/config.test.ts`, `test/commands/init.test.ts`, `test/index.test.ts`, `test/settle.test.ts`; 19 errors). Check with a temporary extending tsconfig that includes `test/`, then delete it. Fix tests, not `src/` types, unless a `src/` type is wrong. *Deps: 1 (same test file).*
 5. **`test/` type errors, batch B, then turn on the gate** (`test/commands/run.test.ts`, `test/stream-filter.test.ts`, `tsconfig.json`; 19 errors). Add `test` to `include`, fix `rootDir`, fix any type errors in the new tests from tasks 1–3; `bun run typecheck` exits 0 with `test/` included. ⚠️ Touches `tsconfig.json`: don't touch `package.json`'s `build` script or `healthCheck`. *Deps: 1, 2, 3, 4.*
 6. **Docs** (repo-root `CLAUDE.md`, `README.md`):
    - Development: `typecheck` now covers `test/`; remove the "~43 pre-existing errors" paragraph.
    - Enforcement under /cairn-run: the reviewer `$` rule; the hook finds the project from the tool call's `cwd`, ignoring `CAIRN_PROJECT_ROOT`.
+   - Replace the "Remaining headless gap" paragraph: the headless reviewer now carries `--disallowedTools`, wildcards do match mid-command (probe result), and the residual limit is raw-text matching, so the hook stays the stronger layer.
    - Data layout: `cairn init` adds missing entries to an existing `.cairn/.gitignore` (append-only).
    - Run state: merge the duplicated bullets.
    - README: matching hook and init lines.
@@ -285,7 +303,7 @@ Directories: `src/commands/`, `src/`, `test/`, `test/commands/`, plus repo-root 
 - **After the validation round:**
   - Should headless `cairn run` be removed or demoted (the round-15 rejection said "until a real round succeeds through `/cairn-run`")?
   - Should `cairn run` switch to prompt files?
-- **Headless `--output` / `$` hole:** can a `--disallowedTools` wildcard match an argument in the middle of a command (probe 4)? If yes, a later round adds it to the headless reviewer spawn, likely including `$`. If no, the documented gap stands.
+- ~~**Headless `--output` / `$` hole:** can a `--disallowedTools` wildcard match an argument mid-command?~~ **Answered this session: yes.** Task 2b adds the rules. What remains open: whether the raw-text matching leaves an escaping form worth chasing, given the reviewer is a trusted agent and the hook covers `/cairn-run`.
 - **Should `cairn round next` refuse when another loop is running?** (carried from round 15)
 - **`--before-sha` on a repeat call:** saving the override (done in round 16) vs. rejecting a value that differs from the record. Revisit only if it causes confusion.
 - **Should `cairn run` stamp `promptFile` / `model` into its log,** or ignore the retry fields? Ignoring is the current behavior.

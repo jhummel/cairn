@@ -1,33 +1,4 @@
 {
   "project": "cairn-cli-tool",
-  "tasks": [
-    {
-      "id": 123,
-      "priority": 7,
-      "title": "Docs: CLAUDE.md and README.md for the round-17 changes",
-      "description": "Update the docs to match what this round shipped. Docs only — no code changes.\n\nIn CLAUDE.md:\n1. Development — `bun run typecheck` now covers `src/` AND `test/`; remove the paragraph about `test/`'s ~43 pre-existing type errors being deferred.\n2. Enforcement under /cairn-run — the reviewer's Bash scope now denies any command containing `$` (shell expansion, subsuming `$(`, `${…}`, `$VAR`, `$'…'`), with the exact-token `--output` check kept as a second layer; and the hook now resolves the project by walking up from the tool call's `cwd`, ignoring `CAIRN_PROJECT_ROOT`, falling back to the env var only when the payload has no usable `cwd` (including for the error-log path).\n3. Replace the \"Remaining headless gap\" paragraph: the headless reviewer now spawns with `--disallowedTools`, a probe established that deny wildcards DO match an argument mid-command, and the residual limit is that deny patterns match raw text while the hook parses the command — so the hook stays the stronger layer.\n4. Per-project data layout — `cairn init` now adds missing entries to an existing `.cairn/.gitignore` (append-only, never reorders or removes).\n5. Run state — merge the two duplicated bullets (\"Picking records the sha under the lock\" and \"Orphan pruning\") into the bullets above them that already say the same thing.\n\nIn README.md: matching updates to the reviewer-containment line (~line 167) and the `.gitignore` / `cairn init` lines (~lines 105, 381).\n\nDo NOT modify `cairn.json`'s `healthCheck` value and do NOT modify `package.json`'s `build` script — the binary is pinned for this round and the health check is redirected to /tmp/cairn-healthcheck. Do NOT run `./install.sh`. `cairn.json` has an uncommitted user change: stage only the files you changed.",
-      "directory": "",
-      "status": "complete",
-      "files": [
-        "CLAUDE.md",
-        "README.md"
-      ],
-      "tests": [
-        "bun run typecheck",
-        "bun test"
-      ],
-      "dependencies": [
-        117,
-        118,
-        119,
-        120,
-        121,
-        122
-      ],
-      "model": "sonnet",
-      "completedAt": "2026-09-19T23:35:49.261Z",
-      "completedBy": "iteration-7",
-      "notes": "# Task #123 — Docs: CLAUDE.md and README.md for the round-17 changes\n\nDocs-only change, no code touched. Confirmed via `git diff HEAD -- CLAUDE.md` that item 1\n(typecheck now covers `src/` and `test/`) was already reflected in the working tree (a prior\nround-17 task had already updated it), so no edit was needed there.\n\n## CLAUDE.md changes\n\n1. **Enforcement under /cairn-run — reviewer Bash scope**: updated the `agent_type:\n   post-task-reviewer` bullet to describe the new `$`-anywhere denial (`/[`<>$]/` in\n   `isInspectionOnly`, `src/commands/hook.ts`), which subsumes `$(...)`, `${VAR}`, bare `$VAR`,\n   and `$'...'` ANSI-C quoting, and explains the hole it closes (`--output${X}=` surviving the\n   old strip-then-compare). Kept the exact-token `--output`/`--output=<file>` check\n   (`hasOutputOption`) as the documented second layer, noting it no longer strips `$` itself.\n2. **Replaced the \"Remaining headless gap\" paragraph** with \"Headless reviewer containment\":\n   documents `spawnPostTaskReviewer`'s new `--disallowedTools` argument\n   (`REVIEWER_DISALLOWED_BASH_RULES` in `src/claude-settings.ts`: `Bash(*--output*)`,\n   `Bash(*--out*)`, `Bash(*$*)`, `` Bash(*\") ``, `Bash(*')`), the planning-round probe that\n   established a deny wildcard DOES match an argument mid-command (with the exact probe\n   commands/results quoted from the task-completion notes and the `claude-settings.ts` doc\n   comment), and the residual accepted limit (deny matches raw text; the hook parses the\n   command, so it stays the stronger layer).\n3. **Per-project data layout**: `.gitignore` tree line now says re-init appends any entries\n   missing from an existing file, never reorders/removes (matches `mergeGitignoreEntries` in\n   `src/commands/init.ts`).\n4. **Run state**: merged the \"Picking records the sha under the lock\" bullet into the\n   \"re-pick keeps the first attempt's beforeSha\" bullet above it, and merged \"Orphan pruning\"\n   into the \"Settle clears/keeps the record\" bullet above it (both duplicates removed; no\n   information lost — the lock detail and the \"never `awaiting-review`\" clause were folded in).\n\n## README.md changes\n\n- Reviewer-containment bullet (`#### Containment under /cairn-run`, was ~line 167): now\n  describes denying redirection/backticks/`$` anywhere (with the subsumption list) plus the\n  `--output` exact-token check as a second layer, matching the CLAUDE.md wording.\n- `.gitignore` / `cairn init` line ~105 (\"Cairn deliberately does not edit `.gitignore`...\"):\n  clarified this refers to the project's *root* `.gitignore` (for `.claude/settings.local.json`),\n  and added a parenthetical distinguishing it from `.cairn/.gitignore`, which `cairn init` does\n  write and, on re-init, appends missing entries to — linked to the \"Per-project data\" section.\n- `.gitignore` tree line ~381 (Per-project data diagram): added \"re-init appends any missing\n  entries, never reorders/removes\", matching the CLAUDE.md tree line.\n\n## Verification\n\n- `bun run typecheck` — clean.\n- `bun test` — 1217 pass, 0 fail.\n- Confirmed facts by reading `src/commands/init.ts` (`mergeGitignoreEntries`,\n  `currentGitignoreEntries`), `src/commands/hook.ts` (`isInspectionOnly`, `hasOutputOption`),\n  `src/post-task-reviewer.ts` (`spawnPostTaskReviewer`'s `--disallowedTools` arg), and\n  `src/claude-settings.ts` (`REVIEWER_DISALLOWED_BASH_RULES` doc comment with the probe\n  results), plus the completed task descriptions/notes for tasks #117, #118, and #121 in\n  `.cairn/tasks.completed.json` for the exact probe wording.\n\n## Scope notes\n\n- Did not touch `cairn.json` or `package.json`'s build script (round-17 binary pin / health\n  check redirect left untouched).\n- Did not run `./install.sh`, `cairn round …`, or `cairn hook …` against this repo's root.\n- `cairn.json` had a pre-existing uncommitted user change, unrelated to this task — left\n  unstaged, staged only `CLAUDE.md` and `README.md` (plus `.cairn/tasks.json` via `cairn task\n  complete`) for this commit.\n- This was task #123, the last task of round 17 (0 remaining tasks after this one).\n\nCANARY-17\n"
-    }
-  ]
+  "tasks": []
 }
