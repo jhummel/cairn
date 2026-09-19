@@ -315,7 +315,7 @@ describe('main', () => {
     // Should have tried to open the cairn project's tasks.json in an editor
     expect(spawnSpy).toHaveBeenCalledTimes(1);
     const [, args] = spawnSpy.mock.calls[0];
-    expect(args[0]).toContain('tasks.json');
+    expect(args?.[0]).toContain('tasks.json');
 
     spawnSpy.mockRestore();
   });

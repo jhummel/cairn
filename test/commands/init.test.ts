@@ -567,7 +567,7 @@ describe('getConfigDefaults', () => {
 
   test('getConfigDefaults does not expose a reviewMaxIterations field', () => {
     const defaults = getConfigDefaults(tmpDir);
-    expect((defaults as Record<string, unknown>).reviewMaxIterations).toBeUndefined();
+    expect((defaults as unknown as Record<string, unknown>).reviewMaxIterations).toBeUndefined();
   });
 
   test('ignores legacy review.maxIterations from cairn.json', () => {
@@ -576,7 +576,7 @@ describe('getConfigDefaults', () => {
       JSON.stringify({ review: { maxIterations: 5 } })
     );
     const defaults = getConfigDefaults(tmpDir);
-    expect((defaults as Record<string, unknown>).reviewMaxIterations).toBeUndefined();
+    expect((defaults as unknown as Record<string, unknown>).reviewMaxIterations).toBeUndefined();
   });
 
   test('returns reviewPostTask default of false when no cairn.json', () => {

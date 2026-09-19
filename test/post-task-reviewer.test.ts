@@ -105,6 +105,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
       diff: "diff content",
       log: "abc123 commit msg",
       files: ["src/foo.ts"],
+      reviewFilePath: "/p/review.md",
     });
     expect(prompt).toContain("42");
     expect(prompt).toContain("My awesome task");
@@ -116,6 +117,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
       diff: "diff content",
       log: "abc123 commit msg",
       files: ["src/foo.ts"],
+      reviewFilePath: "/p/review.md",
     });
     expect(prompt).toContain("Do something important");
   });
@@ -126,6 +128,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
       diff: "--- a/src/foo.ts\n+++ b/src/foo.ts\n+export const x = 1;",
       log: "abc123 commit msg",
       files: ["src/foo.ts"],
+      reviewFilePath: "/p/review.md",
     });
     expect(prompt).toContain("export const x = 1;");
   });
@@ -136,6 +139,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
       diff: "",
       log: "abc123 my commit message",
       files: [],
+      reviewFilePath: "/p/review.md",
     });
     expect(prompt).toContain("abc123 my commit message");
   });
@@ -146,6 +150,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
       diff: "",
       log: "",
       files: ["src/foo.ts", "src/bar.ts"],
+      reviewFilePath: "/p/review.md",
     });
     expect(prompt).toContain("src/foo.ts");
     expect(prompt).toContain("src/bar.ts");
@@ -158,6 +163,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
       diff: "",
       log: "",
       files: [],
+      reviewFilePath: "/p/review.md",
     });
     expect(prompt).toContain("Min task");
     expect(prompt).toContain("Minimal");
@@ -185,6 +191,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
         log: "",
         files: [],
         dataDir,
+        reviewFilePath: "/p/review.md",
       });
       expect(prompt).toContain("PERSONAL INSTRUCTIONS:");
       expect(prompt).toContain("* Always use TDD");
@@ -200,6 +207,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
       log: "",
       files: [],
       testSummary: "bun test: passed (12 pass, 0 fail) [900ms]\nFull output: /p/.cairn/.cairn_task_42_tests.log",
+      reviewFilePath: "/p/review.md",
     });
     expect(prompt).toContain("## Test Validation (already run by cairn — do not re-run)");
     expect(prompt).toContain("bun test: passed (12 pass, 0 fail) [900ms]");
@@ -214,7 +222,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
   });
 
   test("omits the Test Validation section when no summary is passed", () => {
-    const prompt = buildPostTaskReviewUserPrompt({ task: sampleTask, diff: "", log: "", files: [] });
+    const prompt = buildPostTaskReviewUserPrompt({ task: sampleTask, diff: "", log: "", files: [], reviewFilePath: "/p/review.md" });
     expect(prompt).not.toContain("## Test Validation");
   });
 
@@ -234,7 +242,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
   });
 
   test("embedded variant still renders the diff block", () => {
-    const prompt = buildPostTaskReviewUserPrompt({ task: sampleTask, diff: "+x", log: "", files: [] });
+    const prompt = buildPostTaskReviewUserPrompt({ task: sampleTask, diff: "+x", log: "", files: [], reviewFilePath: "/p/review.md" });
     expect(prompt).toContain("## Git Diff");
     expect(prompt).toContain("```diff\n+x\n```");
   });
@@ -248,6 +256,7 @@ describe("buildPostTaskReviewUserPrompt", () => {
         log: "",
         files: [],
         dataDir,
+        reviewFilePath: "/p/review.md",
       });
       expect(prompt).not.toContain("PERSONAL INSTRUCTIONS:");
     } finally {

@@ -19,6 +19,7 @@ import {
   type BlockTaskOpts,
   type GuardCounters,
   type WriteReviewPromptFileOpts,
+  type DoneReason,
 } from '../src/settle';
 import { execFileSync } from 'child_process';
 import { formatTestSummary, type ValidationResult } from '../src/test-validator';
@@ -899,7 +900,7 @@ describe('review phase', () => {
   });
 
   test('gate failures return done with the matching reason, archived, record cleared, no prompt file', async () => {
-    const cases: Array<{ reason: string; config?: Pick<CairnConfig, 'review'>; sha: string | null; head: string | null }> = [
+    const cases: Array<{ reason: DoneReason; config?: Pick<CairnConfig, 'review'>; sha: string | null; head: string | null }> = [
       { reason: 'review-disabled', config: { review: { postTask: false } }, sha: 'sha-before', head: 'sha-head' },
       { reason: 'review-disabled', config: undefined, sha: 'sha-before', head: 'sha-head' },
       { reason: 'no-before-sha', config: REVIEW_ON, sha: null, head: 'sha-head' },
