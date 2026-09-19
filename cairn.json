@@ -2,7 +2,7 @@
   "projectName": "cairn-cli-tool",
   "projectDescription": "Cairn programming tool to launch autonomous programming mode using CC with specific steps for planning, review, execution and cleanup.",
   "healthCheck": "bun run build",
-  "defaultTestCommand": "bun test",
+  "defaultTestCommand": "bun run typecheck && bun test",
   "implementationFile": "IMPLEMENTATION.md",
   "truncateText": false,
   "summarize": {
@@ -14,7 +14,6 @@
     "ntfyTopic": "jhummel-cairn-cli-tool"
   },
   "review": {
-    "maxIterations": 3,
     "postTask": true
   }
 }

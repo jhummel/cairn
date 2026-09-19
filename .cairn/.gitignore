@@ -6,6 +6,11 @@
 .cairn_completed_ids
 .cairn_tasks_snapshot.json
 .cairn_task_*_notes.md
+.cairn_task_*_tests.log
+.cairn_task_*_prompt.md
+.cairn_run_state.json
+.cairn_run_state.json.lock
+.cairn_hook_errors.log
 # Legacy names — still written by older runs and read as a fallback (remove once all projects migrated)
 .ralph_complete
 .ralph_iterations.log

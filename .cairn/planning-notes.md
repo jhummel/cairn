@@ -1,357 +1,291 @@
 ## Context
 
-**Round 15.** Round 14 is finished: tasks #86–#90 are archived, `tasks.json` is empty, and `state.json` is at round 15. Round 14 shipped the stall guard (`STALL_BLOCK_THRESHOLD = 3`, `run.ts:399`), removed `cairn init`'s deny rules, stripped legacy deny blocks on re-run (`LEGACY_CAIRN_TASK_DENY_RULES`), added a regression test that the reviewer's `--allowedTools` grants no `cairn task` access, and corrected the enforcement story in CLAUDE.md and README.
+**Round 17: the `/cairn-run` validation round.** First real round driven through the interactive `/cairn-run` flow instead of headless `cairn run`. The task list is deliberately small, real, and low-risk: the leftovers from rounds 15–16 plus one confirmed hook hole found during this planning session.
 
-`cairn run` launches its execution agents (`src/commands/run.ts:208`) and the post-task reviewer (`src/post-task-reviewer.ts`) as headless `claude -p` processes. Headless sessions can't be watched or steered through Remote Control, so a round can't be monitored or answered from a phone.
+**Round 16 is done.** Tasks #109–#116 are archived and `tasks.json` is empty. `state.json` is at `nextTaskId: 117, round: 17`. `bun run typecheck` is clean and `bun test` is green (1195 pass). Round 16 delivered:
+- the type-check gate (`bun run typecheck`, `skipLibCheck`, the typescript devDependency)
+- `ensureAttemptRecord` (the beforeSha race)
+- self-sufficient `retry` verdicts
+- orphan pruning
+- the hook's `--output` rule
+- settle fixes, the `cli-io.ts` writer module, and docs
 
-Claude Code now provides the process-runner layer natively:
+**Post-round steps from rounds 15 and 16, status as of this session:**
+- Done:
+  - Unpinned: `~/.local/bin/cairn` is again a symlink to `dist/cairn`.
+  - `healthCheck` is back to `bun run build`.
+  - `defaultTestCommand` is `bun run typecheck && bun test`.
+  - `review.maxIterations` is deleted.
+  - `cairn init` has run here. `/cairn-run`, `cairn-task-agent`, the updated reviewer and the PreToolUse hook are all installed, and the installed copies match `commands/` and `agents/`.
+  - `.cairn/.cairn_iterations.log` is untracked (`git rm --cached`; the deletion is staged, not yet committed).
+  - `.cairn/.gitignore` was hand-patched with the round-15 runtime entries: `.cairn_task_*_tests.log`, `.cairn_task_*_prompt.md`, `.cairn_run_state.json`, `.cairn_run_state.json.lock`, `.cairn_hook_errors.log`.
+- **Not yet done:** commit the round-16 bookkeeping (`tasks.json`, `tasks.completed.json`, `state.json`, `reviews/round-16.md`), the `.cairn/.gitignore` edit, the root `.gitignore` edit (`.claude/settings.local.json`), `cairn.json`, and the untracked `.claude/agents/cairn-task-agent.md` and `.claude/commands/cairn-run.md`.
 
-- **Agent-tool subagents:** each starts with a fresh context, and only its final report returns.
-- **SendMessage:** continues a subagent with its context intact.
-- **PushNotification.**
-- **Remote Control:** reaches any interactive session.
+**Smoke test done this session, in a temp repo with the `CAIRN_*` environment variables cleared:**
+- Hook:
+  - denies a subagent `Write` to `tasks.json`
+  - denies a reviewer `Write` outside `reviews/` and allows one inside it
+  - denies `git diff --output=…` and allows `git log`
+  - on garbage stdin, exits 1 and appends to `.cairn_hook_errors.log`
+- `cairn round next` on an empty list returns `round-done` with the hook-error `warnings` entry.
 
-What those don't replace is Cairn's *method*: planning notes, approval gates, `tasks.json` with dependencies and tests, guards, one reviewer per task, round reviews, state in git. This round keeps the method and adds a second way to run a round, **`/cairn-run`**. It's an interactive session that drives the loop through two new CLI commands, `cairn round next` and `cairn round settle`, which hold all the deterministic logic.
+The CLI half of `/cairn-run` works. No real agent round has run through it yet.
 
-The design was drafted in a separate discussion on 2026-09-13 and revised in this planning session. Line references were checked against the code.
+### Findings from this session
 
-### Code findings
+1. **`cairn init` never updates an existing `.cairn/.gitignore`.**
+   - Cause: `src/commands/init.ts:91`, `if (!fs.existsSync(gitignorePath))`.
+   - The entries (`TEMP_IGNORE_SUFFIXES`) are correct, but every project initialized before round 15 lacks the run-state, prompt-file, test-log and hook-error entries.
+   - An agent's `git add -A` could commit them.
+   - Hand-patched in this repo only.
+2. **The reviewer can still write files by hiding `--output` behind a shell variable. Confirmed by probe.**
+   - Round 16's reviewer rated this PLAUSIBLE (HAS_RISKS on #113).
+   - `hasOutputOption` in `src/commands/hook.ts` removes quotes, `\` and `$` from each word, but leaves the braces. So `git log --output${X}=/tmp/f` becomes `--output{X}=/tmp/f`, which neither equals `--output` nor starts with `--output=`.
+   - The command is **allowed**. Bash then expands `${X}` to nothing, and git writes the file (verified: the file was created).
+   - The quoting variants (`--output"="…`, `--outpu't'=…`, `--output\=…`) are all correctly denied.
+   - The pre-check regex (`` /[`<>]|\$\(/ ``, hook.ts:105) blocks only backticks, `<`, `>` and `$(`.
+3. **The hook takes the project from the `CAIRN_PROJECT_ROOT` environment variable ahead of the tool call's `cwd`.**
+   - `findProjectRoot()` (`src/utils.ts:68`) checks `CAIRN_PROJECT_ROOT` first. The hook calls it with the tool call's `cwd` (hook.ts:187), so the environment variable wins.
+   - Found when this planning session, which `cairn plan` launched and which therefore carries the `CAIRN_*` environment variables, pointed the hook at a temp repo. It resolved to the real repo instead.
+   - Only matters when a `/cairn-run` session is started from a shell that cairn launched. `cairn run`'s headless agents have no `agent_id`, so the hook never looks anything up for them.
+4. **`test/` has 38 type errors** (measured this session with a temporary tsconfig that includes `test/`; round 16 estimated 43):
 
-- **Guard counters are in memory on purpose** (`run.ts:489-495`). That's reliable in a TS process and unreliable when the run agent is a model, which can be compacted, resumed, or simply lose track.
-- **Unguarded case:** a task the agent leaves `in-progress` every iteration (timeouts, giving up) is re-picked until `maxIterations` runs out. `selectNextTask` returns in-progress tasks ahead of pending ones. The revert guard only counts failed validations of *complete* tasks. The stall guard only counts *pending* tasks, and seeing `in-progress` resets it (`run.ts:738`).
-- **`beforeSha` is used only by the reviewer:** captured at `run.ts:638`; used for the null check and the no-commits check in `runPostTaskReview`, and for the diff range in `getGitDiff` (`post-task-reviewer.ts:215`).
-- **Current order is review, then archive** (`run.ts` step l, then m). `settle` reverses this (archive, then review gate), which drives the idempotency design below.
-- **`review.maxIterations` is dead config.** It's loaded at `config.ts:56` and asked for at init (`init.ts:140/195/209`), but nothing reads it. **And `isValidConfig` (`types.ts:66`) *rejects* a `review` block that lacks it.** There are about 40 references across `test/types.test.ts`, `test/config.test.ts`, `test/commands/init.test.ts`, `test/commands/run.test.ts` and `test/post-task-reviewer.test.ts`.
-- **`instructions.md` reaches four agents**: execution (`run.ts:95`), reviewer (`post-task-reviewer.ts:41`), plan (`plan.ts:92`), summarize (`summarize.ts:36`). `README.md:207` says "execution agents only (not planning)" and is wrong.
-- **The reviewer prompt embeds the full diff** (`buildPostTaskReviewUserPrompt`, `post-task-reviewer.ts:25`), and `agents/post-task-reviewer.md` tells it to re-run the declared tests, which validation has already run.
-- **The stall-guard note (`run.ts:724`) blames a `permissions.deny` rule.** Init now strips those rules, and under `/cairn-run` a stall has other likely causes. Reword the note when it moves into `settle`.
-- **Specialists are embedded in the prompt** (`run.ts:64-80`), not used as the agent's system prompt. Task `model` is `'opus' | 'sonnet'` (`types.ts`), which maps directly onto the Agent tool's `model` parameter.
-- **`~/.local/bin/cairn` is a symlink to `dist/cairn`**, so not re-running `install.sh` pins nothing. CLAUDE.md's pin/unpin section now includes the exact commands (uncommitted as of this session).
-- **`CLAUDE.local.md` is gitignored in this repo** (added to `.gitignore` during planning). The global ignore covers only `.claude/settings.local.json`, so other projects need init's warning (task 106).
+   | File | Errors | Kind |
+   |---|---|---|
+   | `test/post-task-reviewer.test.ts` | 11 | TS2345: nearly all the same argument-type mismatch for `buildPostTaskReviewUserPrompt`'s input |
+   | `test/commands/run.test.ts` | 14 | TS2322 mock type mismatches (`Mock<…>` vs. `(...args: unknown[]) => void`, archive-mock return types), TS2769 overloads |
+   | `test/stream-filter.test.ts` | 5 | TS2741, `fetch` mocks missing `preconnect`; one TS2322 |
+   | `test/config.test.ts` | 4 | TS2339, `maxIterations` on `{ postTask: boolean }` (leftover of the deleted config) |
+   | `test/commands/init.test.ts` | 2 | TS2352, `ConfigDefaults` → `Record<string, unknown>` cast |
+   | `test/index.test.ts` | 1 | TS18048, `args` possibly undefined |
+   | `test/settle.test.ts` | 1 | TS2769 |
 
-### Probe results (this session, run as subagents from the interactive planner)
-
-- **(a) Memory loading.** A `general-purpose` subagent and a custom `post-task-reviewer` subagent both had **CLAUDE.md and the auto-memory index (MEMORY.md)** loaded, quoting CLAUDE.md verbatim with no tool use. *This corrects the docs finding from the draft discussion, which said subagents don't load auto memory.*
-- **(a′) `CLAUDE.local.md` is loaded into subagents.** The in-session probe was negative because the file was created after the parent session started. From a **new** session, a `general-purpose` subagent quoted `PROBE-MARKER: kestrel-7731.` from its loaded instructions before using any tools, and saw `CLAUDE.local.md` listed as private project instructions. Only `general-purpose` was tested this way. Custom agent types loaded the same CLAUDE.md and auto-memory as `general-purpose` in probe (a), so they very likely load it too, but that's unverified.
-- **(b) Nesting works.** A subagent launched a nested subagent, and the nested one reported it also had the Agent tool, so nesting goes at least two levels deep.
-- **Reviewer tool surface.** `post-task-reviewer` as a subagent gets **every tool**, including `Agent`, `Bash`, `Write` and all MCP tools, because its frontmatter has no `tools` field.
-- **(c) Hook behavior** (throwaway repo, interactive `claude --dangerously-skip-permissions`, `Edit|Write|Bash` matcher; checked against the hook log and files on disk):
-  - **Main-session calls have no `agent_id` or `agent_type` keys** (the keys are absent, not null). Subagent calls carry `agent_id` plus `agent_type`: `general-purpose` for the built-in, and the agent's `name` for a custom one (`probe-reviewer`).
-  - **An internal Claude Code helper also fires the hook:** a `Bash` call (`printf 'wait for it'`, "Output suggestion text") with an `agent_id` but **no `agent_type` key**. So "`agent_id` present" doesn't guarantee "`agent_type` present", and the hook sees traffic beyond the agents Cairn launches.
-  - Input also includes `permission_mode` (`bypassPermissions`), `tool_name`, `tool_input`, `cwd`, `session_id`, `transcript_path`, `tool_use_id`.
-  - **Hook denies still block under bypass mode**, both ways. With exit 2, the agent sees `PreToolUse:Write hook error: [<script path>]: <stderr>`. With exit 0 and JSON `hookSpecificOutput.permissionDecision: "deny"`, it sees only the reason text.
-  - **Any other failure lets the call through, silently.** Exit 1 and a missing binary (exit 127) both let the Write proceed, and the agent was shown no warning.
-
-### Docs findings (Claude Code docs: `sub-agents.md`, `hooks.md`, `auto-mode-config.md`, `remote-control.md`)
-
-- **Subagents follow the parent's permission mode.** If the parent is in `bypassPermissions`, `acceptEdits` or `auto`, the subagent's frontmatter `permissionMode` is ignored.
-- Settings `permissions.allow` / `deny` rules apply to subagent tool calls.
-- Frontmatter `tools` / `disallowedTools` take tool names only; path-scoped rules like `Edit(dir/**)` are not documented there.
-- **PreToolUse hooks fire for subagent tool calls; hook input includes `agent_id` and `agent_type`** (both present only inside a subagent).
-- An **`auto` permission mode** (classifier-based approval) is generally available.
-- **`maxTurns`** in agent frontmatter caps a subagent; the output is marked partial and can be resumed.
-- Approving permission prompts from the phone over Remote Control is **not documented** (only notifications about prompts are).
-- `claude -p` loads the same memory files as interactive mode unless `--bare` is passed, so `cairn run`'s agents already load `CLAUDE.local.md` today.
+   Including `test/` also needs `rootDir` changed. `tsconfig.json` has `"rootDir": "src"`, which rejects files outside `src/`. `bun build --compile` ignores `rootDir` and `outDir`, so changing them doesn't affect the build.
+5. **Small nits from the round-16 review:**
+   - `src/commands/hook.ts:30` keeps its own `Writer` type; the other copies moved to `src/cli-io.ts` in #115.
+   - CLAUDE.md's Run state section has two bullets ("Picking records the sha under the lock", "Orphan pruning") that repeat the bullets above them (#116).
 
 ## Goals
 
-1. Run a full round from an interactive session that Remote Control can reach (`/cairn-run`).
-2. One tested implementation of the post-iteration logic, shared by `cairn run` and `/cairn-run`.
-3. Guards survive restart and compaction; close the in-progress gap.
-4. Keep the run agent's context small enough for a round of up to 20 tasks without depending on compaction.
-5. Mechanical containment under `/cairn-run`: a hook that execution agents have never had, and that restores the reviewer's scoping.
-6. Cleanups: `instructions.md` → `CLAUDE.local.md`; delete `review.maxIterations`.
-7. **`cairn run` keeps working throughout.** Nothing headless is removed until a real round succeeds through `/cairn-run`.
+1. **Validate `/cairn-run` end to end** on a real round: task → settle → review → `--reviewed` → done, plus recovery after compaction or a resume, push notifications, `auto` mode, and whether `CLAUDE.local.md` reaches `cairn-task-agent`.
+2. Close the confirmed hook hole (`$` expansion) and make the hook find the project from the tool call's `cwd`.
+3. Make `cairn init` add missing entries to an existing `.cairn/.gitignore`.
+4. Extend the type-check gate to `test/`.
+5. Keep the docs accurate.
 
 ## Approach
 
-### Shape
+### Run mode: `/cairn-run`, pinned
 
-```
-/cairn-run (run agent, interactive)
-├─ cairn round next            → review pending? return it. Else pick + health check +
-│                                attempt record + prompt file → { taskId, iteration, model, promptFile }
-│                                or { verdict: "round-done" }
-├─ Agent(cairn-task-agent)     → "Read <promptFile> and follow it": start → work → commit → complete
-│                                returns ≤5-line report
-├─ cairn round settle <id>     → validate, guards, archive → verdict JSON
-├─ verdict:
-│    review  → Agent(post-task-reviewer, reviewPromptFile) → cairn round settle <id> --reviewed
-│    retry   → SendMessage same agent (continue) | fresh Agent → settle again
-│    blocked → PushNotification
-│    done    → —
-└─ repeat
-```
+- Run the round through `/cairn-run` in an interactive session started from a **plain terminal**, not from a shell cairn launched (finding 3). Use `bypassPermissions`; switch to `auto` for a stretch.
+- **Pin the binary.** Tasks 118 and 119 change `src/commands/hook.ts`, and the hook is live in the `/cairn-run` session: every Edit/Write/Bash runs `cairn hook pre-tool-use` → `dist/cairn`. Unpinned, any mid-round `bun run build` (including the health check) would put a half-finished hook into the containment layer. For example, a bad root lookup would deny the reviewer's writes to `reviews/`. Pinning also means the round validates exactly the round-16 code. Use the standard pin/unpin procedure in CLAUDE.md, including the `healthCheck` redirect to `/tmp/cairn-healthcheck`.
+- No task touches `src/commands/round.ts`, `src/settle.ts` or `src/run-state.ts`.
+- The standing hazard rules still go in the task descriptions:
+  - Tasks touching `hook.ts`, `utils.ts`, `init.ts` or `cairn.json`: never run `cairn round …`, `cairn hook …`, `cairn init` or `bun src/index.ts round|hook|init …` against this repository's root. Exercise them only in temp dirs (`fs.mkdtempSync`).
+  - Tasks touching `package.json`, `tsconfig.json` or `cairn.json`: do NOT modify `healthCheck` or the `build` script, and do not run `./install.sh`. The binary is pinned and the health check redirected.
+  - `cairn.json` has an uncommitted user change: stage only the files you changed.
+- **Tests on every task:** `bun run typecheck` and the relevant `bun test …` (the full `bun test` is fine). TDD per `CLAUDE.local.md`.
 
-- **Agents run one after another, never nested,** even though nesting works (probe b). The run agent launches the task agent, then the reviewer. This keeps the reviewer independent, keeps the deterministic steps between the two, and leaves failure handling with the run agent.
-- **The run agent never reads `tasks.json`**, diffs, or raw test output.
-- **Every CLI verdict includes a `next` hint**, so each iteration only depends on the last command's output. A session that compacted, a resumed session and a fresh session all behave the same.
-- **Prompt files, not inline prompts.** An inline prompt of about 3k tokens would land in the run agent's context twice (the tool result, then the Agent call), and a reviewer prompt has no size limit.
+### `init`: add missing `.gitignore` entries
 
-### Task agent: `cairn-task-agent`
+- When `.cairn/.gitignore` exists, compare its lines (trimmed, exact match, **wherever they appear in the file**) against the lines of `GITIGNORE_CONTENT`. Append only the missing ones, under a short comment header.
+- Never reorder, remove or rewrite existing lines. The legacy `.ralph_*` block and user additions stay as they are.
+- Print `Updated: .cairn/.gitignore (added N entries)`, or nothing when nothing was added.
+- A second `init` adds nothing (the existing re-init test at `init.test.ts:170` must still hold).
+- This repo's hand-patched file places the new lines mid-file, so the post-round `cairn init` here should report nothing to add. That's a live check of position-independent matching.
+- `init` still never touches the repository's root `.gitignore` (the existing "Cairn does not edit .gitignore" rule is about the root file; the data-dir file is init's own).
 
-- Init installs a generic `agents/cairn-task-agent.md` (`internal: true`) with **`maxTurns`**. The run agent always launches this type.
-- **Specialist content stays in the prompt file**, as `run.ts:64-80` does today. The task's `agent` field never becomes `subagent_type`: that would make the specialist `.md` the subagent's whole system prompt and bring in its own model and tools.
-- `model` comes from the task, or the specialist's model, exactly as `run.ts:564-568` resolves it.
-- `maxTurns` partly replaces `iterationTimeout` (900s). It caps turns, not wall-clock time, and "partial, resumable" fits the `continue` retry.
+### Hook: deny `$` in reviewer Bash
 
-### `cairn round next`
+- Reviewer Bash is denied if the command contains `$` anywhere, replacing "strip `$` then check". This subsumes `$(`, `${…}`, `$VAR`, and `$'…'` ANSI-C quoting.
+- Safe for legitimate use: `${range}` in `src/post-task-reviewer.ts`'s prompt (lines 31–33) is a JS template literal filled in before the reviewer sees it, so the reviewer's git commands never contain a literal `$`.
+- Keep the exact-token `--output` check as a second layer.
+- Tests:
+  - denied: `git log --output${X}=/tmp/f`, `git diff $X`, `git show $'--output=x'`
+  - still allowed: plain `git diff <sha>..<sha>`, `git log --oneline -5`
+  - the quoting variants stay denied
+- Update the deny reason text to mention shell variables.
+- Fold `hook.ts`'s local `Writer` type into `src/cli-io.ts`.
 
-1. If any attempt record is in `awaiting-review`, return that review first. Reviews can't be lost to a crash.
-2. `selectNextTask`. If none is ready, return `round-done`.
-3. Run the health check. A failure is included in the prompt, as today.
-4. Attempt record: create it with `beforeSha = HEAD` only if none exists. On a re-pick, keep the original SHA so the review covers every attempt.
-5. Increment the iteration counter on disk. It feeds `cairn task start --iteration`.
-6. Write the task agent's prompt (system prompt + iteration prompt) to a prompt file.
-7. Return `{ taskId, iteration, model, promptFile, next }`.
+### Hook: find the project from the tool call's `cwd`
 
-### `cairn round settle <id> [--reviewed] [--before-sha <sha>] [--test-timeout <sec>]`
+- When the tool call has a string `cwd`, the hook finds the project by walking up from it for a `.cairn/` directory, **ignoring `CAIRN_PROJECT_ROOT`**. With no usable `cwd`, fall back to today's behavior (environment variable, then `process.cwd()`). That includes the error-log location path (hook.ts:209).
+- Suggested shape: an option on `findProjectRoot` (e.g. `{ ignoreEnv: true }`) or a small walk-only helper in `src/utils.ts`. Don't change `findProjectRoot`'s default behavior; every other command relies on the environment variable.
+- Test: with `CAIRN_PROJECT_ROOT` set to directory A and the tool call's `cwd` inside temp project B, the reviewer's `reviews/` scope and the `tasks.json` rule resolve to B. Restore the environment variable after the test.
 
-0. Take the lock (`acquireLock`, `src/file-lock.ts`), read `tasks.json` with repair and recovery, load the attempt record. `--before-sha` overrides the recorded SHA.
-1. **Idempotency is based on the attempt record, not on whether the task is archived** (this session's fix). Archiving happens *before* the review gate, so a status-based check would turn the `--reviewed` call into `already-settled`.
-   - `--reviewed`: requires a record in `awaiting-review` → clear the record, return `done`.
-   - No `--reviewed`, record in `awaiting-review` → **return `review` again** (rewrite the prompt file if it's missing). This covers a second call after compaction.
-   - No record and task archived → `already-settled`.
-   - No record and task not archived → create the record now, with `beforeSha` from the `Task #<id>:` commit-message fallback.
-2. **Branch on the task's current status:**
+### `test/` type-check in two batches
 
-| Status | Action | Verdict |
-|---|---|---|
-| `pending` | `stalls += 1`, block at **3** (reworded note) | `retry` (`fresh`) or `blocked` |
-| `in-progress` | **New:** `incompletes += 1`, block at **3** | 1 → `retry` (`continue`); 2 → `retry` (`fresh`); 3 → `blocked` |
-| `blocked` (the agent set it) | Clear the record; the reason comes from the task notes | `blocked` |
-| `complete` | Step 3 | — |
+- **Batch A** (`post-task-reviewer`, `config`, `init`, `index`, `settle` tests, 19 errors):
+  - Fix the test code, not `src/` types, unless a `src/` type is genuinely wrong. Say so in the notes if it is.
+  - The agent checks its progress with a temporary tsconfig that extends `tsconfig.json`, sets `rootDir: "."` and includes `src` and `test`, then deletes it. Validation cannot enforce batch A until batch B turns the gate on. That's accepted: batch B catches any leftovers.
+- **Batch B** (`run.test.ts`, `stream-filter.test.ts`, 19 errors), then **turn on the gate:**
+  - add `"test"` to `include`
+  - change or remove `rootDir` (`"."` or delete it; keep `outDir` harmless)
+  - `bun run typecheck` must exit 0 with `test/` included
+  - fix any test type errors that tasks 117–119 introduced
+- Prefer typed helpers or `as unknown as T` casts at mock boundaries over loosening `src/` signatures. Don't add `// @ts-expect-error` or `// @ts-ignore` except as a last resort, with a comment.
 
-3. **Validate** with `validateTaskTests`:
-   - `skipped` or `passed` → continue (`passed` resets `reverts`).
-   - `error` → continue with a warning.
-   - `failed` → `reverts += 1`, block at **2** (reuse the note at `run.ts:680`), otherwise `retry` (`continue`). A failed validation counts only as a revert, never as an incomplete.
-4. **Archive** (`archiveCompletedTasks`).
-5. **Review gate**, same conditions as `runPostTaskReview`. If it passes: `phase = awaiting-review`, write the reviewer prompt file, return `review`. Otherwise: clear the record and return `done` with the reason (`review-disabled` / `no-commits` / `no-before-sha`).
-6. Append a line to the iterations log and print the verdict JSON.
+### Validation-round observations (the human's side)
 
-**Exit codes:** 0 for every verdict, including `blocked`. Non-zero only when settle itself couldn't run (unreadable `tasks.json`, lock timeout, unknown ID); for the run agent that means stop and send a notification.
-
-**Retry `mode`:**
-- `continue` means SendMessage to the same agent, which knows its diff.
-- `not-started` (stall) is always `fresh`.
-- If the agent's ID is lost, fall back to `fresh`.
-
-**Why `incompletes` is 3, with the retry mode changing:** blocking too early costs one human unblock (dependents wait, the rest of the round continues). Blocking too late costs one extra agent session. A limit of 2 would never try a fresh agent on a stuck task. The third attempt uses a fresh agent in case the first agent's own context was the problem, so it tests something different instead of repeating. A large task timing out twice under `cairn run`'s 900s limit is realistic.
-
-**Thresholds stay fixed** (stalls 3, incompletes 3, reverts 2), same reasoning as `run.ts:386`/`:399`.
-
-### Run state
-
-A gitignored runtime file in the data dir that follows the existing temp-file convention (`tempFilePath`, added to init's `TEMP_IGNORE_SUFFIXES`). New paths are created with `BRAND` and read back through discovery, per CLAUDE.md.
-
-```json
-{ "iteration": 14,
-  "attempts": { "42": { "beforeSha": "abc…", "iteration": 14,
-                        "reverts": 0, "stalls": 0, "incompletes": 0,
-                        "phase": "executing" } } }
-```
-
-- **When a record is cleared:** `done`, `--reviewed`, a block, or `cairn task set-status` on the task (a human unblocking gets fresh attempts, matching `run.ts:689`).
-- **No `selectedStatus` field:** a task still pending at settle time is treated as a stall.
-- `cairn run` shares `settle`, so it also creates attempt records at pick time. Restarting `cairn run` no longer resets counters; `set-status` is the reset.
-
-### Test output
-
-- `settle` writes the full test output to a per-task log file.
-- The reviewer gets a **summary** (command, pass/fail/skipped/error, counts and duration when parseable) plus the log path.
-- A `retry` verdict's `failure` is the **last ~40 lines**. The existing 200-character slice stays as the task note.
-- A task never reaches review with failing tests, so raw output is never useful to the reviewer.
-
-### Prompt changes
-
-**Task agent** (the `buildSystemPrompt` variant for subagents):
-- Drop the completion-flag step (`run.ts:131`); `next` returns `round-done`.
-- State the working directory explicitly. A subagent inherits the run agent's working directory, not `spawnClaude`'s `cwd` (`run.ts:202`).
-- Report contract: return ≤5 lines; details go to `--notes-file`.
-- **Keep SUBAGENT STRATEGY** (nesting works, probe b) and **keep "root CLAUDE.md is already loaded"** (probe a).
-- Specialist section embedded as today.
-
-**Reviewer** (both modes):
-- Remove "run the declared tests" from `agents/post-task-reviewer.md`. `settle` has already validated, and the reviewer gets the summary.
-- **Add `tools: Read, Grep, Glob, Bash, Edit, Write`** to its frontmatter. Today it gets every tool as a subagent, including `Agent` and all MCP tools.
-- Return a single line (`PASS` or `CONCERNS: n, see round-N.md`).
-- In subagent mode, the prompt file carries the diff *range*. The reviewer runs `git diff` itself; its git inspection grants already allow that.
-- Headless `--allowedTools`: the reviewer's grant no longer needs `buildTestCommandRules(task.tests)`. Init's permission seeding keeps using `buildCommandRules` for the project's own commands.
-
-Edit the repo-root `agents/` and `commands/`. `cairn init` copies them into projects (`installAgents` / `installSlashCommands`, `init.ts:442-464`).
-
-### Enforcement in `/cairn-run`
-
-Subagents follow the interactive session's permission mode, so per-agent `--allowedTools` scoping doesn't carry over, and frontmatter can't express path scopes. Replace both with one **PreToolUse hook that checks `agent_type`**:
-
-- **Implemented as `cairn hook pre-tool-use`** (JSON on stdin), not a shell script, so the decision logic is TypeScript with tests. **Deny with exit 0 plus JSON `permissionDecision: "deny"`**, not exit 2: the agent sees a clean reason instead of a "hook error" naming the script (probe c). Init seeds it into `.claude/settings.local.json` (round 13 rejected writing to the committed `settings.json`), with a matcher limited to `Edit|Write|Bash`.
-- **Rule 1:** a call from any subagent (`agent_id` present) to `Edit`/`Write` on `tasks.json` → deny. **Generate-tasks runs in the main session with no `agent_id`, so it is exempt automatically.** This replaces the draft's "deny only while a round is live" heuristic, which a crashed round's stale `executing` record would have broken.
-- **Rule 2:** when `agent_type == post-task-reviewer`, allow `Edit`/`Write` only under the resolved `reviews/` dir, and Bash only for `GIT_INSPECTION_RULES` (shared from `src/claude-settings.ts`). This rebuilds, mechanically, the scoping the headless reviewer gets from `--allowedTools`.
-- **No effect on headless `cairn run`:** its agents are main sessions (no `agent_id`), so the hook is a no-op for them. It can't cause a round-13-style incident against the existing loop.
-- **Fail open, but not invisibly.** Any internal error (unparseable input, data dir not found) exits non-zero without a deny. Probe (c) showed that a non-2 exit, including a missing `cairn` binary (127), lets the call through, so a broken or uninstalled hook can't lock up sessions. The rule is simple: never exit 2 and never emit `deny` on an internal error. Those failures are also **silent** (no warning reaches the agent), so the hook appends internal errors to a gitignored hook-error log in the data dir (`tempFilePath`) rather than failing without a trace.
-- **Missing `agent_type` is normal**, not an error. Internal Claude Code helpers carry `agent_id` without `agent_type` (probe c). Rule 1 still applies to them (they never touch `tasks.json`); rule 2 matches only an exact `agent_type`.
-- **Fast path:** the hook fires on every matching call in every session in the project, internal helpers included. Exit immediately when `agent_id` is absent, or when the tool and path can't match a rule.
-
-**Permission mode for `/cairn-run` sessions:** the user picks it at launch; the skill can't set it.
-- **Documented default: `bypassPermissions` + hook.** Probe (c) confirmed that hook denies bind under bypass. An unattended round never stalls. Containment is the same as today's execution agents, plus the hook, which is a strict gain.
-- **Try `auto` + hook in the validation round.** The classifier adds a layer but could wrongly deny normal actions (`git commit`, `bun test`, `cairn task …`).
-- **`default`/`acceptEdits` + allowlist is rejected** for unattended rounds (see Rejected Alternatives).
-
-### Cleanups
-
-- **`instructions.md` → `CLAUDE.local.md`.**
-  - `cairn init` offers to move the content and makes sure `CLAUDE.local.md` is gitignored.
-  - For one release the loader still reads `instructions.md` and prints a deprecation warning; after that, delete `personal-instructions.ts` and its four call sites.
-  - `CLAUDE.local.md` applies to *all* sessions in the project, not only agents Cairn launches.
-  - It reaches `/cairn-run`'s subagents (probe a′, `general-purpose`), and headless `cairn run` agents load it too. Confirm for `cairn-task-agent` in the validation round; the one-release fallback to `instructions.md` covers the gap until then.
-- **Delete `review.maxIterations`** from `types.ts` (interface and `isValidConfig`: stop requiring the key, still accept it), `config.ts:56`, init (`:140`, `:195`, `:209`) and this repo's `cairn.json`. Existing configs that still have the key must load and validate cleanly.
-
-### Self-modifying round
-
-- This round rewrites `run.ts` and adds commands to the binary the loop depends on. **The binary is pinned** (`~/.local/bin/cairn` is a regular file, built 2026-09-13 17:37) and `healthCheck` points at `/tmp/cairn-healthcheck`.
-- The pinned binary runs this round, so `run.ts` changes don't affect the round in progress. They do have to keep `test/commands/run.test.ts` green.
-- `/cairn-run` can't run this round. Its first real use is the validation round afterwards.
-- The hook seeding must never be exercised against the project root mid-round. A hook pointing at the pinned binary, which doesn't have `cairn hook`, fails silently and blocks nothing (probe c): harmless, but it hides that the hook isn't working.
+- **`CLAUDE.local.md` canary:** before the round, add a temporary line, e.g. "Include the word CANARY-17 in your `cairn task complete --notes`." After the round, grep `tasks.completed.json` for it, then remove the line.
+- **Compaction and resume:** run `/compact` (or quit and resume) between tasks at least once. The session should carry on from the `next` hints alone; an open review should be picked up first by `round next`.
+- **`auto` mode:** run at least one task in `auto` and note any wrongly denied routine commands (`git commit`, `bun test`, `cairn task …`).
+- **Remote Control:** drive part of the round from the phone. Note whether permission prompts can be approved there (they shouldn't appear in `bypassPermissions`).
+- **Clean end state:**
+  - `.cairn/.cairn_hook_errors.log` is empty or missing
+  - `.cairn/.cairn_run_state.json` has no attempt records
+  - each task has a `Task #N:` commit
+  - `reviews/round-17.md` has one section per task
+  - the push notification arrived at `round-done`
+- **Compare with headless:** round 16 ran under `cairn run`. Note wall-clock, retries, and anything the run agent got wrong.
 
 ## Rejected Alternatives
 
-**This session (round 15):**
+**This session (round 17):**
 
-- **Workflow scripts for the loop.** Rejected: rounds are under 20 tasks, users have reported Workflows eating token budgets, and it's unclear how much a running Workflow can be redirected from a phone. Revisit if rounds grow large.
-- **Task agent launches its own reviewer (nesting).** Rejected even though nesting works (probe b): the reviewer loses independence, the deterministic steps get skipped, and failure handling ends up inside a subagent.
+- **Unpinned validation round.** I first proposed it because the round-loop code isn't touched. Rejected once the hook tasks were in scope: the hook is live in the session, and a mid-round rebuild would change the containment layer while the round runs.
+- **Strip `${` / braces in `hasOutputOption` instead of denying `$`.** Rejected: patching one expansion form at a time is the pattern that produced this hole. The reviewer never needs `$`.
+- **Only documenting the `CAIRN_PROJECT_ROOT` behavior.** Rejected: the fix is small, and the tool call's `cwd` is the true answer for the session the hook guards.
+- **Changing `findProjectRoot`'s default to prefer `cwd` over the environment variable.** Rejected: every CLI command spawned by cairn relies on the environment variable winning.
+- **Rewriting an existing `.cairn/.gitignore` from `GITIGNORE_CONTENT`.** Rejected: it would drop user additions and the legacy block. Append-only merge.
+- **One task for all 38 `test/` type errors.** Rejected in favor of two batches: it keeps each task agent-sized and gives the validation round more settle/review cycles.
+- **A small side project for the validation round.** Considered. Rejected because this repo has real, low-risk work queued, and the pin makes self-modification safe.
+
+**Round 16:**
+
+- **Type-check in `healthCheck`.** Rejected: it runs before every iteration (a few seconds each), and a type error would block the *next* task's health check rather than fail validation of the task that introduced it, so the revert guard would never point at the right task.
+- **Type-check as a script only, with no gate.** Rejected: the round-15 reviews show agents' self-reported "no new tsc errors" is not reliable.
+- **Relying on `defaultTestCommand` alone for the gate.** Doesn't work: it's a prompt hint (`run.ts:137`), not something validation runs. The gate goes into each task's declared `tests`.
+- **Hook blocks subagent Bash writes to `tasks.json`** (redirection, `sed -i`, `mv`, `cp`, `tee` naming the file). Rejected: pattern matching is easy to get around and goes beyond what headless enforces. Execution agents are bound by the prompt ban in both modes.
+- **Fixing the #105 gap only in `cairn-run.md` wording** ("remember model and promptFile"). Rejected: the run agent's memory is exactly what compaction loses. The verdict carries the fields.
+- **Re-reading the record right before the SHA decision** (the #98 reviewer's one-line fix). Rejected in favor of capture-unconditionally-then-decide-under-lock, which closes the window instead of narrowing it and unifies the `run.ts` and `round.ts` paths.
+- **Pruning `awaiting-review` records for archived tasks.** Rejected: those are pending reviews, and their tasks are archived by design.
+- **Making the concurrent counter `get`/`set` atomic** (#93). Deferred: only concurrent settles of the same task could race, and neither loop produces them. Revisit with the concurrent-loops open question.
+
+**Round 15:**
+
+- **Workflow scripts for the loop.** Rejected: rounds are under 20 tasks, users report Workflows eating token budgets, and it's unclear how much a running Workflow can be redirected from a phone. Revisit if rounds grow large.
+- **Task agent launches its own reviewer (nesting).** Rejected even though nesting works: the reviewer loses independence, the deterministic steps get skipped, and failure handling ends up inside a subagent.
 - **Run agent reads `tasks.json` and picks tasks itself.** Rejected: costs context and moves tested selection logic into prompt prose.
 - **Guard counters kept by the run agent.** Rejected: compaction or restart miscounts, which leads either to the 60-iteration livelock or to blocking too early.
-- **`--before-sha` passed only as a flag.** Would work nearly always; rejected only because the attempt record exists anyway. Kept as an override.
-- **Finding the review range from `Task #<id>:` commit messages as the primary method.** Rejected because the message format is enforced only by the prompt. Kept as the **fallback** when the record is missing, instead of skipping the review.
+- **`--before-sha` passed only as a flag.** Rejected because the attempt record exists anyway. Kept as an override.
+- **Finding the review range from `Task #<id>:` commit messages as the primary method.** Rejected because the message format is enforced only by the prompt. Kept as the fallback when the record is missing.
 - **A `selectedStatus` field.** Rejected: "still pending at settle" is enough.
 - **Putting `next`/`settle` under `cairn task`.** Rejected: task agents use `cairn task`, and one calling `settle` would archive and skip its own review.
 - **Returning prompts inline from `next`/`settle`.** Rejected in favor of prompt files.
-- **Passing full test output to the reviewer.** Rejected: passing output has nothing to review. Summary plus log path instead.
-- **Pausing the loop with AskUserQuestion on a block.** Rejected: it stalls unattended rounds. Notify and move on; the user can step in from the phone.
+- **Passing full test output to the reviewer.** Rejected: summary plus log path instead.
+- **Pausing the loop with AskUserQuestion on a block.** Rejected: it stalls unattended rounds.
 - **Moving `instructions.md` into the project `CLAUDE.md`.** Rejected: that file is committed, and the content is personal.
-- **Multiple independent reviewers (`review.maxIterations`).** Deferred, config deleted. Sketch if revived: focused lenses (spec / correctness / coverage) or mixed models rather than copies; reviewers *return* findings; a `review-merger` agent writes one section (consensus / unique / conflicts); config `review.reviewers` with a per-task override.
-- **Removing headless `cairn run` this round.** Rejected: stability during the transition.
-- **Idempotency keyed on archived status** ("task archived → `already-settled`"). Rejected: `settle` archives before the review gate, so the `--reviewed` call would be swallowed. Keyed on the attempt record instead.
-- **Mapping the task's `agent` field to `subagent_type`.** Rejected: the specialist `.md` would replace the whole system prompt and bring its own model and tools, diverging from `cairn run`. Always launch `cairn-task-agent`; embed the specialist in the prompt file.
-- **Using built-in `general-purpose` as the task agent type.** Rejected: it can't set `maxTurns`.
-- **Hook denies `tasks.json` edits only while a round is live** (run state holds an `executing` record). Rejected: a crashed round leaves a stale record that blocks generate-tasks. `agent_type`/`agent_id` in hook input distinguishes subagents directly.
-- **Shell-script hook.** Rejected in favor of `cairn hook pre-tool-use`: tested TS logic, and it can reuse `GIT_INSPECTION_RULES` and discovery.
-- **`default`/`acceptEdits` mode + allowlist for `/cairn-run`.** Rejected for unattended rounds: task agents run unpredictable commands, every unlisted one prompts, and phone approval over Remote Control isn't documented.
-- **`incompletes` limit of 2.** Rejected: never tries a fresh agent on a stuck task, and large tasks can legitimately need two sessions.
-- **Dropping SUBAGENT STRATEGY from the subagent-mode prompt.** Rejected: nesting works (probe b).
+- **Multiple independent reviewers (`review.maxIterations`).** Deferred, config deleted. Sketch if revived: focused lenses (spec / correctness / coverage) or mixed models; reviewers *return* findings; a `review-merger` agent writes one section; config `review.reviewers` with a per-task override.
+- **Removing headless `cairn run`.** Rejected until a real round succeeds through `/cairn-run`. (Round 17 is that round; revisit after it.)
+- **Idempotency keyed on archived status.** Rejected: settle archives before the review gate, so `--reviewed` would be swallowed. Keyed on the attempt record.
+- **Mapping the task's `agent` field to `subagent_type`.** Rejected: the specialist `.md` would replace the whole system prompt. Always launch `cairn-task-agent` and embed the specialist in the prompt file.
+- **Built-in `general-purpose` as the task agent type.** Rejected: it can't set `maxTurns`.
+- **Hook denies `tasks.json` edits only while a round is live.** Rejected: a crashed round's stale record would block generate-tasks.
+- **Shell-script hook.** Rejected in favor of `cairn hook pre-tool-use` (tested TS; reuses `GIT_INSPECTION_RULES` and discovery).
+- **`default`/`acceptEdits` mode + allowlist for `/cairn-run`.** Rejected for unattended rounds: every unlisted command prompts, and phone approval isn't documented.
+- **`incompletes` limit of 2.** Rejected: never tries a fresh agent on a stuck task.
+- **Dropping SUBAGENT STRATEGY from the subagent-mode prompt.** Rejected: nesting works.
 
 **Corrected from earlier rounds:**
 
-- ~~"Guard counters are in memory and per-run on purpose; a livelock only matters within a single run"~~ (`run.ts:489` comment; round 14). That held only while the run agent was a TS process. Counters move to run state. They are still **not** a `Task` field, so that rejection stands.
-- ~~"Persisting the revert counter as a `Task` field — rejected; a livelock only matters within a single run."~~ The conclusion stands; the reason is now "counters are runtime state, not task data, and live in the gitignored run-state file."
-- ~~"Dropping test execution from the reviewer's remit — moot once the deny rules are gone"~~ (round 14). **Now adopted**, for a different reason: `settle` validates before the review gate, so the reviewer re-running tests is duplicated work.
-- ~~"Subagents do not load the parent's auto memory"~~ (draft docs finding). Probe (a) showed both `general-purpose` and custom subagents have MEMORY.md loaded.
-- **"Skills instead of subagents"** stays rejected as worded: the skill is the *run agent*, and all work still happens in fresh-context subagents.
+- ~~"Guard counters are in memory and per-run on purpose."~~ Counters live in run state. They are still not a `Task` field.
+- ~~"Dropping test execution from the reviewer's remit — moot."~~ Adopted in round 15: settle validates before the review gate.
+- ~~"Subagents do not load the parent's auto memory."~~ They do (round-15 probe a).
+- **"Skills instead of subagents"** stays rejected as worded: the skill is the run agent, and all work happens in fresh-context subagents.
 
-**Carried forward from round 14:**
+**Carried forward from round 14 and earlier:**
 
-- **Per-agent deny via `--settings`** (inline JSON on reviewer and planner spawns). Proven to work, but headless mode is already deny-by-default. Rejected as machinery preserving a guarantee we get for free. Revive only if headless defaults change.
-- **Keeping the deny rules and exempting the loop some other way.** Rejected: a deny wins when rules merge, and there's no carve-out mechanism.
+- **Per-agent deny via `--settings`.** Rejected: headless mode is already deny-by-default. Revive only if headless defaults change.
+- **Keeping the deny rules and exempting the loop some other way.** Rejected: a deny wins when rules merge.
 - **Manual removal only, no init migration.** Rejected: repos initialized during the round-13 window would stay silently broken.
-- **A `cairn doctor` command** for known-bad config states. Deferred; revisit if a second such state appears.
+- **A `cairn doctor` command.** Deferred; revisit if a second known-bad state appears. (Leftover run state from round 16's findings is handled by pruning instead. The stale `.cairn/.gitignore` is handled by init's merge this round.)
 - **Halting the entire run on a same-task stall.** Rejected in favor of block-and-continue.
-- **Grant broad `Bash(*)` with targeted denies.** Rejected: the reviewer needs no breadth. (The original reason, "denies are bypassed under `--dangerously-skip-permissions`", was false.)
-- **Blanket `Bash(cairn task:*)` deny.** Rejected: it would break `cairn task next-id` / `show`, which planning and review require.
-- **Grant `Bash(find:*)`, `Bash(cat:*)`, `Bash(ls:*)`, `Bash(rg:*)`, `Bash(grep:*)`, `Bash(head:*)`, `Bash(wc:*)`.** Rejected: redundant with `Read`/`Glob`/`Grep`, and `find` is not read-only.
-- **Write rules to `.claude/settings.json` (committed, team-wide).** Rejected: Cairn should not edit a git-tracked file that affects every teammate's plain `claude` sessions. (This applies to the hook too, which goes in `settings.local.json`.)
-- **Cairn writes to global git excludes.** Rejected: reaching outside the repo is too invasive for an init step.
-- **Truly runtime-configurable brand name.** Rejected: bootstrap trap, since discovery walks up looking for the data dir.
+- **Grant broad `Bash(*)` with targeted denies.** Rejected: the reviewer needs no breadth.
+- **Blanket `Bash(cairn task:*)` deny.** Rejected: breaks `cairn task next-id` / `show`.
+- **Grant `Bash(find|cat|ls|rg|grep|head|wc:*)`.** Rejected: redundant with Read/Glob/Grep, and `find` is not read-only.
+- **Write rules or the hook to `.claude/settings.json` (committed).** Rejected: affects every teammate's sessions.
+- **Cairn writes to global git excludes.** Rejected: too invasive.
+- **Truly runtime-configurable brand name.** Rejected: bootstrap trap.
 - **Renaming `.ralph_task_*_notes.md`.** Rejected permanently.
-- **Declaring task `tests` root-relative everywhere.** Rejected: manifest-driven commands behave better from the task directory.
-- **Try-then-fall-back cwd for test validation.** Rejected: runs the suite twice and can't tell "wrong cwd" from "real failure."
-- **An explicit per-task `testCwd` field.** Rejected: burdens task generation and does nothing for existing task files.
-- **Giving `healthCheck` the per-directory resolver.** Rejected: it's a single project-wide string.
-- **Never normalize a resolved API key onto plain `ANTHROPIC_API_KEY`.** The loop blanks that name per-spawn to force Max-plan usage.
+- **Declaring task `tests` root-relative everywhere.** Rejected.
+- **Try-then-fall-back cwd for test validation.** Rejected.
+- **An explicit per-task `testCwd` field.** Rejected.
+- **Giving `healthCheck` the per-directory resolver.** Rejected.
+- **Never normalize a resolved API key onto plain `ANTHROPIC_API_KEY`.**
 - **`BRAND` constants in test assertions.** Rejected as partly tautological.
-- **Splitting a self-modifying round into batches with stop/rebuild/restart.** Rejected: many manual cycles, and every boundary is a chance to get ordering wrong.
+- **Splitting a self-modifying round into stop/rebuild/restart batches.** Rejected.
 - **Rewriting archives during a sweep.** Rejected: falsifies history.
-- **Per-task review files (`reviews/task-<id>.md`).** Not adopted; escape hatch if per-round files grow too long.
-- **Agent-managed `state.json`.** Rejected: no atomicity guarantee.
-- **Store `nextTaskId` inside `tasks.json`.** Rejected: a separate `state.json` survives rewrites.
-- **Audit agent writes `planning-notes.md` directly.** Rejected: the planner owns formatting.
-- **Separate `audit` CLI command instead of a slash command.** Rejected: keeps the user in the planner session.
-- **Anthropic TS SDK instead of shelling out to `claude`.** Rejected: shelling out gives tools, permissions and MCP for free.
-- **Port narration to TypeScript.** Rejected: Kokoro TTS and sounddevice are Python-specific.
-- **Change storage format (SQLite / per-task files / JSONL).** Rejected: CLI subcommands get ~95% of the benefit.
+- **Per-task review files.** Not adopted; escape hatch if per-round files grow too long.
+- **Agent-managed `state.json`.** Rejected.
+- **Store `nextTaskId` inside `tasks.json`.** Rejected.
+- **Audit agent writes `planning-notes.md` directly.** Rejected.
+- **Separate `audit` CLI command.** Rejected.
+- **Anthropic TS SDK instead of shelling out to `claude`.** Rejected.
+- **Port narration to TypeScript.** Rejected.
+- **Change storage format (SQLite / per-task files / JSONL).** Rejected.
 - **Pre-commit to git worktrees for parallel execution.** Deferred to the RFC round.
 
 ## Rough Task Outline
 
 **MANUAL pre-round (user), in this order:**
 
-1. **Commit** the CLAUDE.md pin/unpin commands. Do **not** commit `cairn.json`'s redirected `healthCheck` or `CLAUDE.local.md`.
-2. **Pin: already done.** Re-verify with `ls -la ~/.local/bin/cairn` (a regular file, not a symlink) right before `cairn run`.
-3. **Remaining probes**, before generating tasks:
-   - **(a′) Done:** subagents load `CLAUDE.local.md`. Remove the marker line from `CLAUDE.local.md`.
-   - **(c) Done:** `agent_id`/`agent_type` behave as the plan needs, denies bind under bypass, and non-2 failures let the call through silently. See Context. Delete `~/cairn-hook-probe`.
+1. **Commit:**
+   - the round-16 bookkeeping: `.cairn/tasks.json`, `tasks.completed.json`, `state.json`, `reviews/round-16.md`
+   - the staged untracking of `.cairn/.cairn_iterations.log`
+   - `.cairn/.gitignore` and the root `.gitignore`
+   - `.claude/agents/cairn-task-agent.md`, `.claude/agents/post-task-reviewer.md`, `.claude/commands/cairn-run.md`
+   - `cairn.json` (`maxIterations` removed, `defaultTestCommand` updated) *before* pinning, so the `healthCheck` redirect is the only uncommitted change during the round
+2. **Pin** (CLAUDE.md procedure): `bun run build`, copy `dist/cairn` over the symlink, verify it's a regular file; set `healthCheck` to `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck`.
+3. **Canary:** add the temporary CANARY-17 line to `CLAUDE.local.md`.
+4. **Optional probe (headless `--output`, round 16's probe 4):** from a throwaway repo, check whether `claude -p --allowedTools "Bash(git log:*)" --disallowedTools "Bash(git * --output*)"` blocks `git log --output=x`. The result decides whether headless `cairn run` can get the same rule later.
+5. **Generate tasks** (`/generate-tasks`), then launch a fresh `claude --permission-mode bypassPermissions` **from a plain terminal** in the repo and run `/cairn-run`.
 
-**Round tasks** (each TDD: write the test, watch it fail, then implement). No project specialist agents apply; all tasks use the generalist prompt.
+**Round tasks** (IDs from #117; each TDD; tests = `bun run typecheck` + `bun test`). No specialist agents apply.
 
-1. **Extract `settleTask`** (`src/`, `src/commands/`, `test/`): `src/settle.ts`, a pure extraction of `run.ts:665-765` with injected dependencies; `run.ts` calls it; counters passed through an interface. `test/settle.test.ts`; `test/commands/run.test.ts` stays green. *First: everything else builds on it.*
-2. **Run-state store** (`src/`, `src/commands/init.ts`, `test/`): `src/run-state.ts` (read/write under `acquireLock`), path via `tempFilePath`, ignore suffix added to `TEMP_IGNORE_SUFFIXES`. Tests in temp dirs.
-3. **Persist guard counters** (`src/`, `src/commands/run.ts`, `src/commands/task.ts`, `test/`):
-   - `settle` uses run state, and `cairn run` creates the attempt record at pick time.
-   - Update the `run.ts:489` comment.
-   - `cairn task set-status` clears the record.
-   - Test: counters survive two separate `settle` calls. *Deps: 1, 2.*
-4. **Incomplete guard and stall-note rewording** (`src/`, `test/`): `in-progress` at settle → `incompletes`, limit 3, retry mode continue → fresh → blocked. Reword the stall note so it no longer blames only `permissions.deny`. *Deps: 3.*
-5. **Verdict JSON, record-based idempotency, exit codes** (`src/`, `test/`): `already-settled` only when there's no record and the task is archived; record created lazily when missing; retry `mode`; `next` hints. *Deps: 3.*
-6. **Test log and summary** (`src/`, `test/`): full output to a per-task log; summary returned; 40-line `failure` tail. `src/test-validator.ts`, `test/test-validator.test.ts`. *Deps: 1.*
-7. **Review phase** (`src/`, `test/`): `awaiting-review`, `--reviewed`, re-emitting `review` on a repeat call, `beforeSha` from the record with the commit-message fallback. *Deps: 3, 5.*
-8. **`cairn round next`** (`src/`, `src/commands/`, `test/`): pending review first, select, health check, attempt record (keeps the original SHA), iteration counter, prompt file, `round-done`. *Deps: 3, 7.*
-9. **`cairn round settle` CLI and command group** (`src/commands/`, `src/index.ts`, `test/commands/`): register in `src/index.ts`; `test/commands/round.test.ts`. *Deps: 4, 5, 6, 7.* ⚠️ Touches `index.ts`.
-10. **Subagent variant of the task prompt** (`src/commands/run.ts` or `src/agent-prompt.ts`, `test/`): `buildSystemPrompt` mode with no completion flag, explicit working directory, ≤5-line report contract, specialist section embedded, SUBAGENT STRATEGY and "CLAUDE.md already loaded" kept.
-11. **Reviewer prompt and agent** (`src/post-task-reviewer.ts`, `agents/`, `test/`):
-    - Test summary in `buildPostTaskReviewUserPrompt`, plus a diff-range variant.
-    - In `agents/post-task-reviewer.md`: remove the "run the declared tests" step, add the `tools:` frontmatter, require a one-line return.
-    - Drop `buildTestCommandRules` from the reviewer's headless grant, and update the existing regression test.
-    - `test/post-task-reviewer.test.ts`. *Deps: 6.*
-12. **`agents/cairn-task-agent.md`** (`agents/`, `test/commands/`): generic internal task agent with `maxTurns`; test that init installs it and that its frontmatter parses; make sure it isn't offered as a specialist.
-13. **`cairn hook pre-tool-use`** (`src/commands/`, `src/claude-settings.ts`, `test/commands/`):
-    - A pure decision function covering the `tasks.json` subagent deny, the reviewer's `reviews/**` scope and the reviewer's git-only Bash.
-    - Deny via exit 0 plus JSON `hookSpecificOutput.permissionDecision: "deny"` with a reason.
-    - Fail open on any internal error (non-2 exit, never `deny`), and append the error to a gitignored hook-error log.
-    - Exit immediately when `agent_id` is absent. Treat a missing `agent_type` as normal (internal helpers).
-    - Test fixtures copied from the real probe (c) payloads: main session, `general-purpose`, custom agent, internal helper without `agent_type`.
-    - Reuse `GIT_INSPECTION_RULES` and discovery.
-    - ⚠️ Touches `index.ts`.
-14. **Init seeds the hook** (`src/commands/init.ts`, `src/claude-settings.ts`, `test/commands/init.test.ts`): idempotent merge into `settings.local.json` with an `Edit|Write|Bash` matcher, leaving user hooks intact. ⚠️ **Temp dirs only; never exercise init against the project root** (same hazard as round 14). *Deps: 13.*
-15. **`/cairn-run` skill** (`commands/`): `commands/cairn-run.md`.
-    - The loop over verdicts, always launching `cairn-task-agent` with `model`.
-    - PushNotification on `blocked` / `round-done` / non-zero exit; fresh-agent fallback.
-    - A permission-mode note (bypass recommended).
-    - Installed by `cairn init`. *Deps: 8, 9, 10, 11, 12.*
-16. **`instructions.md` → `CLAUDE.local.md`** (`src/`, `src/commands/init.ts`, `README.md`, `test/`): init migration offer plus a `CLAUDE.local.md` gitignore entry, deprecation warning in the loader, README section fixed (including the wrong "execution agents only" row). `test/personal-instructions.test.ts`, `test/commands/init.test.ts`. The README can say `CLAUDE.local.md` reaches Cairn's headless agents and `/cairn-run` subagents (probe a′).
-17. **Delete `review.maxIterations`** (`src/types.ts`, `src/config.ts`, `src/commands/init.ts`, `cairn.json`, `test/`): `isValidConfig` stops requiring the key and still accepts it; about 40 test references updated. ⚠️ Edits `cairn.json`: touch **only** the `review` block.
-18. **Docs** (repo root `CLAUDE.md`, `README.md`):
-    - Two ways to run a round; run state; `cairn round` commands; `cairn-task-agent`.
-    - The `/cairn-run` enforcement story: subagents follow the session's permission mode, and the hook checks `agent_type`, is fail-open, and is a no-op for headless agents.
-    - Recommended permission mode.
-    - The reviewer no longer runs tests.
-    - *Last.*
+1. **`init` adds missing `.cairn/.gitignore` entries** (`src/commands/init.ts`, `test/commands/init.test.ts`). Existing file: position-independent exact-line match against `GITIGNORE_CONTENT`; append only the missing lines under a comment header; print `Updated: … (added N entries)`; never remove or reorder. Tests:
+   - old-style file with the legacy `.ralph_*` block
+   - file already containing the entries mid-file (no change, no output)
+   - user-added lines preserved
+   - re-init idempotent
+   ⚠️ Temp dirs only for `init`.
+2. **Hook: deny `$` in reviewer Bash; fold `Writer` into `cli-io.ts`** (`src/commands/hook.ts`, `src/cli-io.ts`, `test/commands/hook.test.ts`). Deny any `$`; keep the `--output` exact-token check; update the deny reason. Test cases:
+   - denied: `--output${X}=`, `$X`, `$'…'`
+   - still allowed: plain sha-range diffs
+   - still denied: the quoting variants
+   ⚠️ Hook hazard: temp dirs only; the binary is pinned.
+3. **Hook: find the project from the tool call's `cwd`, not `CAIRN_PROJECT_ROOT`** (`src/commands/hook.ts`, `src/utils.ts`, `test/commands/hook.test.ts`, `test/utils.test.ts` if present). Walk up from the tool call's `cwd` ignoring the environment variable; fall back to today's behavior when there's no `cwd` (including the error-log path). Don't change `findProjectRoot`'s default. Test with the environment variable pointing at A and the `cwd` in B. ⚠️ Hook hazard. *Deps: 2 (same file).*
+4. **`test/` type errors, batch A** (`test/post-task-reviewer.test.ts`, `test/config.test.ts`, `test/commands/init.test.ts`, `test/index.test.ts`, `test/settle.test.ts`; 19 errors). Check with a temporary extending tsconfig that includes `test/`, then delete it. Fix tests, not `src/` types, unless a `src/` type is wrong. *Deps: 1 (same test file).*
+5. **`test/` type errors, batch B, then turn on the gate** (`test/commands/run.test.ts`, `test/stream-filter.test.ts`, `tsconfig.json`; 19 errors). Add `test` to `include`, fix `rootDir`, fix any type errors in the new tests from tasks 1–3; `bun run typecheck` exits 0 with `test/` included. ⚠️ Touches `tsconfig.json`: don't touch `package.json`'s `build` script or `healthCheck`. *Deps: 1, 2, 3, 4.*
+6. **Docs** (repo-root `CLAUDE.md`, `README.md`):
+   - Development: `typecheck` now covers `test/`; remove the "~43 pre-existing errors" paragraph.
+   - Enforcement under /cairn-run: the reviewer `$` rule; the hook finds the project from the tool call's `cwd`, ignoring `CAIRN_PROJECT_ROOT`.
+   - Data layout: `cairn init` adds missing entries to an existing `.cairn/.gitignore` (append-only).
+   - Run state: merge the duplicated bullets.
+   - README: matching hook and init lines.
+   *Last.*
 
-⚠️ **Every task description touching `run.ts`, `index.ts`, `package.json`, `install.sh` or `cairn.json`** must say: do NOT modify `healthCheck` or run `./install.sh`; the binary is pinned and the health check redirected to a throwaway outfile.
-
-Directories: `src/`, `src/commands/`, `test/`, `test/commands/`, `agents/`, `commands/`, plus repo-root `CLAUDE.md` / `README.md`. No cross-service work.
+Directories: `src/commands/`, `src/`, `test/`, `test/commands/`, plus repo-root `tsconfig.json`, `CLAUDE.md`, `README.md`. No cross-service work.
 
 **MANUAL post-round:**
 
-1. Unpin (`./install.sh`) and restore `healthCheck` to `bun run build`.
-2. `cairn init` in this repo to install `/cairn-run`, `cairn-task-agent`, the updated reviewer and the hook.
-3. **Validation round:** a small real round run through `/cairn-run` from the phone, in `bypassPermissions`; try `auto` for part of it. Compare against a `cairn run` round. Only after that, consider removing any headless code.
+1. **Unpin** (`./install.sh`) and restore `healthCheck` to `bun run build`.
+2. **`cairn init` in this repo:** expect **no** `.gitignore` update (live check of task 1 against the hand-patched file).
+3. **Remove the CANARY-17 line** from `CLAUDE.local.md` after checking `tasks.completed.json` for it.
+4. **Record the validation results** (below) in the next planning session: `CLAUDE.local.md` loading, `auto`-mode denies, Remote Control, compaction/resume behavior, clean end state, comparison with `cairn run`.
 
 ## Open Questions
 
-- **Do custom agent types (`cairn-task-agent`, `post-task-reviewer`) load `CLAUDE.local.md`?** Confirmed only for `general-purpose` (probe a′). Very likely, since custom types loaded the same memory files in probe (a). Check with `cairn-task-agent` in the validation round, before the `instructions.md` fallback is deleted.
-- **Where hook errors surface.** The hook-error log exists, but nothing reads it yet. Should `cairn round next` (or `cairn status`) warn when it's non-empty? Small; decide during task generation.
-- **Right value for `maxTurns` on `cairn-task-agent`**, and whether the reviewer also gets one. Pick during task generation; no data yet.
-- **Should `cairn run` also switch to prompt files,** or keep inline prompts? The reviewer changes (no test runs, test summary) apply to both modes because `settle` is shared. Sharing is simpler; keeping the prompt path separate is lower-risk mid-transition.
-- **Concurrent loops:** should `cairn round next` refuse when another loop (`cairn run` or a second `/cairn-run`) is live? The lock protects files, not the round's logic.
-- **Does `auto` mode wrongly deny routine Cairn actions** (`git commit`, `bun test`, `cairn task complete`)? Answer in the validation round.
-- **Can the phone approve permission prompts over Remote Control?** Not documented. Only matters if the bypass/auto recommendation changes.
+- **Validation round will answer:**
+  - Do custom agent types (`cairn-task-agent`) load `CLAUDE.local.md`? (canary)
+  - Does `auto` mode wrongly deny routine Cairn actions?
+  - Can the phone approve permission prompts over Remote Control?
+  - Is `maxTurns` 150 right? (watch for a task agent hitting the limit)
+  - Does a compacted or resumed run agent behave identically to a fresh one?
+- **After the validation round:**
+  - Should headless `cairn run` be removed or demoted (the round-15 rejection said "until a real round succeeds through `/cairn-run`")?
+  - Should `cairn run` switch to prompt files?
+- **Headless `--output` / `$` hole:** can a `--disallowedTools` wildcard match an argument in the middle of a command (probe 4)? If yes, a later round adds it to the headless reviewer spawn, likely including `$`. If no, the documented gap stands.
+- **Should `cairn round next` refuse when another loop is running?** (carried from round 15)
+- **`--before-sha` on a repeat call:** saving the override (done in round 16) vs. rejecting a value that differs from the record. Revisit only if it causes confusion.
+- **Should `cairn run` stamp `promptFile` / `model` into its log,** or ignore the retry fields? Ignoring is the current behavior.
