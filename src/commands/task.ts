@@ -6,19 +6,11 @@ import { mutateTasksFile, type TasksFile } from '../tasks-file';
 import { reserveTaskIds } from '../task-counter';
 import { clearAttempt } from '../run-state';
 import { BRAND } from '../brand';
+import { defaultStdout, defaultStderr, type Writer } from '../cli-io';
 import type { Task } from '../types';
 import schema from '../tasks-schema.json' with { type: 'json' };
 
-type Writer = { write: (chunk: string) => void };
-
 const VALID_STATUSES = ['pending', 'in-progress', 'complete', 'blocked'] as const;
-
-function defaultStdout(): Writer {
-  return { write: (chunk) => process.stdout.write(chunk) };
-}
-function defaultStderr(): Writer {
-  return { write: (chunk) => process.stderr.write(chunk) };
-}
 
 function findTask(data: TasksFile, id: number): Task | undefined {
   return data.tasks.find((t) => t.id === id);

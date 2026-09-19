@@ -81,7 +81,7 @@ interface Harness {
 
 const PROMPT_FILE = '/proj/.cairn/.cairn_task_7_review_prompt.md';
 const NEXT_REVIEW = `Launch the post-task-reviewer agent with the prompt 'Read ${PROMPT_FILE} and follow it', then run: cairn round settle 7 --reviewed`;
-const REVIEW_ON: Pick<CairnConfig, 'review'> = { review: { postTask: true, maxIterations: 5 } };
+const REVIEW_ON: Pick<CairnConfig, 'review'> = { review: { postTask: true } };
 
 function makeHarness(): Harness {
   let validation: ValidationResult = { status: 'passed' };
@@ -900,7 +900,7 @@ describe('review phase', () => {
 
   test('gate failures return done with the matching reason, archived, record cleared, no prompt file', async () => {
     const cases: Array<{ reason: string; config?: Pick<CairnConfig, 'review'>; sha: string | null; head: string | null }> = [
-      { reason: 'review-disabled', config: { review: { postTask: false, maxIterations: 5 } }, sha: 'sha-before', head: 'sha-head' },
+      { reason: 'review-disabled', config: { review: { postTask: false } }, sha: 'sha-before', head: 'sha-head' },
       { reason: 'review-disabled', config: undefined, sha: 'sha-before', head: 'sha-head' },
       { reason: 'no-before-sha', config: REVIEW_ON, sha: null, head: 'sha-head' },
       { reason: 'no-commits', config: REVIEW_ON, sha: 'sha-head', head: 'sha-head' },

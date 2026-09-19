@@ -701,7 +701,7 @@ describe('roundSettleCommand', () => {
       headSha: 'sha-after',
       taskBaseSha: 'sha-before',
     });
-    const config = makeConfig({ review: { postTask: true, maxIterations: 5 } });
+    const config = makeConfig({ review: { postTask: true } });
     const stdout = makeWriter();
     const stderr = makeWriter();
 

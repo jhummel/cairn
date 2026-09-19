@@ -27,15 +27,7 @@ import { loadConfig, autoDetectHealthCheck } from '../config';
 import { buildSystemPrompt } from './run';
 import { hookErrorLogPath } from './hook';
 import { BRAND } from '../brand';
-
-type Writer = { write: (chunk: string) => void };
-
-function defaultStdout(): Writer {
-  return { write: (chunk) => process.stdout.write(chunk) };
-}
-function defaultStderr(): Writer {
-  return { write: (chunk) => process.stderr.write(chunk) };
-}
+import { defaultStdout, defaultStderr, type Writer } from '../cli-io';
 
 /**
  * `cairn round next` — the pick step of `/cairn-run`. Decides what the run
