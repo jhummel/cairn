@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { tempFilePath } from './utils';
-import type { Task } from './types';
+import type { AgentInfo, Task } from './types';
 
 export function loadCompletedIds(dataDir: string): Set<number> {
   const ids = new Set<number>();
@@ -145,4 +145,18 @@ export function buildIterationPrompt(
   lines.push('Begin work.');
 
   return lines.join('\n');
+}
+
+/**
+ * The model a task runs on: the task's own model, else its specialist agent's
+ * model, else opus. Shared by `cairn run`, `cairn round next`, and settle's
+ * retry verdict.
+ */
+export function resolveTaskModel(task: Task, agents: AgentInfo[]): string {
+  if (task.model) return task.model;
+  if (task.agent) {
+    const agentInfo = agents.find(a => a.name === task.agent);
+    if (agentInfo?.model) return agentInfo.model;
+  }
+  return 'opus';
 }

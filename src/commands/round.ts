@@ -2,13 +2,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Command } from 'commander';
 import type { AgentInfo, CairnConfig, Task } from '../types';
-import { loadCompletedIds, selectNextTask, buildIterationPrompt } from '../task-selector';
+import { loadCompletedIds, selectNextTask, buildIterationPrompt, resolveTaskModel } from '../task-selector';
 import { runHealthCheck as defaultRunHealthCheck, type HealthCheckOpts, type HealthCheckResult } from '../health-check';
 import { readTasksFile, mutateTasksFile } from '../tasks-file';
 import { captureGitSha as defaultCaptureGitSha } from '../post-task-reviewer';
 import { fileRunStateStore, upsertAttemptRecord, type RunStateStore } from '../run-state';
 import {
   reviewPromptFilePath,
+  taskPromptFilePath,
   reviewVerdict,
   writeReviewPromptFile as defaultWriteReviewPromptFile,
   settleTask,
@@ -17,11 +18,13 @@ import {
   type SettleTaskDeps,
   type BlockTaskOpts,
 } from '../settle';
+
+// Moved into settle.ts (the retry verdict names it); re-exported for existing importers.
+export { taskPromptFilePath };
 import { validateTaskTests as defaultValidateTaskTests, type ValidateTaskTestsOpts } from '../test-validator';
 import { archiveCompletedTasks as defaultArchiveCompletedTasks } from '../task-archiver';
 import { loadConfig, autoDetectHealthCheck } from '../config';
-import { buildSystemPrompt, resolveTaskModel } from './run';
-import { tempFilePath } from '../utils';
+import { buildSystemPrompt } from './run';
 import { hookErrorLogPath } from './hook';
 import { BRAND } from '../brand';
 
@@ -62,11 +65,6 @@ export interface RoundNextDeps {
   captureGitSha?: (projectRoot: string) => string | null;
   writeReviewPromptFile?: (opts: WriteReviewPromptFileOpts) => string;
   runState?: RunStateStore;
-}
-
-/** `.cairn_task_<id>_prompt.md` in the data dir. */
-export function taskPromptFilePath(dataDir: string, taskId: number): string {
-  return tempFilePath(dataDir, `task_${taskId}_prompt.md`);
 }
 
 /**
@@ -248,6 +246,8 @@ export interface RoundSettleCommandOpts {
   projectRoot: string;
   dataDir: string;
   config: CairnConfig;
+  /** Resolves a retry verdict's model; defaults to none (task model, else opus). */
+  agents?: AgentInfo[];
   /** Defaults to `<dataDir>/tasks.json`. */
   tasksFilePath?: string;
   stdout?: Writer;
@@ -308,6 +308,7 @@ export async function roundSettleCommand(opts: RoundSettleCommandOpts, deps: Par
         config: opts.config,
         beforeSha: opts.beforeSha,
         reviewed: opts.reviewed,
+        agents: opts.agents,
       },
       settleDeps
     );
@@ -361,7 +362,7 @@ export function registerRoundCommands(program: Command): void {
     .option('--before-sha <sha>', "Override the attempt record's pre-task sha")
     .option('--test-timeout <seconds>', 'Test validation timeout, in seconds', (v) => parseInt(v, 10))
     .action(async (idStr: string, options: { reviewed?: boolean; beforeSha?: string; testTimeout?: number }) => {
-      const { projectRoot, dataDir, config } = loadRoundContext();
+      const { projectRoot, dataDir, config, agents } = loadRoundContext();
       const code = await roundSettleCommand({
         id: parseInt(idStr, 10),
         reviewed: options.reviewed,
@@ -370,6 +371,7 @@ export function registerRoundCommands(program: Command): void {
         projectRoot,
         dataDir,
         config,
+        agents,
       });
       process.exit(code);
     });

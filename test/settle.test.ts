@@ -22,7 +22,7 @@ import {
 } from '../src/settle';
 import { execFileSync } from 'child_process';
 import { formatTestSummary, type ValidationResult } from '../src/test-validator';
-import type { CairnConfig, Task } from '../src/types';
+import type { AgentInfo, CairnConfig, Task } from '../src/types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -48,8 +48,11 @@ function makeMemoryRunState(): RunStateStore & { state: RunState } {
 }
 
 const NEXT_ROUND = 'Run: cairn round next';
-const NEXT_CONTINUE = "Resume the same task agent with SendMessage, then run: cairn round settle 7. If that agent's id is lost, launch a fresh cairn-task-agent with the same prompt file instead.";
-const NEXT_FRESH = 'Launch a fresh cairn-task-agent with the same prompt file, then run: cairn round settle 7';
+const TASK_PROMPT_FILE = '/proj/.cairn/.cairn_task_7_prompt.md';
+const NEXT_CONTINUE = `Resume the same task agent with SendMessage, then run: cairn round settle 7. If that agent's id is lost, launch a fresh cairn-task-agent with model 'opus' and prompt 'Read ${TASK_PROMPT_FILE} and follow it' instead.`;
+const NEXT_FRESH = `Launch a fresh cairn-task-agent with model 'opus' and prompt 'Read ${TASK_PROMPT_FILE} and follow it', then run: cairn round settle 7`;
+/** The fields every retry verdict for task #7 carries, on the default model. */
+const RETRY_LAUNCH = { promptFile: TASK_PROMPT_FILE, model: 'opus' };
 
 interface Harness {
   deps: SettleTaskDeps;
@@ -430,7 +433,7 @@ describe('settleTask', () => {
     h.counters.set(7, 'stalls', 2);
     const result = await settleTask(makeInput({ task: makeTask() }), h.deps);
     expect(result.updatedTaskStatus).toBe('unknown');
-    expect(result.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'continue', reason: 'status-unknown', next: NEXT_CONTINUE });
+    expect(result.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'continue', reason: 'status-unknown', ...RETRY_LAUNCH, next: NEXT_CONTINUE });
     expect(result.corrupted).toBe(false);
     expect(result.blockedByGuard).toBe(false);
     expect(h.counters.get(7, 'reverts')).toBe(1);
@@ -530,9 +533,11 @@ describe('verdicts', () => {
   test('retry/continue after a failed validation keeps the record', async () => {
     const h = makeHarness();
     h.setStatus('in-progress');
-    h.setValidation({ status: 'failed', message: 'bun test exited 1' });
+    h.setValidation({ status: 'failed', message: 'bun test exited 1', failureTail: 'expected 1, got 2' });
     const result = await settleTask(makeInput(), h.deps);
-    expect(result.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'continue', reason: 'validation-failed', next: NEXT_CONTINUE });
+    expect(result.verdict).toEqual({
+      verdict: 'retry', taskId: 7, mode: 'continue', reason: 'validation-failed', failure: 'expected 1, got 2', ...RETRY_LAUNCH, next: NEXT_CONTINUE,
+    });
     expect(h.runState.state.attempts['7']).toBeDefined();
     expect(h.appended).toContainEqual({ p: '/proj/.cairn/.cairn_iterations.log', content: 'Settle #7: retry (validation-failed)\n' });
   });
@@ -542,7 +547,7 @@ describe('verdicts', () => {
     h.setStatus('pending');
     h.setValidation({ status: 'skipped' });
     const result = await settleTask(makeInput(), h.deps);
-    expect(result.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'fresh', reason: 'stalled', next: NEXT_FRESH });
+    expect(result.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'fresh', reason: 'stalled', ...RETRY_LAUNCH, next: NEXT_FRESH });
     expect(h.runState.state.attempts['7']).toBeDefined();
   });
 
@@ -551,9 +556,49 @@ describe('verdicts', () => {
     h.setStatus('in-progress');
     h.setValidation({ status: 'skipped' });
     const r1 = await settleTask(makeInput(), h.deps);
-    expect(r1.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'continue', reason: 'incomplete', next: NEXT_CONTINUE });
+    expect(r1.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'continue', reason: 'incomplete', ...RETRY_LAUNCH, next: NEXT_CONTINUE });
     const r2 = await settleTask(makeInput(), h.deps);
-    expect(r2.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'fresh', reason: 'incomplete', next: NEXT_FRESH });
+    expect(r2.verdict).toEqual({ verdict: 'retry', taskId: 7, mode: 'fresh', reason: 'incomplete', ...RETRY_LAUNCH, next: NEXT_FRESH });
+  });
+
+  test('a failed validation without a failureTail omits failure', async () => {
+    const h = makeHarness();
+    h.setStatus('in-progress');
+    h.setValidation({ status: 'failed', message: 'bun test exited 1' });
+    const result = await settleTask(makeInput(), h.deps);
+    expect(result.verdict.verdict).toBe('retry');
+    expect('failure' in result.verdict).toBe(false);
+  });
+
+  describe('retry model resolution', () => {
+    const agents: AgentInfo[] = [{ name: 'db-expert', description: '', model: 'haiku', file: 'db-expert.md' }];
+
+    test("the task's own model wins, and next names it", async () => {
+      const h = makeHarness();
+      h.setStatus('pending');
+      h.setValidation({ status: 'skipped' });
+      const result = await settleTask(makeInput({ task: makeTask({ model: 'sonnet', agent: 'db-expert' }), agents }), h.deps);
+      expect(result.verdict).toMatchObject({ verdict: 'retry', model: 'sonnet', promptFile: TASK_PROMPT_FILE });
+      expect(result.verdict.next).toContain("model 'sonnet'");
+      expect(result.verdict.next).toContain(`'Read ${TASK_PROMPT_FILE} and follow it'`);
+    });
+
+    test("a specialist agent's model is used when the task names no model", async () => {
+      const h = makeHarness();
+      h.setStatus('in-progress');
+      h.setValidation({ status: 'failed', message: 'x' });
+      const result = await settleTask(makeInput({ task: makeTask({ agent: 'db-expert' }), agents }), h.deps);
+      expect(result.verdict).toMatchObject({ verdict: 'retry', mode: 'continue', model: 'haiku' });
+      expect(result.verdict.next).toContain("model 'haiku'");
+    });
+
+    test('without agents, a specialist task falls back to opus', async () => {
+      const h = makeHarness();
+      h.setStatus('pending');
+      h.setValidation({ status: 'skipped' });
+      const result = await settleTask(makeInput({ task: makeTask({ agent: 'db-expert' }) }), h.deps);
+      expect(result.verdict).toMatchObject({ verdict: 'retry', model: 'opus' });
+    });
   });
 
   test('a guard block yields blocked with the guard note as reason and clears the record', async () => {

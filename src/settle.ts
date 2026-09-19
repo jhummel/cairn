@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
-import type { CairnConfig, Task } from './types';
+import type { AgentInfo, CairnConfig, Task } from './types';
 import { formatTestSummary, testLogPath, type ValidateTaskTestsOpts, type ValidationResult } from './test-validator';
 import type { TasksFile } from './tasks-file';
 import type { ArchiveResult } from './task-archiver';
@@ -9,6 +9,7 @@ import { buildPostTaskReviewUserPrompt, captureGitSha, resolveReviewFilePath } f
 import { BRAND } from './brand';
 import { fileRunStateStore, newAttemptRecord, type RunStateStore } from './run-state';
 import { tempFilePath } from './utils';
+import { resolveTaskModel } from './task-selector';
 
 /**
  * Post-iteration settlement: validate the task's tests, apply the
@@ -153,7 +154,18 @@ export type DoneReason = 'review-disabled' | 'no-before-sha' | 'no-commits' | 'r
  * do, so a compacted or resumed driver never has to reconstruct it.
  */
 export type Verdict =
-  | { verdict: 'retry'; taskId: number; mode: RetryMode; reason: RetryReason; failure?: string; next: string }
+  | {
+      verdict: 'retry';
+      taskId: number;
+      mode: RetryMode;
+      reason: RetryReason;
+      failure?: string;
+      /** The task agent's prompt file, so a relaunch needs no remembered path. */
+      promptFile: string;
+      /** The task's resolved model, so a relaunch needs no remembered model. */
+      model: string;
+      next: string;
+    }
   | { verdict: 'blocked'; taskId: number; reason: string; next: string }
   | { verdict: 'review'; taskId: number; reviewPromptFile: string; next: string }
   | { verdict: 'done'; taskId: number; reason?: DoneReason; next: string }
@@ -169,6 +181,11 @@ export function reviewVerdict(taskId: number, reviewPromptFile: string): Extract
     reviewPromptFile,
     next: `Launch the post-task-reviewer agent with the prompt 'Read ${reviewPromptFile} and follow it', then run: ${BRAND.name} round settle ${taskId} --reviewed`,
   };
+}
+
+/** `.cairn_task_<id>_prompt.md` in the data dir, written by `cairn round next`. */
+export function taskPromptFilePath(dataDir: string, taskId: number): string {
+  return tempFilePath(dataDir, `task_${taskId}_prompt.md`);
 }
 
 /** `.cairn_task_<id>_review_prompt.md` in the data dir. */
@@ -240,11 +257,12 @@ export function writeReviewPromptFile(opts: WriteReviewPromptFileOpts): string {
   return file;
 }
 
-function retryNext(taskId: number, mode: RetryMode): string {
+function retryNext(taskId: number, mode: RetryMode, model: string, promptFile: string): string {
   const settle = `${BRAND.name} round settle ${taskId}`;
+  const agent = `a fresh ${BRAND.name}-task-agent with model '${model}' and prompt 'Read ${promptFile} and follow it'`;
   return mode === 'continue'
-    ? `Resume the same task agent with SendMessage, then run: ${settle}. If that agent's id is lost, launch a fresh ${BRAND.name}-task-agent with the same prompt file instead.`
-    : `Launch a fresh ${BRAND.name}-task-agent with the same prompt file, then run: ${settle}`;
+    ? `Resume the same task agent with SendMessage, then run: ${settle}. If that agent's id is lost, launch ${agent} instead.`
+    : `Launch ${agent}, then run: ${settle}`;
 }
 
 export interface SettleTaskInput {
@@ -272,6 +290,8 @@ export interface SettleTaskInput {
    * no reviewer prompt file is written.
    */
   inlineReview?: boolean;
+  /** Resolves a retry verdict's model; absent means none (task model, else opus). */
+  agents?: AgentInfo[];
 }
 
 export interface SettleTaskDeps {
@@ -515,8 +535,14 @@ export async function settleTask(input: SettleTaskInput, deps: SettleTaskDeps): 
   // continue to fresh on its second consecutive occurrence. An unknown status
   // (unreadable re-read) retries in place — the record is kept, so the next
   // settle re-reads. A completed task is archived, then gated for review.
-  const retry = (mode: RetryMode, reason: RetryReason, failure?: string): Verdict =>
-    ({ verdict: 'retry', taskId, mode, reason, ...(failure ? { failure } : {}), next: retryNext(taskId, mode) });
+  // A retry carries the prompt file and model, so a compacted or resumed run
+  // agent can relaunch from the verdict alone.
+  const promptFile = taskPromptFilePath(dataDir, taskId);
+  const model = resolveTaskModel(task, input.agents ?? []);
+  const retry = (mode: RetryMode, reason: RetryReason, failure?: string): Verdict => ({
+    verdict: 'retry', taskId, mode, reason, ...(failure ? { failure } : {}), promptFile, model,
+    next: retryNext(taskId, mode, model, promptFile),
+  });
   let verdict: Verdict;
   let archive: ArchiveResult | null = null;
   if (blockedByGuard && blockNote !== null) {

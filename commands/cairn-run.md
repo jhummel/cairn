@@ -33,9 +33,9 @@ If the JSON has a `warnings` array, show each warning to the user once — the f
 
 ### `cairn round settle <taskId>` verdicts
 
-- **`retry`** — `{ verdict, taskId, mode, reason, failure?, next }`
-  - `mode: "continue"`: **SendMessage** to the task agent id you remembered for this task. Give it the `reason` and the `failure` tail (if present) and ask it to finish the task. Then run `cairn round settle <taskId>` again. If you do not have that agent's id (after compaction, a resume, or a fresh session), launch a fresh `cairn-task-agent` with the same prompt file instead.
-  - `mode: "fresh"`: launch a new `cairn-task-agent` with the same `model` and prompt file (`Read <promptFile> and follow it`), remember its id, then run `cairn round settle <taskId>`. If you no longer know the prompt file, run `cairn round next` — it re-picks the task and rewrites the prompt.
+- **`retry`** — `{ verdict, taskId, mode, reason, failure?, promptFile, model, next }`. Every relaunch uses the verdict's `model` and `promptFile` — never values you remember.
+  - `mode: "continue"`: **SendMessage** to the task agent id you remembered for this task. Give it the `reason` and the `failure` tail (if present) and ask it to finish the task. Then run `cairn round settle <taskId>` again. If you do not have that agent's id (after compaction, a resume, or a fresh session), launch a fresh `cairn-task-agent` with the verdict's `model` and `promptFile` (`Read <promptFile> and follow it`) instead, and remember its id.
+  - `mode: "fresh"`: launch a new `cairn-task-agent` with the verdict's `model` and `promptFile` (`Read <promptFile> and follow it`), remember its id, then run `cairn round settle <taskId>`.
 - **`review`** — `{ verdict, taskId, reviewPromptFile, next }`: launch the **Agent** tool with `subagent_type: "post-task-reviewer"` and prompt `Read <reviewPromptFile> and follow it`. It returns one line (`PASS` or `CONCERNS ...`). Then run `cairn round settle <taskId> --reviewed`.
 - **`blocked`** — `{ verdict, taskId, reason, next }`: send a **PushNotification** with the task id and a one-line version of `reason`, then run `cairn round next`. Never pause the round to ask the user — do not use AskUserQuestion.
 - **`done`** or **`already-settled`**: run `cairn round next`.

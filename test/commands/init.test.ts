@@ -1346,6 +1346,15 @@ describe('installSlashCommands', () => {
       expect(content).toContain(needle);
     }
   });
+
+  test("cairn-run.md relaunches retries from the verdict's promptFile and model, not remembered values", () => {
+    const repoRoot = path.join(__dirname, '..', '..');
+    const content = fs.readFileSync(path.join(repoRoot, 'commands', 'cairn-run.md'), 'utf8');
+    expect(content).toContain('`{ verdict, taskId, mode, reason, failure?, promptFile, model, next }`');
+    expect(content).toContain("the verdict's `model` and `promptFile`");
+    expect(content).not.toContain('with the same prompt file');
+    expect(content).not.toContain('If you no longer know the prompt file');
+  });
 });
 
 // --- installAgents tests ---

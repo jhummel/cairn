@@ -551,8 +551,28 @@ describe('roundSettleCommand', () => {
     expect(code).toBe(0);
     expect(stdout.lines).toHaveLength(1);
     const parsed = JSON.parse(stdout.lines[0]);
-    expect(parsed).toMatchObject({ verdict: 'retry', taskId: 7, mode: 'continue', reason: 'validation-failed' });
+    const promptFile = path.join(dataDir, '.cairn_task_7_prompt.md');
+    expect(parsed).toMatchObject({
+      verdict: 'retry', taskId: 7, mode: 'continue', reason: 'validation-failed', failure: 'boom', promptFile, model: 'opus',
+    });
+    expect(parsed.next).toContain(`model 'opus' and prompt 'Read ${promptFile} and follow it'`);
     expect(stderr.lines).toHaveLength(0);
+  });
+
+  test("retry verdict: the model resolves through the agents passed in (a specialist agent's model)", async () => {
+    const h = makeSettleHarness({
+      tasks: [makeTask({ id: 7, status: 'pending', agent: 'db-expert' })],
+      validation: { status: 'skipped' },
+    });
+    const agents: AgentInfo[] = [{ name: 'db-expert', description: '', model: 'sonnet', file: 'db-expert.md' }];
+    const stdout = makeWriter();
+
+    const code = await roundSettleCommand({ id: 7, projectRoot, dataDir, config: makeConfig(), agents, stdout, stderr: makeWriter() }, h.deps);
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout.lines[0]);
+    expect(parsed).toMatchObject({ verdict: 'retry', mode: 'fresh', reason: 'stalled', model: 'sonnet', promptFile: path.join(dataDir, '.cairn_task_7_prompt.md') });
+    expect(parsed.next).toContain("model 'sonnet'");
   });
 
   test('blocked verdict: exits 0 with a blocked JSON verdict', async () => {

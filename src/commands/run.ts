@@ -7,7 +7,10 @@ import type { CairnConfig, AgentInfo, Task } from '../types';
 import { ProcessManager, type ProcessManagerOptions } from '../process';
 import { processStream, sendToNarrate as defaultSendToNarrate, sendNtfy as defaultSendNtfy, type ProcessStreamOptions, type NtfyOpts } from '../stream-filter';
 import { startNarrationServer as defaultStartNarrationServer, stopNarrationServer as defaultStopNarrationServer, checkNarrationHealth as defaultCheckNarrationHealth, findNarrationSocketPath as defaultFindNarrationSocketPath, type StartNarrationOpts } from '../narration';
-import { loadCompletedIds as defaultLoadCompletedIds, selectNextTask as defaultSelectNextTask, buildIterationPrompt as defaultBuildIterationPrompt } from '../task-selector';
+import { loadCompletedIds as defaultLoadCompletedIds, selectNextTask as defaultSelectNextTask, buildIterationPrompt as defaultBuildIterationPrompt, resolveTaskModel } from '../task-selector';
+
+// Re-exported from its neutral home so settle.ts can use it without a cycle.
+export { resolveTaskModel };
 import { runHealthCheck as defaultRunHealthCheck, type HealthCheckResult } from '../health-check';
 import { validateTaskTests as defaultValidateTaskTests, formatTestSummary, type ValidateTaskTestsOpts, type ValidationResult } from '../test-validator';
 import { archiveCompletedTasks as defaultArchiveCompletedTasks, type ArchiveResult } from '../task-archiver';
@@ -38,19 +41,6 @@ export interface SystemPromptInput {
   // wants a tiny report, not full completion notes — `cairn round next`
   // detects round-done on its own, so there is no completion flag to create.
   mode?: 'headless' | 'subagent';
-}
-
-/**
- * The model a task runs on: the task's own model, else its specialist agent's
- * model, else opus. Shared by `cairn run` and `cairn round next`.
- */
-export function resolveTaskModel(task: Task, agents: AgentInfo[]): string {
-  if (task.model) return task.model;
-  if (task.agent) {
-    const agentInfo = agents.find(a => a.name === task.agent);
-    if (agentInfo?.model) return agentInfo.model;
-  }
-  return 'opus';
 }
 
 /**
@@ -684,7 +674,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       // over with fresh attempts). The loop ignores the verdict's retry mode —
       // it simply re-selects the task next iteration.
       const settleInput: SettleTaskInput = {
-        taskId: task.id, task, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath, config,
+        taskId: task.id, task, tasksFilePath, dataDir, projectRoot, iteration, iterationLogPath, config, agents,
         // cairn run reviews with an inline prompt, not a prompt file.
         inlineReview: true,
       };
