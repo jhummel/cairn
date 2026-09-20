@@ -237,6 +237,61 @@ describe('initCoreFiles', () => {
     expect(fs.readFileSync(rootGitignorePath, 'utf8')).toBe('# root gitignore\nnode_modules/\n');
   });
 
+  // --- round 18: mergeGitignoreEntries regression risks from round-17 review ---
+
+  test('an unreadable existing .gitignore is reported on stderr but does not abort init', () => {
+    if (process.getuid && process.getuid() === 0) {
+      // chmod 0 doesn't block root from reading; nothing to assert as this user.
+      return;
+    }
+
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    const gitignorePath = path.join(dataDir, '.gitignore');
+    fs.writeFileSync(gitignorePath, '# custom\n');
+    fs.chmodSync(gitignorePath, 0o000);
+
+    const stderrLines: string[] = [];
+    const errorSpy = spyOn(console, 'error').mockImplementation((...args: any[]) => {
+      stderrLines.push(args.join(' '));
+    });
+
+    try {
+      initCoreFiles(tmpDir, dataDir);
+    } finally {
+      fs.chmodSync(gitignorePath, 0o644);
+      errorSpy.mockRestore();
+    }
+
+    // The unreadable .gitignore is reported, not thrown...
+    const errOutput = stderrLines.join('\n');
+    expect(errOutput).toContain('.cairn/.gitignore');
+    expect(errOutput).toContain('Fix or remove it by hand');
+    // ...and init still ran to completion: tasks.json/state.json were created.
+    expect(fs.existsSync(path.join(dataDir, 'tasks.json'))).toBe(true);
+    expect(fs.existsSync(path.join(dataDir, 'state.json'))).toBe(true);
+  });
+
+  test('a "!" negated entry is left alone, not re-added, while other missing entries still get appended', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    const gitignorePath = path.join(dataDir, '.gitignore');
+    const userContent = '# custom\n!.cairn_iterations.log\n';
+    fs.writeFileSync(gitignorePath, userContent);
+
+    initCoreFiles(tmpDir, dataDir);
+
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    // The user's negation line is preserved byte-for-byte.
+    expect(content.startsWith(userContent)).toBe(true);
+    // The negated entry is never re-added as its own positive line.
+    expect(content).not.toMatch(/^\.cairn_iterations\.log$/m);
+    // Every other genuinely missing entry is still appended in the same run.
+    expect(content).toContain('.cairn_run_state.json');
+    expect(content).toContain('.cairn_hook_errors.log');
+    expect(content).toContain('.cairn_task_*_prompt.md');
+  });
+
   test('creates .cairn/tasks.json with project name and empty tasks', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     initCoreFiles(tmpDir, dataDir);

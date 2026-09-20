@@ -88,16 +88,27 @@ const GITIGNORE_MERGE_HEADER = '# Added by cairn init (missing entries)';
  *
  * Matching is trimmed exact-string, position-independent — an entry already
  * present anywhere in the file (the legacy `.ralph_*` block, a user's own
- * line, mid-file or at the end) counts as present. Existing lines are never
+ * line, mid-file or at the end) counts as present. A `!<entry>` line is a
+ * deliberate user opt-out for `<entry>` (gitignore negation syntax) and also
+ * counts as present, so init never re-adds — and thereby silently reverses —
+ * an entry the user has explicitly un-ignored. Existing lines are never
  * reordered, rewritten, or removed; a file that is already missing nothing
  * is left untouched (not even a trailing-newline rewrite).
+ *
+ * Throws whatever `fs.readFileSync`/`fs.writeFileSync` throw (e.g. an
+ * unreadable file or a directory at `gitignorePath`) — the caller decides
+ * whether that should abort or just be reported.
  */
 export function mergeGitignoreEntries(gitignorePath: string): number {
   const existing = fs.readFileSync(gitignorePath, 'utf8');
-  const existingLines = new Set(
-    existing.split('\n').map((line) => line.trim()).filter((line) => line !== ''),
+  const trimmedLines = existing.split('\n').map((line) => line.trim()).filter((line) => line !== '');
+  const existingLines = new Set(trimmedLines);
+  const negatedEntries = new Set(
+    trimmedLines.filter((line) => line.startsWith('!')).map((line) => line.slice(1).trim()),
   );
-  const missing = currentGitignoreEntries().filter((entry) => !existingLines.has(entry));
+  const missing = currentGitignoreEntries().filter(
+    (entry) => !existingLines.has(entry) && !negatedEntries.has(entry),
+  );
   if (missing.length === 0) return 0;
 
   const base = existing.endsWith('\n') ? existing : `${existing}\n`;
@@ -126,7 +137,21 @@ export function initCoreFiles(projectRoot: string, dataDir: string): void {
     fs.writeFileSync(gitignorePath, GITIGNORE_CONTENT);
     console.log(`  Created: ${dirName}/.gitignore`);
   } else {
-    const added = mergeGitignoreEntries(gitignorePath);
+    // Mirrors installClaudeSettings's handling of an unusable settings file
+    // just below: catch, report on stderr, and let the rest of init continue
+    // rather than aborting before tasks.json/state.json are created. Unlike
+    // that error, a raw fs failure here has no dedicated error type to check
+    // for, so every error is treated the same way.
+    let added = 0;
+    try {
+      added = mergeGitignoreEntries(gitignorePath);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `  Could not update ${dirName}/.gitignore (${message}). ` +
+          `Fix or remove it by hand — the rest of init will continue.`,
+      );
+    }
     if (added > 0) {
       console.log(`  Updated: ${dirName}/.gitignore (added ${added} entries)`);
     }
