@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import {
   initCoreFiles,
+  mergeGitignoreEntries,
   parseBooleanInput,
   getConfigDefaults,
   promptForConfig,
@@ -439,6 +440,82 @@ describe('initCoreFiles', () => {
   });
 });
 
+// --- mergeGitignoreEntries tests (direct, at the boundary — round 18) ---
+// initCoreFiles's own tests above exercise this only indirectly; these pin
+// the pure merge/negation logic itself.
+
+describe('mergeGitignoreEntries', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-merge-gitignore-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('appends every missing entry under a header and returns the count added', () => {
+    const gitignorePath = path.join(tmpDir, '.gitignore');
+    fs.writeFileSync(gitignorePath, '# custom\n');
+
+    const added = mergeGitignoreEntries(gitignorePath);
+
+    expect(added).toBeGreaterThan(0);
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    expect(content.startsWith('# custom\n')).toBe(true);
+    expect(content).toContain('# Added by cairn init (missing entries)');
+    expect(content).toContain('.cairn_run_state.json');
+  });
+
+  test('returns 0 and leaves the file byte-for-byte untouched when nothing is missing', () => {
+    const gitignorePath = path.join(tmpDir, '.gitignore');
+    // Seed the file by running the merge once, then merge again from that result.
+    fs.writeFileSync(gitignorePath, '');
+    mergeGitignoreEntries(gitignorePath);
+    const fullyMerged = fs.readFileSync(gitignorePath, 'utf8');
+
+    const added = mergeGitignoreEntries(gitignorePath);
+
+    expect(added).toBe(0);
+    expect(fs.readFileSync(gitignorePath, 'utf8')).toBe(fullyMerged);
+  });
+
+  test('a "!" negated entry counts as present and is not re-added as a positive line', () => {
+    const gitignorePath = path.join(tmpDir, '.gitignore');
+    fs.writeFileSync(gitignorePath, '!.cairn_iterations.log\n');
+
+    const added = mergeGitignoreEntries(gitignorePath);
+
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    expect(content).toContain('!.cairn_iterations.log');
+    expect(content).not.toMatch(/^\.cairn_iterations\.log$/m);
+    // The negation only opts out that one entry — everything else missing is still added.
+    expect(added).toBeGreaterThan(0);
+  });
+
+  test('an entry already present as a plain line anywhere in the file is not duplicated', () => {
+    const gitignorePath = path.join(tmpDir, '.gitignore');
+    fs.writeFileSync(gitignorePath, '# custom\n.cairn_iterations.log\n# more\n');
+
+    mergeGitignoreEntries(gitignorePath);
+
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    const occurrences = content.split('\n').filter((line) => line.trim() === '.cairn_iterations.log').length;
+    expect(occurrences).toBe(1);
+  });
+
+  test('adds a trailing newline before the header when the file lacks one', () => {
+    const gitignorePath = path.join(tmpDir, '.gitignore');
+    fs.writeFileSync(gitignorePath, '# custom, no trailing newline');
+
+    mergeGitignoreEntries(gitignorePath);
+
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    expect(content.startsWith('# custom, no trailing newline\n# Added by cairn init')).toBe(true);
+  });
+});
+
 // --- parseBooleanInput tests ---
 
 describe('parseBooleanInput', () => {
@@ -622,7 +699,7 @@ describe('getConfigDefaults', () => {
 
   test('getConfigDefaults does not expose a reviewMaxIterations field', () => {
     const defaults = getConfigDefaults(tmpDir);
-    expect((defaults as unknown as Record<string, unknown>).reviewMaxIterations).toBeUndefined();
+    expect((defaults as { reviewMaxIterations?: number } | undefined)?.reviewMaxIterations).toBeUndefined();
   });
 
   test('ignores legacy review.maxIterations from cairn.json', () => {
@@ -631,7 +708,7 @@ describe('getConfigDefaults', () => {
       JSON.stringify({ review: { maxIterations: 5 } })
     );
     const defaults = getConfigDefaults(tmpDir);
-    expect((defaults as unknown as Record<string, unknown>).reviewMaxIterations).toBeUndefined();
+    expect((defaults as { reviewMaxIterations?: number } | undefined)?.reviewMaxIterations).toBeUndefined();
   });
 
   test('returns reviewPostTask default of false when no cairn.json', () => {
@@ -828,7 +905,7 @@ describe('promptForConfig', () => {
     const config = await promptForConfig(rl, baseDefaults);
     const maxIterQ = questions.find(q => q.toLowerCase().includes('max iterations'));
     expect(maxIterQ).toBeUndefined();
-    expect((config.review as Record<string, unknown> | undefined)?.maxIterations).toBeUndefined();
+    expect((config.review as { maxIterations?: number } | undefined)?.maxIterations).toBeUndefined();
   });
 
   test('promptForConfig prompts for reviewPostTask after narration prompts', async () => {

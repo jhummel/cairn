@@ -1812,7 +1812,7 @@ describe('runRun', () => {
         return false;
       }),
       readTasksFile: mock(() => ({ data: { tasks }, repaired: false, restored: false })),
-      log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
+      log: mock((...args: unknown[]) => { logs.push(String(args[0])); }),
       ...overrides,
     });
   }
@@ -1856,7 +1856,7 @@ describe('runRun', () => {
     const deps = makeRunDeps({
       readTasksFile: mock(() => ({ data: { tasks }, repaired: false, restored: false })),
       selectNextTask: mock(() => null),
-      log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
+      log: mock((...args: unknown[]) => { logs.push(String(args[0])); }),
     });
 
     await runRun(makeRunOpts(), deps);
@@ -2386,7 +2386,7 @@ describe('runRun', () => {
     const logs: string[] = [];
     const deps = makeRunDeps({
       selectNextTask: mock(() => null),
-      log: mock((...args: unknown[]) => { logs.push(args.map(String).join(' ')); }),
+      log: mock((...args: unknown[]) => { logs.push(String(args[0])); }),
     });
 
     await runRun(makeRunOpts(), deps);
