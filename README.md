@@ -102,7 +102,7 @@ Existing settings are **merged, not replaced**: `permissions.allow` is unioned w
 
 **One exception, and it is a repair.** An older `cairn init` seeded `deny` rules for the five mutating `cairn task` subcommands (`start`, `complete`, `set-status`, `add`, `note`). That was a bug: a project-wide deny binds *every* Claude session in the project, including `cairn run`'s own execution agents — it is not bypassed by `--dangerously-skip-permissions` — so agents were silently blocked from recording their own task state, and the loop re-ran a single task indefinitely while reporting success. Since `.claude/settings.local.json` is gitignored, nothing in `git status` reveals it. Re-running `cairn init` now strips exactly those five rules (and drops the `deny` key if that empties it). Any other deny rule you wrote yourself is kept.
 
-Cairn deliberately does not edit your project's root `.gitignore` or your global git config — add `.claude/settings.local.json` to your own `.gitignore` yourself. Claude Code only auto-ignores that file when Claude Code itself creates it. (This is unrelated to `.cairn/.gitignore`, which `cairn init` does write and, on re-init, append missing entries to — see [Per-project data](#per-project-data-created-by-cairn-init).)
+Cairn deliberately does not edit your project's root `.gitignore` or your global git config — add `.claude/settings.local.json` to your own `.gitignore` yourself. Claude Code only auto-ignores that file when Claude Code itself creates it. (This is unrelated to `.cairn/.gitignore`, which `cairn init` does write and, on re-init, append missing entries to — see [Per-project data](#per-project-data-created-by-cairn-init).) That merge skips any entry you've un-ignored with a `!` negation line rather than re-adding (and thereby silently reversing) it, and if the file can't be read it reports the problem on stderr and lets the rest of init continue instead of aborting.
 
 ### 2. Plan
 
@@ -161,7 +161,7 @@ The `round` commands are deliberately not under `cairn task`: task agents use `c
 
 #### Containment under /cairn-run
 
-Headless `cairn run` agents are constrained by their prompts and (for the reviewer) a scoped `--allowedTools` list. Subagents of an interactive session don't get `--allowedTools` — they follow the session's permission mode. So `cairn init` registers a PreToolUse hook, `cairn hook pre-tool-use`, that:
+Headless `cairn run` agents are constrained by their prompts and (for the reviewer) a scoped `--allowedTools` list plus a `--disallowedTools` denylist that closes the one hole an allow-prefix rule can't exclude — `git diff --output=<file>` and its `$`/quote-splitting variants. Subagents of an interactive session don't get either flag — they follow the session's permission mode. So `cairn init` registers a PreToolUse hook, `cairn hook pre-tool-use`, that:
 
 - denies any subagent `Edit`/`Write` to `.cairn/tasks.json` (agents must use `cairn task`)
 - limits `post-task-reviewer` to writing inside `.cairn/reviews/` and to read-only git commands (`git diff`, `log`, `show`, `status`, `rev-parse`), denying redirection, backticks, or a `$` anywhere in the command (which subsumes command substitution, `${VAR}` expansion, bare `$VAR`, and `$'...'` quoting) plus git's file-writing `--output` option as a second, exact-token check
@@ -172,6 +172,8 @@ Hook denies apply even under `bypassPermissions`. The hook is **fail-open**: if 
 #### Run state
 
 Guard counters and per-task attempt records (pre-task commit sha, revert/stall/incomplete counts, whether a review is pending) live in `.cairn/.cairn_run_state.json`, not in memory. They survive restarts of `cairn run`, separate `cairn round settle` calls, and `/cairn-run` session compaction or resume. The file is gitignored. Picking a task records its pre-task sha (a re-pick keeps the first attempt's), and `cairn round next` prunes `executing` records whose task has left `tasks.json` (never ones awaiting review). `cairn task set-status <id> <status>` resets that task's record — so unblocking a task by hand gives it a fresh set of attempts.
+
+At round end — `cairn round next`'s `round-done` verdict, and `cairn run`'s loop exit — Cairn sweeps the round's scratch files with a shared helper: the flat `.cairn_complete` / `.cairn_prev_notes` / `.cairn_completed_ids` files, plus every per-task `..._notes.md`, `..._prompt.md`, `..._review_prompt.md`, and `..._tests.log`. It never removes `tasks.json`, `tasks.completed.json`, `state.json`, `.gitignore`, `planning-notes.md`, `reviews/`, or the still-live `.cairn_run_state.json`, `.cairn_iterations.log`, and `.cairn_hook_errors.log`, and it only ever runs at round end, never mid-round — a `retry` relaunch re-reads a task's prompt file verbatim, and the reviewer's prompt names its test log.
 
 ### 4. Summarize
 
