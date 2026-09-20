@@ -1,4 +1,145 @@
 {
   "project": "cairn-cli-tool",
-  "tasks": []
+  "tasks": [
+    {
+      "id": 131,
+      "priority": 1,
+      "title": "Round-scoped temp-file sweep: /cairn-run leaves every prompt, review prompt, tests log and notes file behind",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/round.ts",
+        "src/commands/run.ts",
+        "test/commands/round.test.ts",
+        "test/commands/run.test.ts"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet",
+      "description": "Observed after round 17: `.cairn/` held 30 dead scratch files (7 x `.cairn_task_<id>_prompt.md`, 7 x `_review_prompt.md`, 7 x `_tests.log`, 7 x `.ralph_task_<id>_notes.md`, plus `.cairn_prev_notes` and `.cairn_completed_ids`). All gitignored, so this is hygiene, not repo pollution — but it accumulates every round and makes the data dir unreadable.\n\nTwo distinct gaps:\n\n1. `src/commands/round.ts` has NO sweep at all. `cairn run` sweeps at loop exit (src/commands/run.ts:806-828: `TEMP_FILE_SUFFIXES` = complete/prev_notes/completed_ids, then `NOTES_TEMPFILE_RE` over readdir), but the `/cairn-run` path never runs that code, so `prev_notes`, `completed_ids` and every `.ralph_task_<id>_notes.md` leak.\n2. NEITHER path ever removes `.cairn_task_<id>_prompt.md`, `.cairn_task_<id>_review_prompt.md` or `.cairn_task_<id>_tests.log`. Those leak under `cairn run` too.\n\nDo:\n- Extract the sweep from run.ts into one shared helper (suggest `sweepRoundTempFiles(dataDir, deps)` in a module both commands import — do not duplicate the regex). Keep supporting BOTH prefixes for notes files exactly as `NOTES_TEMPFILE_RE` does today; that alternation is load-bearing (see the comment above it) and `NOTES_TEMP_PREFIX` stays the permanent exception documented in CLAUDE.md's Conventions.\n- Widen it to also match `<tempPrefix>task_<id>_prompt.md`, `<tempPrefix>task_<id>_review_prompt.md` and `<tempPrefix>task_<id>_tests.log`.\n- Call it from `cairn round next`'s `round-done` branch, BEFORE it prints its JSON verdict, and keep run.ts's existing call site behaviour identical.\n\nMUST NOT sweep: `.cairn_run_state.json` (+ `.lock`), `.cairn_iterations.log`, `.cairn_tasks_snapshot.json`, `.cairn_hook_errors.log`, `.gitignore`, `state.json`, `tasks.json`, `tasks.completed.json`, `planning-notes.md`, `reviews/`. Add an explicit negative test for that list — an over-broad glob here deletes a user's task archive.\n\nSweep ONLY at `round-done`, never per-task: a task's `_tests.log` is named in the reviewer's prompt and `_prompt.md` is re-read verbatim on a `retry` relaunch, so removing either mid-round breaks the settle/retry/review cycle.\n\nBest-effort throughout — a failed unlink must never change the verdict or exit code.\n\nCRITICAL: never run `cairn round ...` against this repo's own root while developing this (CLAUDE.md, pin/unpin section) — it writes real run state here. Drive the new code from tests with a temp dataDir only."
+    },
+    {
+      "id": 132,
+      "priority": 2,
+      "title": "cairn init: gitignore merge must not abort init, and must respect a user's ! negation",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/init.ts",
+        "test/commands/init.test.ts"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet",
+      "description": "Two regression risks the round-17 reviewer raised against task #117 (see .cairn/reviews/round-17.md, '## Task #117' > 'Regression Risks').\n\n1. CHANGED FAILURE CONTRACT. `mergeGitignoreEntries()` calls `fs.readFileSync`/`fs.writeFileSync` with no try/catch, and `initCoreFiles()` has no handler around it. An unreadable or non-regular `.cairn/.gitignore` (bad permissions, or a directory with that name) now aborts the entire `cairn init` run BEFORE tasks.json and state.json are created. Before #117 that branch was a no-op and init continued.\n   Fix: wrap the merge so a failure is caught, reported on stderr, and init continues — mirror how `installClaudeSettings` already handles an unusable settings file in the same file (read it first and follow its shape; do not invent a third error style).\n\n2. `!` NEGATION IS IGNORED. Matching is exact-string over trimmed lines, so a user line `!.cairn_iterations.log` does not count as the entry being present. The positive entry is appended AFTER the negation and therefore wins, silently reversing a deliberate user opt-out. Re-running init should never undo that.\n   Fix: when computing which entries are missing, treat a `!<entry>` line as a deliberate opt-out for `<entry>` and skip it. Everything else about the merge stays as #117 shipped it: append-only, position-independent, never reorder, never remove, no write at all when nothing is missing.\n\nTDD both (CLAUDE.local.md): write the failing test first for each.\n- Test 1: an existing `.cairn/.gitignore` that cannot be read leaves init able to still create tasks.json/state.json, with a message on stderr.\n- Test 2: a file containing `!.cairn_iterations.log` is left byte-identical for that entry (the entry is not re-added), while genuinely missing entries are still appended in the same run.\n\nKeep the existing #117 tests green — the legacy `.ralph_*` fixture, the mid-file fixture, the second-init no-op and the untouched-root-.gitignore test all still have to pass unchanged."
+    },
+    {
+      "id": 133,
+      "priority": 3,
+      "title": "Hook: a fail-open error must still reach .cairn_hook_errors.log when the payload cwd has no .cairn/",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/commands/hook.ts",
+        "test/commands/hook.test.ts"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "opus",
+      "description": "Regression risk the round-17 reviewer raised against task #119 (see .cairn/reviews/round-17.md, '## Task #119' > 'Regression Risks'), recorded there with 'No action proposed'. Acting on it now.\n\nAfter #119 the hook resolves its project from the payload's own `cwd` with `findProjectRoot(cwd, { ignoreEnv: true })`. If that walk lands on a directory with no `.cairn/` (a bare dir, or a git root without a data dir), the hook throws 'data dir not found', exits 1, and the tool call is ALLOWED — containment is off for that call. That part is the intended fail-open design and stays.\n\nThe defect is the second-order one: the SAME resolver picks the error log's destination, so when the resolved project has no `.cairn/` there is nowhere to append and the failure is never recorded. `cairn round next`'s `warnings` array therefore never surfaces it, and a hook that has silently stopped containing anything looks identical to a healthy one. CLAUDE.md's hook probe facts already note that 'a failing hook is otherwise invisible' — that is exactly the property this loses.\n\nFix: keep the DECISION resolved from the payload `cwd` with `ignoreEnv: true` (that is #119's whole point — do not undo it), but give the ERROR LOG an independent, more forgiving destination: when the cwd-resolved project has no data dir, fall back to the ordinary resolution (`CAIRN_PROJECT_ROOT`, then `process.cwd()`) so the error still lands somewhere a human or `cairn round next` will see. If every candidate fails, still exit 1 and never exit 2 — the fail-open contract is absolute.\n\nNote this deliberately splits what #119 unified ('the same resolver serves the fail-open error log, so a deny and its log can never name different projects'). That invariant only matters for a DENY, which by construction only happens once a data dir was found. Make the code comment say so explicitly, and update the CLAUDE.md sentence that asserts the stronger claim (the docs task later in this round also covers reviewer-containment drift; fix this one here, where the code changes).\n\nTDD (CLAUDE.local.md): write the failing test first — a payload whose `cwd` resolves to a dir with no `.cairn/`, with `CAIRN_PROJECT_ROOT` pointing at a real one, must exit 1, allow the call, AND append to the fallback project's `.cairn_hook_errors.log`.\n\nDo not regress the fast path: no `agent_id` still means allow with NO project lookup at all."
+    },
+    {
+      "id": 134,
+      "priority": 4,
+      "title": "Pin REVIEWER_DISALLOWED_BASH_RULES content in a test; re-probe --out for false positives",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "src/claude-settings.ts",
+        "test/claude-settings.test.ts",
+        "test/post-task-reviewer.test.ts"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet",
+      "description": "Gap the round-17 reviewer raised against task #121 (see .cairn/reviews/round-17.md, '## Task #121' > 'Gaps', marked [PARTIAL]).\n\nTHE HOLE IN THE TEST. #121's test asserts `spawnArgs[i+1] === REVIEWER_DISALLOWED_BASH_RULES.join(',')` — comparing against the very constant the production code joins. It pins the WIRING (the flag is passed, in the right position, from that constant) but not the CONTENT: empty the array, or drop `Bash(*--output*)` so the original `git diff --output=<file>` hole reopens, and the suite still passes at 1217. The probe run during round-17 planning is currently the only record of which patterns matter, and planning-notes.md line 70 explicitly concluded 'Any shipped rule needs a test.'\n\nFix: add a content assertion in `test/claude-settings.test.ts` — `expect(REVIEWER_DISALLOWED_BASH_RULES).toEqual([...])` with all five patterns written out as literals (or a `toContain` per pattern, so a future addition does not force an unrelated edit). Keep #121's wiring test as-is; the two assert different things and both should stay.\n\nSECOND ITEM — verify, then record. The reviewer also noted that the no-false-positive probe was run with `Bash(*--output*),Bash(*$*)` only, NOT with `Bash(*--out*)` in the list, even though `Bash(*--out*)` is the broader rule that actually ships. `--out` matches raw text anywhere, so confirm it does not refuse the ordinary inspection commands the reviewer relies on (`git diff`, `git log`, `git show`, `git status`, `git rev-parse` with the flags the reviewer prompt actually uses). A refused Bash call is SILENT to the reviewer beyond the denial, so a false positive here shows up only as an inexplicably evidence-poor review.\n  - If it is clean: say so in the constant's doc comment, with the date, so this is never re-derived.\n  - If it is not: narrow the rule and pin the counter-example in a test.\nRun any probe in a temp dir, never against this repo root (CLAUDE.md, pin/unpin section).\n\nAlso worth one line in the doc comment while you are there: `Bash(*--out*)` strictly subsumes `Bash(*--output*)`; both ship deliberately, the narrower one for readability.\n\nDo not touch `GIT_INSPECTION_RULES` or anything else exported from `src/claude-settings.ts` — `cairn init`'s seeding, `buildCommandRules` and the hook's reviewer Bash scope all share it."
+    },
+    {
+      "id": 135,
+      "priority": 5,
+      "title": "tsconfig: a bare tsc would emit into dist/ alongside the compiled binary",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "tsconfig.json",
+        "test/tsconfig.test.ts"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [],
+      "model": "sonnet",
+      "description": "Regression risk the round-17 reviewer raised against task #122 (see .cairn/reviews/round-17.md, '## Task #122' > 'Regression Risks', first bullet).\n\n#122 widened `include` to `[\"src\",\"test\"]` and deleted `rootDir` so the typecheck gate could cover `test/`. Correct for the gate, but it left `outDir: \"dist\"` with no `rootDir`: a bare `tsc` (no `--noEmit`) would now emit `dist/src/**` and `dist/test/**` INTO the same directory that holds the compiled `dist/cairn` binary that `install.sh` symlinks onto PATH.\n\nNothing in the repo does that today — `package.json`'s only tsc invocation is `typecheck: \"tsc --noEmit\"`, and `build` is `bun build --compile`, which ignores both options. So this is latent, not live. It becomes live the moment anyone adds a tsc emit step, runs `npx tsc` by hand to debug, or an agent does so while investigating a type error — and the failure mode is a polluted `dist/` next to the binary developers actually run.\n\nFix: set `\"noEmit\": true` in `tsconfig.json`'s compilerOptions so the safe behaviour is the default rather than a property of how the command happens to be invoked. Then decide about `outDir`: with `noEmit` on it is inert, so either drop it or keep it with a comment saying why. State which you chose and why in the task notes. Do NOT reintroduce `rootDir` — that is what #122 removed to get `test/` under the gate, and restoring it would undo the gate.\n\nVerify: `bun run typecheck` still exits 0 over both `src/` and `test/`; `bun run build` still produces a working `dist/cairn`; and a bare `tsc` now emits nothing. Run the bare-tsc check in a scratch dir or with an explicit throwaway `--outDir`, and delete anything it produces — do NOT leave stray files in the real `dist/`.\n\nA regression test is worth it since the whole point is that no current command exercises the bad path: assert on the parsed `tsconfig.json` that `noEmit` is true and `rootDir` is absent, with a comment naming this review finding. Create `test/tsconfig.test.ts` if there is no existing home for it.\n\nDo NOT touch `package.json`'s build script or `cairn.json`'s `healthCheck` — the user has pinned the binary and redirected the health check to a throwaway outfile for the duration of this round (CLAUDE.md, pin/unpin section)."
+    },
+    {
+      "id": 136,
+      "priority": 6,
+      "title": "Cleanups: shared cast helper in test/, log-mock arg join, unused mergeGitignoreEntries export",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "test/config.test.ts",
+        "test/commands/init.test.ts",
+        "test/commands/run.test.ts",
+        "src/commands/init.ts"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [
+        132
+      ],
+      "model": "sonnet",
+      "description": "The cosmetic observations from the round-17 reviews, collected. Each is explicitly recorded there as 'not a requirement gap' / 'cosmetic only' — none is a correctness defect, so if any one turns out to be more churn than it is worth, note that and skip it rather than forcing it.\n\n1. CAST STYLE (#120 Gaps). The two cast fixes diverged: `test/commands/init.test.ts` uses `as unknown as Record<string, unknown>`, `test/config.test.ts` uses a direct `as { maxIterations?: number } | undefined` repeated inline at all four sites. Pick one form and add a one-line helper for the repeated `config.review` case. Preserve the assertions exactly — those `toBeUndefined()` checks are what pins round 16's removal of `review.maxIterations`, and they must still genuinely fail if it comes back.\n\n2. LOG MOCKS JOIN EVERY ARG (#122 Regression Risks). The three retyped `log` mocks in `test/commands/run.test.ts` now join all arguments instead of recording only the first. Harmless today, and the one exact-match assertion over them (`expect(logs).toContain('Cairn Execution Loop Completed')`, around run.test.ts:2394) still passes — but it would break if a future change gave that log call a second argument. Either make the assertion robust to extra args or record the first argument only, whichever reads better.\n\n3. UNUSED EXPORT (#117 Gaps). `mergeGitignoreEntries` is exported from `src/commands/init.ts` but no test imports it — the behaviour is only exercised through `initCoreFiles`. Either add a direct unit test for it (preferred: it is pure and easy to test at the boundary, and the negation logic from the earlier task in this round deserves a direct test) or drop the export. Do not do both.\n\nDepends on the `cairn init` gitignore task (#132), which rewrites `mergeGitignoreEntries` — do item 3 after that has landed so you are testing the final shape.\n\nStrictly no behaviour change in `src/` beyond item 3's export decision. Suite count must not drop."
+    },
+    {
+      "id": 137,
+      "priority": 7,
+      "title": "Docs: close the reviewer-containment drift in README and CLAUDE.md, then document round-18's changes",
+      "directory": "",
+      "status": "pending",
+      "files": [
+        "README.md",
+        "CLAUDE.md"
+      ],
+      "tests": [
+        "bun run typecheck",
+        "bun test"
+      ],
+      "dependencies": [
+        131,
+        132,
+        133,
+        134,
+        135,
+        136
+      ],
+      "model": "sonnet",
+      "description": "Two jobs: finish what round 17's docs task (#123) left, then document what round 18 shipped.\n\nPART A — the drift #123 missed (see .cairn/reviews/round-17.md, '## Task #123' > 'Gaps', and '## Task #118' > 'Regression Risks' 1 and 3).\n\n1. README ~line 164 ('Headless `cairn run` agents are constrained by their prompts and (for the reviewer) a scoped `--allowedTools` list'). `--disallowedTools` does not appear in README AT ALL, so a reader of README alone still concludes the `git diff --output=<file>` hole is open — it was closed for the headless path in #121. #123 was scoped to '~line 167' and correctly fixed that line; this is its counterpart and was missed. One clause closes it.\n2. CLAUDE.md enforcement point 2 (around line 142) likewise still describes the reviewer's headless containment purely in `--allowedTools` terms. Not wrong, and line ~177 now carries the full story, but the two should not read as contradicting each other.\n3. CLAUDE.md's 'Remaining headless gap' paragraph: the accepted-gap note is now INCOMPLETE rather than wrong. It calls out `--output` but not the `--output${X}=f` shell-expansion variant, which is what the shipped `Bash(*$*)` deny actually covers.\n4. Check BOTH files for any remaining claim that the reviewer's Bash is denied only on 'redirection (`<`, `>`), backticks, or `$(`'. #118 widened that to ANY `$` anywhere. CLAUDE.md was updated in #123; verify README says the same thing.\n5. Add one line noting that re-running `cairn init` can now APPEND to an existing `.cairn/.gitignore` (#117's behaviour) — a new class of side effect for `init` that is currently undocumented, and which users should know about before they re-run it.\n\nPART B — round-18 changes. Document what actually landed in this round, reading each commit rather than trusting these descriptions:\n- the round-done temp-file sweep and exactly which files it does and does not remove (the never-sweep list is the load-bearing half);\n- `cairn init`'s gitignore merge: continues on an unreadable file, and honours a `!` negation;\n- the hook's split between decision resolution and error-log destination, and WHY the 'same resolver' invariant was relaxed;\n- `tsconfig.json`'s `noEmit`, with the reason (a bare `tsc` would otherwise emit into `dist/` next to the binary).\n\nRULES. Docs-only: no `src/`, `test/`, `package.json`, `tsconfig.json` or `cairn.json` changes. Verify every claim against the code that shipped before you write it — CLAUDE.md records a real incident caused by a stale claim in that file, and two separate round-17 findings are docs drift, so this is the failure mode this repo actually has. Do NOT restore `cairn.json`'s `healthCheck` or touch `install.sh`: both are user-managed for the round (CLAUDE.md, pin/unpin section)."
+    }
+  ]
 }
