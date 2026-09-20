@@ -9,6 +9,7 @@ import {
   mergeClaudeSettings,
   mergeHookSettings,
   removeSettingsRules,
+  REVIEWER_DISALLOWED_BASH_RULES,
 } from '../src/claude-settings';
 
 // CRITICAL: every test operates inside a throwaway temp dir. Pointing this
@@ -708,5 +709,25 @@ describe('mergeHookSettings', () => {
     writeSettings(raw);
     expect(() => mergeHookSettings(projectRoot, spec)).toThrow(ClaudeSettingsError);
     expect(fs.readFileSync(settingsFile(), 'utf-8')).toBe(raw);
+  });
+});
+
+describe('REVIEWER_DISALLOWED_BASH_RULES', () => {
+  // Task #121's spawn-wiring test only pins that the flag is passed FROM this
+  // constant (`spawnArgs[i+1] === REVIEWER_DISALLOWED_BASH_RULES.join(",")`),
+  // which can't fail no matter what the array contains — emptying it, or
+  // dropping the `--output` pattern and reopening the original headless hole,
+  // still leaves that test green. This pins the CONTENT itself: the five
+  // patterns the round-17 probe validated (.cairn/planning-notes.md, finding
+  // 5), written out as literals so a future edit that narrows or drops one
+  // fails here rather than silently.
+  it('contains every probe-validated pattern, and nothing else', () => {
+    expect(REVIEWER_DISALLOWED_BASH_RULES).toEqual([
+      'Bash(*--output*)',
+      'Bash(*--out*)',
+      'Bash(*$*)',
+      `Bash(*")`,
+      "Bash(*')",
+    ]);
   });
 });

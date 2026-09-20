@@ -114,6 +114,25 @@ export const GIT_INSPECTION_RULES: readonly string[] = [
  * parses subcommands and tokens. This list is defense in depth against a
  * trusted agent following its prompt, not a sandbox; the hook remains the
  * stronger layer where it applies.
+ *
+ * `Bash(*--out*)` strictly subsumes `Bash(*--output*)` (any `--output` match
+ * is also a `--out` match); both ship deliberately — the narrower pattern is
+ * kept only for readability at the call site, not because it catches anything
+ * the broader one misses.
+ *
+ * Re-probed 2026-09-19 (round 18, task #134) specifically for `Bash(*--out*)`
+ * false positives, since the round-17 probe above only exercised
+ * `Bash(*--output*),Bash(*$*)` — not the broader `--out` rule that actually
+ * ships. In a throwaway temp-dir repo (never this repo root), with
+ * `--allowedTools` set to exactly GIT_INSPECTION_RULES and `--disallowedTools
+ * "Bash(*--out*)"`: `git show HEAD:<path>` (including paths containing the
+ * substring "out", e.g. `checkout.ts`, `layout.tsx`), `git diff <range>`,
+ * `git diff --name-only <range>`, `git log --oneline <range>`, `git status`,
+ * `git status --porcelain`, and `git rev-parse HEAD` all ran (no false
+ * positives — the rule requires the literal substring `--out`, i.e. two
+ * hyphens, which none of these commands or paths contain). Control:
+ * `git log --output=<file> -1` was still DENIED under the same flags,
+ * confirming the rule still closes the hole it was added for.
  */
 export const REVIEWER_DISALLOWED_BASH_RULES: readonly string[] = [
   'Bash(*--output*)',
