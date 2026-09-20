@@ -48,6 +48,45 @@ export function hookErrorLogPath(dataDir: string): string {
   return tempFilePath(dataDir, 'hook_errors.log');
 }
 
+/**
+ * Where a fail-open error is logged, or null when no candidate project has a
+ * data dir to append to.
+ *
+ * This is deliberately NOT the resolver that picks the containment decision's
+ * project. The decision stays pinned to the payload's own `cwd` with
+ * `ignoreEnv` (a `/cairn-run` session may have inherited a CAIRN_PROJECT_ROOT
+ * naming a different project, and containing project B against project A's
+ * paths would be wrong). But when that cwd-resolved project has no `.cairn/`,
+ * the hook fails open and there is nowhere to record it — and a hook that has
+ * silently stopped containing anything then looks identical to a healthy one.
+ * So the log, and only the log, falls back to the ordinary resolution
+ * (CAIRN_PROJECT_ROOT, then the process cwd).
+ *
+ * The "a deny and its log can never name different projects" invariant is
+ * preserved by construction: the fallback is reached only when no data dir was
+ * found, and a deny can only happen once one was.
+ */
+export function resolveHookErrorLogDir(payloadCwd: string | null, fallbackCwd: string): string | null {
+  const candidates: string[] = [];
+  const add = (resolve: () => string) => {
+    try {
+      candidates.push(findDataDir(resolve()));
+    } catch {
+      // An unresolvable candidate just isn't one.
+    }
+  };
+  if (payloadCwd !== null) add(() => findProjectRoot(payloadCwd, { ignoreEnv: true }));
+  add(() => findProjectRoot(fallbackCwd));
+  for (const dir of candidates) {
+    try {
+      if (fs.existsSync(dir)) return dir;
+    } catch {
+      // Unreadable — try the next candidate.
+    }
+  }
+  return null;
+}
+
 /** Command prefixes the reviewer may run, derived from GIT_INSPECTION_RULES. */
 export function reviewerBashPrefixes(): string[] {
   return GIT_INSPECTION_RULES.map(bashRulePrefix).filter((p): p is string => p !== null);
@@ -165,9 +204,10 @@ export function denyOutput(reason: string): object {
 export interface PreToolUseHookCommandOpts {
   stdinText: string;
   /**
-   * Fallback used to resolve the project (and so the error log) when the
-   * payload carries no usable `cwd`. Resolved the ordinary way, env var first.
-   * Defaults to process.cwd().
+   * Fallback used to resolve the project when the payload carries no usable
+   * `cwd` — and, for the fail-open error log only, also when the payload cwd
+   * resolves to a project with no data dir. Resolved the ordinary way, env var
+   * first. Defaults to process.cwd().
    */
   cwd?: string;
   stdout?: Writer;
@@ -187,8 +227,10 @@ export function preToolUseHookCommand(opts: PreToolUseHookCommandOpts): number {
   // session started from a shell that `cairn` launched inherits
   // CAIRN_PROJECT_ROOT, which would otherwise win over this cwd and point the
   // hook at the wrong project — so when the payload supplies one, resolve from
-  // it alone. One resolver for both the decision and the error log, so a deny
-  // and its log can never name different projects.
+  // it alone. The error log gets its own, more forgiving destination (see
+  // `resolveHookErrorLogDir`); a deny and its log still can never name
+  // different projects, because the log only diverges when no data dir was
+  // found and a deny requires one.
   let payloadCwd: string | null = null;
   const resolveProjectRoot = (): string =>
     payloadCwd !== null ? findProjectRoot(payloadCwd, { ignoreEnv: true }) : findProjectRoot(fallbackCwd);
@@ -225,8 +267,8 @@ export function preToolUseHookCommand(opts: PreToolUseHookCommandOpts): number {
       // Nothing left to report to.
     }
     try {
-      const logDir = dataDir ?? findDataDir(resolveProjectRoot());
-      if (fs.existsSync(logDir)) {
+      const logDir = dataDir ?? resolveHookErrorLogDir(payloadCwd, fallbackCwd);
+      if (logDir !== null) {
         fs.appendFileSync(hookErrorLogPath(logDir), `${new Date().toISOString()} ${message.replace(/\n/g, ' ')}\n`);
       }
     } catch {

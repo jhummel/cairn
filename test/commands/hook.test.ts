@@ -6,6 +6,7 @@ import {
   decidePreToolUse,
   preToolUseHookCommand,
   hookErrorLogPath,
+  resolveHookErrorLogDir,
   reviewerBashPrefixes,
   type HookContext,
 } from '../../src/commands/hook';
@@ -318,18 +319,42 @@ describe('preToolUseHookCommand', () => {
     expect(fs.readFileSync(hookErrorLogPath(dataDir), 'utf8')).toContain('pre-tool-use');
   });
 
-  test('data dir not found → exit 1, no deny, nothing written', () => {
+  test('data dir not found → exit 1, no deny, and the bare dir is left untouched', () => {
     const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-hook-bare-')));
     try {
       const code = preToolUseHookCommand({
         stdinText: JSON.stringify({ ...subagent('general-purpose', 'Write', { file_path: 'x', content: '' }), cwd: bare }),
+        cwd: projectRoot,
         ...writers(),
       });
       expect(code).toBe(1);
       expect(stdout).toBe('');
       expect(fs.readdirSync(bare)).toEqual([]);
+      // The error log falls back to the ordinary resolution so the failure is
+      // still recorded somewhere `cairn round next` will surface it.
+      expect(fs.readFileSync(hookErrorLogPath(dataDir), 'utf8')).toContain('data dir not found');
     } finally {
       fs.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
+  test('no data dir anywhere → still exit 1, never a deny, never a crash', () => {
+    const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-hook-bare-')));
+    const otherBare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-hook-bare2-')));
+    try {
+      const code = preToolUseHookCommand({
+        stdinText: JSON.stringify({ ...subagent('general-purpose', 'Write', { file_path: 'x', content: '' }), cwd: bare }),
+        cwd: otherBare,
+        ...writers(),
+      });
+      expect(code).toBe(1);
+      expect(code).not.toBe(2);
+      expect(stdout).toBe('');
+      expect(fs.readdirSync(bare)).toEqual([]);
+      expect(fs.readdirSync(otherBare)).toEqual([]);
+    } finally {
+      fs.rmSync(bare, { recursive: true, force: true });
+      fs.rmSync(otherBare, { recursive: true, force: true });
     }
   });
 
@@ -407,18 +432,43 @@ describe('preToolUseHookCommand', () => {
       expect(JSON.parse(stdout).hookSpecificOutput.permissionDecisionReason).toContain(path.join(envDataDir, 'tasks.json'));
     });
 
-    test('the fail-open error log follows the payload cwd project, not the env var project', () => {
+    test('the error log prefers the payload cwd project over the env var project', () => {
+      // B (the payload cwd) has a data dir, so it wins — the fallback below is
+      // reached only when B has nowhere to append.
+      expect(resolveHookErrorLogDir(projectRoot, envRoot)).toBe(dataDir);
+    });
+
+    test('the error log falls back to the ordinary resolution only when the payload cwd project has no data dir', () => {
+      const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-hook-bare-')));
+      try {
+        expect(resolveHookErrorLogDir(bare, bare)).toBe(envDataDir); // CAIRN_PROJECT_ROOT = A
+      } finally {
+        fs.rmSync(bare, { recursive: true, force: true });
+      }
+    });
+
+    // The decision must stay pinned to the payload cwd (that is #119), but when
+    // that project has no data dir there is nowhere to append — so the log, and
+    // only the log, falls back to the ordinary resolution. Otherwise a hook that
+    // has silently stopped containing anything looks identical to a healthy one.
+    test('the fail-open error log falls back to CAIRN_PROJECT_ROOT when the payload cwd project has no data dir', () => {
       const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-hook-bare-')));
       try {
         const code = preToolUseHookCommand({
           stdinText: JSON.stringify({ ...subagent('general-purpose', 'Write', { file_path: 'x', content: '' }), cwd: bare }),
           ...writers(),
         });
-        // No data dir under `bare` → fail open, and nothing may be written to A.
+        // No data dir under `bare` → fail open (exit 1, call allowed) …
         expect(code).toBe(1);
+        expect(code).not.toBe(2);
         expect(stdout).toBe('');
-        expect(fs.existsSync(hookErrorLogPath(envDataDir))).toBe(false);
         expect(fs.readdirSync(bare)).toEqual([]);
+        // … but the failure is still recorded, in the fallback project.
+        const logged = fs.readFileSync(hookErrorLogPath(envDataDir), 'utf8').trim().split('\n');
+        expect(logged).toHaveLength(1);
+        expect(logged[0]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+        expect(logged[0]).toContain('data dir not found');
+        expect(logged[0]).toContain(bare);
       } finally {
         fs.rmSync(bare, { recursive: true, force: true });
       }
