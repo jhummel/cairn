@@ -235,6 +235,60 @@ describe('roundNext', () => {
       fs.writeFileSync(path.join(dataDir, 'tasks.json'), '');
       await expect(roundNext(input(), makeHarness().deps)).rejects.toThrow();
     });
+
+    test('sweeps round-scoped scratch files before returning', async () => {
+      writeTasks([]);
+      const scratch = [
+        '.cairn_complete',
+        '.cairn_prev_notes',
+        '.cairn_completed_ids',
+        '.cairn_task_1_prompt.md',
+        '.cairn_task_1_review_prompt.md',
+        '.cairn_task_1_tests.log',
+        '.ralph_task_1_notes.md',
+        '.cairn_task_2_notes.md',
+      ];
+      for (const name of scratch) {
+        fs.writeFileSync(path.join(dataDir, name), 'scratch');
+      }
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'round-done' });
+      for (const name of scratch) {
+        expect(fs.existsSync(path.join(dataDir, name))).toBe(false);
+      }
+    });
+
+    test('never sweeps run state, logs, snapshot, gitignore, tasks or planning files', async () => {
+      writeTasks([]);
+      const protectedNames = [
+        '.cairn_run_state.json',
+        '.cairn_run_state.json.lock',
+        '.cairn_iterations.log',
+        '.cairn_tasks_snapshot.json',
+        '.cairn_hook_errors.log',
+        '.gitignore',
+        'state.json',
+        'tasks.completed.json',
+        'planning-notes.md',
+      ];
+      for (const name of protectedNames) {
+        fs.writeFileSync(path.join(dataDir, name), 'keep');
+      }
+      fs.mkdirSync(path.join(dataDir, 'reviews'));
+      fs.writeFileSync(path.join(dataDir, 'reviews', 'round-1.md'), 'keep');
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'round-done' });
+      for (const name of protectedNames) {
+        expect(fs.existsSync(path.join(dataDir, name))).toBe(true);
+      }
+      expect(fs.existsSync(path.join(dataDir, 'reviews', 'round-1.md'))).toBe(true);
+      // tasks.json itself must survive too — writeTasks([]) created it above.
+      expect(fs.existsSync(path.join(dataDir, 'tasks.json'))).toBe(true);
+    });
   });
 
   describe('attempt record', () => {

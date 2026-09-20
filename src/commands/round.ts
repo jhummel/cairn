@@ -26,6 +26,7 @@ import { archiveCompletedTasks as defaultArchiveCompletedTasks } from '../task-a
 import { loadConfig, autoDetectHealthCheck } from '../config';
 import { buildSystemPrompt } from './run';
 import { hookErrorLogPath } from './hook';
+import { sweepRoundTempFiles } from '../temp-sweep';
 import { BRAND } from '../brand';
 import { defaultStdout, defaultStderr, type Writer } from '../cli-io';
 
@@ -116,6 +117,10 @@ async function pickNext(input: RoundNextInput, deps: RoundNextDeps): Promise<Rou
       store.update(dataDir, (s) => pruneOrphanedAttempts(s, liveTaskIds));
     }
     const blocked = tasks.filter((t) => t.status === 'blocked').length;
+    // Round-scoped scratch (prompt/review-prompt/tests-log/notes files, plus
+    // the flat complete/prev-notes/completed-ids files) is swept only here,
+    // at round end — never per-task. See sweepRoundTempFiles.
+    sweepRoundTempFiles(dataDir);
     return {
       verdict: 'round-done',
       blocked,

@@ -19,6 +19,7 @@ import { loadPersonalInstructions } from '../personal-instructions';
 import { readTasksFile as defaultReadTasksFile, snapshotTasksFile as defaultSnapshotTasksFile, mutateTasksFile as defaultMutateTasksFile, TasksFileError, type TasksFile } from '../tasks-file';
 import { tempFilePath } from '../utils';
 import { BRAND, NOTES_TEMP_PREFIX } from '../brand';
+import { sweepRoundTempFiles } from '../temp-sweep';
 import { settleTask, createRunStateGuardCounters, findTaskBaseSha, type BlockTaskOpts, type SettleTaskDeps, type SettleTaskInput } from '../settle';
 import { ensureAttemptRecord, fileRunStateStore, type RunStateStore } from '../run-state';
 
@@ -418,25 +419,6 @@ const PATH_ADDITIONS = [
   '/usr/local/bin',
 ];
 
-// Suffixes (prefix-less) of the run-scoped temp files removed at loop exit.
-const TEMP_FILE_SUFFIXES = ['complete', 'prev_notes', 'completed_ids'];
-
-/**
- * `.ralph_task_<id>_notes.md` or `.cairn_task_<id>_notes.md`, nothing else.
- *
- * NOTES_TEMP_PREFIX is the one the prompt actually hands out and is permanent,
- * so that branch is load-bearing — drop it and every iteration's scratch leaks.
- * BRAND.tempPrefix stays in the alternation defensively: an agent that spells
- * the file with the current prefix instead must not leave scratch behind.
- */
-const NOTES_TEMPFILE_RE = new RegExp(
-  `^(?:${[NOTES_TEMP_PREFIX, BRAND.tempPrefix].map(escapeRegExp).join('|')})task_\\d+_notes\\.md$`
-);
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps()): Promise<void> {
   const { projectRoot, dataDir, config, agents } = opts;
   const maxIterations = opts.maxIterations ?? 30;
@@ -802,33 +784,12 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     // 9. Clean up ProcessManager
     processManager.dispose();
 
-    // Clean up temp files
-    for (const suffix of TEMP_FILE_SUFFIXES) {
-      const filePath = tempFilePath(dataDir, suffix);
-      if (deps.existsSync(filePath)) {
-        try {
-          deps.unlinkSync(filePath);
-        } catch {
-          // ignore cleanup errors
-        }
-      }
-    }
-
-    // Sweep per-task notes tempfiles (e.g. .ralph_task_42_notes.md) from dataDir.
-    // Matches both prefixes — see NOTES_TEMPFILE_RE.
-    try {
-      const entries = deps.readdirSync(dataDir);
-      for (const name of entries) {
-        if (NOTES_TEMPFILE_RE.test(name)) {
-          try {
-            deps.unlinkSync(path.join(dataDir, name));
-          } catch {
-            // ignore cleanup errors
-          }
-        }
-      }
-    } catch {
-      // dataDir may be gone mid-run — best-effort
-    }
+    // Clean up run-scoped temp files (flat + per-task prompt/review/tests/notes
+    // scratch). Best-effort — see sweepRoundTempFiles.
+    sweepRoundTempFiles(dataDir, {
+      existsSync: deps.existsSync,
+      unlinkSync: deps.unlinkSync,
+      readdirSync: deps.readdirSync,
+    });
   }
 }

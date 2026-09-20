@@ -2773,4 +2773,55 @@ describe('runRun', () => {
     // Should not throw — readdirSync failure must be swallowed
     await runRun(makeRunOpts(), deps);
   });
+
+  test('cleanup also sweeps per-task prompt, review-prompt and tests-log scratch files', async () => {
+    const readdirSync = mock(() => [
+      '.cairn_task_1_prompt.md',
+      '.cairn_task_1_review_prompt.md',
+      '.cairn_task_1_tests.log',
+      '.cairn_task_42_prompt.md',
+    ]);
+    const unlinked: string[] = [];
+    const deps = makeRunDeps({
+      readdirSync,
+      selectNextTask: mock(() => null),
+      unlinkSync: mock((p: string) => { unlinked.push(p); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(unlinked.some(p => p.endsWith('.cairn_task_1_prompt.md'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('.cairn_task_1_review_prompt.md'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('.cairn_task_1_tests.log'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('.cairn_task_42_prompt.md'))).toBe(true);
+  });
+
+  test('cleanup never sweeps run state, logs, snapshot, gitignore, tasks or planning files', async () => {
+    const protectedNames = [
+      '.cairn_run_state.json',
+      '.cairn_run_state.json.lock',
+      '.cairn_iterations.log',
+      '.cairn_tasks_snapshot.json',
+      '.cairn_hook_errors.log',
+      '.gitignore',
+      'state.json',
+      'tasks.json',
+      'tasks.completed.json',
+      'planning-notes.md',
+      'reviews',
+    ];
+    const readdirSync = mock(() => protectedNames);
+    const unlinked: string[] = [];
+    const deps = makeRunDeps({
+      readdirSync,
+      selectNextTask: mock(() => null),
+      unlinkSync: mock((p: string) => { unlinked.push(p); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    for (const name of protectedNames) {
+      expect(unlinked.some(p => p.endsWith(`/${name}`))).toBe(false);
+    }
+  });
 });
