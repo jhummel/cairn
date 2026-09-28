@@ -13,8 +13,9 @@ describe('BRAND', () => {
     expect(BRAND.configFile).toBe('cairn.json');
     expect(BRAND.envPrefix).toBe('CAIRN_');
     expect(BRAND.tempPrefix).toBe('.cairn_');
-    expect(BRAND.socket).toBe('/tmp/cairn-tts.sock');
-    expect(BRAND.pidFile).toBe('/tmp/cairn-tts.pid');
+    expect(Object.keys(BRAND).sort()).toEqual(
+      ['configFile', 'dataDir', 'displayName', 'envPrefix', 'name', 'tempPrefix'],
+    );
   });
 
   it('is frozen', () => {

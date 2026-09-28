@@ -3,13 +3,12 @@
  *
  * BRAND is NOT user-configurable — it is a compile-time constant, not config.
  *
- * STANDING RULE: BRAND.dataDir / BRAND.configFile / BRAND.socket / BRAND.pidFile
- * are for CREATING paths, never for RESOLVING them. Any path that points at
- * something that already exists must come from the value discovery actually
- * found (`findDataDir()` in src/utils.ts, `findConfigFile()` in src/config.ts,
- * `findNarrationSocketPath()` / `findNarrationPidFile()` in src/narration.ts) —
- * otherwise a path is built from what the name *should* be rather than from
- * what is actually on disk, and points at something that does not exist.
+ * STANDING RULE: BRAND.dataDir / BRAND.configFile are for CREATING paths,
+ * never for RESOLVING them. Any path that points at something that already
+ * exists must come from the value discovery actually found (`findDataDir()` in
+ * src/utils.ts, `findConfigFile()` in src/config.ts) — otherwise a path is
+ * built from what the name *should* be rather than from what is actually on
+ * disk, and points at something that does not exist.
  */
 export const BRAND = Object.freeze({
   name: 'cairn',
@@ -18,10 +17,6 @@ export const BRAND = Object.freeze({
   configFile: 'cairn.json',
   envPrefix: 'CAIRN_',
   tempPrefix: '.cairn_',
-  /** Unix socket the narration server binds and the .claude/hooks/*.sh clients dial. */
-  socket: '/tmp/cairn-tts.sock',
-  /** Where `cairn narrate on` records the narration server's PID. */
-  pidFile: '/tmp/cairn-tts.pid',
 });
 
 /**

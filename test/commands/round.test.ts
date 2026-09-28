@@ -36,7 +36,6 @@ function makeConfig(overrides: Partial<CairnConfig> = {}): CairnConfig {
     implementationFile: 'IMPLEMENTATION.md',
     truncateText: true,
     summarize: { claudeMdPattern: '' },
-    narration: { enabled: false, voice: '', ntfyTopic: '' },
     ...overrides,
   };
 }

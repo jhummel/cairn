@@ -25,10 +25,6 @@ export function loadConfig(projectRoot: string): CairnConfig {
     raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
   }
 
-  const narrationRaw = (typeof raw.narration === 'object' && raw.narration !== null)
-    ? raw.narration as Record<string, unknown>
-    : {};
-
   const summarizeRaw = (typeof raw.summarize === 'object' && raw.summarize !== null)
     ? raw.summarize as Record<string, unknown>
     : {};
@@ -46,11 +42,6 @@ export function loadConfig(projectRoot: string): CairnConfig {
     truncateText: typeof raw.truncateText === 'boolean' ? raw.truncateText : true,
     summarize: {
       claudeMdPattern: typeof summarizeRaw.claudeMdPattern === 'string' ? summarizeRaw.claudeMdPattern : '',
-    },
-    narration: {
-      enabled: typeof narrationRaw.enabled === 'boolean' ? narrationRaw.enabled : false,
-      voice: typeof narrationRaw.voice === 'string' ? narrationRaw.voice : 'bf_emma',
-      ntfyTopic: typeof narrationRaw.ntfyTopic === 'string' ? narrationRaw.ntfyTopic : '',
     },
     // reviewRaw.maxIterations is a dead legacy key: intentionally not read here, even if
     // present in cairn.json — nothing consumes it anymore.
@@ -148,7 +139,4 @@ export function setConfigEnvVars(config: CairnConfig): void {
   process.env.CAIRN_IMPL_FILE = config.implementationFile;
   process.env.CAIRN_CLAUDE_MD_PATTERN = config.summarize.claudeMdPattern;
   process.env.CAIRN_TRUNCATE_TEXT = String(config.truncateText);
-  process.env.CAIRN_NARRATION_ENABLED = String(config.narration.enabled);
-  process.env.CAIRN_NARRATION_VOICE = config.narration.voice;
-  process.env.CAIRN_NTFY_TOPIC = config.narration.ntfyTopic;
 }

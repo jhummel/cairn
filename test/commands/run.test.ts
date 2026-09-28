@@ -28,7 +28,6 @@ function makeConfig(overrides: Partial<CairnConfig> = {}): CairnConfig {
     implementationFile: 'IMPLEMENTATION.md',
     truncateText: true,
     summarize: { claudeMdPattern: '' },
-    narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     ...overrides,
   };
 }
@@ -789,7 +788,6 @@ function makeTestConfig(overrides: Partial<CairnConfig> = {}): CairnConfig {
     implementationFile: 'IMPLEMENTATION.md',
     truncateText: true,
     summarize: { claudeMdPattern: '' },
-    narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     ...overrides,
   };
 }
@@ -2115,8 +2113,8 @@ describe('runRun', () => {
     expect(src).not.toMatch(/narrat|ntfy/i);
   });
 
-  test('streamOpts carries no narrate/ntfy callbacks even with narration config on', async () => {
-    const config = makeTestConfig({ narration: { enabled: true, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
+  test('streamOpts carries no narrate/ntfy callbacks', async () => {
+    const config = makeTestConfig();
     let callCount = 0;
     const deps = makeRunDeps({
       selectNextTask: mock(() => {

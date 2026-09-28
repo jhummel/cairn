@@ -13,7 +13,6 @@ import {
   migrateInstructionsFile,
   isPathGitIgnored,
   warnIfClaudeLocalMdNotIgnored,
-  installNarrationHooks,
   installSlashCommands,
   installAgents,
   buildInitPermissionRules,
@@ -595,9 +594,6 @@ describe('getConfigDefaults', () => {
     expect(defaults.implementationFile).toBe('IMPLEMENTATION.md');
     expect(defaults.truncateText).toBe(true);
     expect(defaults.claudeMdPattern).toBe('');
-    expect(defaults.narrationEnabled).toBe(false);
-    expect(defaults.narrationVoice).toBe('bf_emma');
-    expect(defaults.ntfyTopic).toBe('');
   });
 
   test('auto-detects health check from package.json with type-check script', () => {
@@ -618,12 +614,10 @@ describe('getConfigDefaults', () => {
       implementationFile: 'DOCS.md',
       truncateText: false,
       summarize: { claudeMdPattern: '**/CLAUDE.md' },
-      narration: { enabled: true, voice: 'af_sky', ntfyTopic: 'my-topic' },
     };
     fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(existing, null, 2));
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.projectName).toBe('my-cairn-app');
-    expect(defaults.narrationVoice).toBe('af_sky');
   });
 
   test('loads every field of an existing cairn.json as defaults', () => {
@@ -635,7 +629,6 @@ describe('getConfigDefaults', () => {
       implementationFile: 'DOCS.md',
       truncateText: false,
       summarize: { claudeMdPattern: '**/CLAUDE.md' },
-      narration: { enabled: true, voice: 'af_sky', ntfyTopic: 'my-topic' },
     };
     fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(existing, null, 2));
     const defaults = getConfigDefaults(tmpDir);
@@ -646,19 +639,15 @@ describe('getConfigDefaults', () => {
     expect(defaults.implementationFile).toBe('DOCS.md');
     expect(defaults.truncateText).toBe(false);
     expect(defaults.claudeMdPattern).toBe('**/CLAUDE.md');
-    expect(defaults.narrationEnabled).toBe(true);
-    expect(defaults.narrationVoice).toBe('af_sky');
-    expect(defaults.ntfyTopic).toBe('my-topic');
   });
 
   test('ignores a leftover ralph.json when deriving defaults', () => {
     fs.writeFileSync(
       path.join(tmpDir, 'ralph.json'),
-      JSON.stringify({ projectName: 'my-app', narration: { voice: 'af_sky' } })
+      JSON.stringify({ projectName: 'my-app' })
     );
     const defaults = getConfigDefaults(tmpDir);
     expect(defaults.projectName).toBe(path.basename(tmpDir));
-    expect(defaults.narrationVoice).toBe('bf_emma');
   });
 
   test('partially populated cairn.json fills in missing fields with defaults', () => {
@@ -668,7 +657,6 @@ describe('getConfigDefaults', () => {
     expect(defaults.projectName).toBe('partial-app');
     expect(defaults.implementationFile).toBe('IMPLEMENTATION.md');
     expect(defaults.truncateText).toBe(true);
-    expect(defaults.narrationEnabled).toBe(false);
   });
 
   test('auto-detect does not override existing cairn.json healthCheck', () => {
@@ -759,15 +747,12 @@ describe('promptForConfig', () => {
     implementationFile: 'IMPLEMENTATION.md',
     truncateText: true,
     claudeMdPattern: '',
-    narrationEnabled: false,
-    narrationVoice: 'bf_emma',
-    ntfyTopic: '',
     reviewPostTask: false,
   };
 
   test('all empty answers use defaults', async () => {
-    // 8 prompts: name, desc, health, test, impl, truncate, claudeMd, narration
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '']);
+    // 7 prompts before reviewPostTask: name, desc, health, test, impl, truncate, claudeMd
+    const rl = createMockPrompt(['', '', '', '', '', '', '']);
     const config = await promptForConfig(rl, baseDefaults);
     expect(config.projectName).toBe('test-project');
     expect(config.projectDescription).toBe('');
@@ -776,9 +761,6 @@ describe('promptForConfig', () => {
     expect(config.implementationFile).toBe('IMPLEMENTATION.md');
     expect(config.truncateText).toBe(true);
     expect(config.summarize.claudeMdPattern).toBe('');
-    expect(config.narration.enabled).toBe(false);
-    expect(config.narration.voice).toBe('bf_emma');
-    expect(config.narration.ntfyTopic).toBe('');
   });
 
   test('custom values override defaults', async () => {
@@ -790,9 +772,6 @@ describe('promptForConfig', () => {
       'DOCS.md',          // impl file
       'n',                // truncate = false
       '**/CLAUDE.md',     // claudeMd pattern
-      'y',                // narration enabled
-      'af_sky',           // voice (conditional prompt)
-      'my-topic',         // ntfy topic (conditional prompt)
     ]);
     const config = await promptForConfig(rl, baseDefaults);
     expect(config.projectName).toBe('my-app');
@@ -802,44 +781,6 @@ describe('promptForConfig', () => {
     expect(config.implementationFile).toBe('DOCS.md');
     expect(config.truncateText).toBe(false);
     expect(config.summarize.claudeMdPattern).toBe('**/CLAUDE.md');
-    expect(config.narration.enabled).toBe(true);
-    expect(config.narration.voice).toBe('af_sky');
-    expect(config.narration.ntfyTopic).toBe('my-topic');
-  });
-
-  test('narration sub-prompts are skipped when narration is disabled', async () => {
-    const rl = createMockPrompt([
-      '', '', '', '', '', '', '', 'n',
-    ]);
-    const config = await promptForConfig(rl, baseDefaults);
-    expect(config.narration.enabled).toBe(false);
-    expect(config.narration.voice).toBe('bf_emma');
-    expect(config.narration.ntfyTopic).toBe('');
-  });
-
-  test('narration sub-prompts appear when narration is enabled', async () => {
-    const rl = createMockPrompt([
-      '', '', '', '', '', '', '', 'y', 'custom_voice', 'notifications',
-    ]);
-    const config = await promptForConfig(rl, baseDefaults);
-    expect(config.narration.enabled).toBe(true);
-    expect(config.narration.voice).toBe('custom_voice');
-    expect(config.narration.ntfyTopic).toBe('notifications');
-  });
-
-  test('narration sub-prompts use defaults on empty input', async () => {
-    const defaults: ConfigDefaults = {
-      ...baseDefaults,
-      narrationEnabled: true,
-      narrationVoice: 'bf_emma',
-      ntfyTopic: 'existing-topic',
-    };
-    // 8 base prompts + 2 narration sub-prompts (empty = use defaults)
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', '']);
-    const config = await promptForConfig(rl, defaults);
-    expect(config.narration.enabled).toBe(true);
-    expect(config.narration.voice).toBe('bf_emma');
-    expect(config.narration.ntfyTopic).toBe('existing-topic');
   });
 
   test('boolean prompt shows Y/n when default is true', async () => {
@@ -857,19 +798,20 @@ describe('promptForConfig', () => {
     expect(truncateQ).toContain('[Y/n]');
   });
 
-  test('boolean prompt shows y/N when default is false', async () => {
+  test('generated config has no narration key and never asks about TTS/voice/ntfy', async () => {
     const questions: string[] = [];
     const rl: PromptInterface = {
       question: async (query: string) => {
         questions.push(query);
-        return '';
+        return 'y';
       },
       close: () => {},
     };
-    await promptForConfig(rl, baseDefaults);
-    // narrationEnabled defaults to false → should show [y/N]
-    const narrationQ = questions.find(q => q.includes('narration'));
-    expect(narrationQ).toContain('[y/N]');
+    const config = await promptForConfig(rl, baseDefaults);
+    expect('narration' in config).toBe(false);
+    for (const q of questions) {
+      expect(q).not.toMatch(/tts|narrat|voice|ntfy/i);
+    }
   });
 
   test('re-init defaults are shown in prompt brackets', async () => {
@@ -908,7 +850,7 @@ describe('promptForConfig', () => {
     expect((config.review as { maxIterations?: number } | undefined)?.maxIterations).toBeUndefined();
   });
 
-  test('promptForConfig prompts for reviewPostTask after narration prompts', async () => {
+  test('promptForConfig prompts for reviewPostTask', async () => {
     const questions: string[] = [];
     const rl: PromptInterface = {
       question: async (query: string) => {
@@ -923,14 +865,14 @@ describe('promptForConfig', () => {
   });
 
   test('reviewPostTask defaults to false on empty input', async () => {
-    // prompts: name, desc, health, test, impl, truncate, claudeMd, narration, reviewPostTask
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '']);
+    // prompts: name, desc, health, test, impl, truncate, claudeMd, reviewPostTask
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '']);
     const config = await promptForConfig(rl, { ...baseDefaults, reviewPostTask: false });
     expect(config.review?.postTask).toBe(false);
   });
 
   test('reviewPostTask is set to true when user answers y', async () => {
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'y']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', 'y']);
     const config = await promptForConfig(rl, { ...baseDefaults, reviewPostTask: false });
     expect(config.review?.postTask).toBe(true);
   });
@@ -972,7 +914,6 @@ describe('writeCairnJson', () => {
       implementationFile: 'IMPLEMENTATION.md',
       truncateText: true,
       summarize: { claudeMdPattern: '' },
-      narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
     writeCairnJson(tmpDir, config);
     expect(fs.existsSync(path.join(tmpDir, 'cairn.json'))).toBe(true);
@@ -984,9 +925,6 @@ describe('writeCairnJson', () => {
     expect(written.implementationFile).toBe('IMPLEMENTATION.md');
     expect(written.truncateText).toBe(true);
     expect(written.summarize.claudeMdPattern).toBe('');
-    expect(written.narration.enabled).toBe(false);
-    expect(written.narration.voice).toBe('bf_emma');
-    expect(written.narration.ntfyTopic).toBe('');
   });
 
   test('file ends with newline', () => {
@@ -998,7 +936,6 @@ describe('writeCairnJson', () => {
       implementationFile: 'IMPLEMENTATION.md',
       truncateText: true,
       summarize: { claudeMdPattern: '' },
-      narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
     writeCairnJson(tmpDir, config);
     const raw = fs.readFileSync(path.join(tmpDir, 'cairn.json'), 'utf8');
@@ -1015,7 +952,6 @@ describe('writeCairnJson', () => {
       implementationFile: 'IMPLEMENTATION.md',
       truncateText: true,
       summarize: { claudeMdPattern: '' },
-      narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
     writeCairnJson(tmpDir, config);
     const written = JSON.parse(fs.readFileSync(path.join(tmpDir, 'cairn.json'), 'utf8'));
@@ -1032,7 +968,6 @@ describe('writeCairnJson', () => {
       implementationFile: 'IMPLEMENTATION.md',
       truncateText: true,
       summarize: { claudeMdPattern: '' },
-      narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
     writeCairnJson(tmpDir, config);
     const raw = fs.readFileSync(path.join(tmpDir, 'cairn.json'), 'utf8');
@@ -1340,113 +1275,6 @@ describe('warnIfClaudeLocalMdNotIgnored', () => {
     const runFn: CheckIgnoreFn = () => ({ status: 1 });
     warnIfClaudeLocalMdNotIgnored(tmpDir, runFn, (m) => lines.push(m));
     expect(fs.existsSync(path.join(tmpDir, '.gitignore'))).toBe(false);
-  });
-});
-
-// --- installNarrationHooks tests ---
-
-describe('installNarrationHooks', () => {
-  let tmpDir: string;
-  let stdoutLines: string[];
-  let consoleSpy: ReturnType<typeof spyOn>;
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-hooks-test-'));
-    stdoutLines = [];
-    consoleSpy = spyOn(console, 'log').mockImplementation((...args: any[]) => {
-      stdoutLines.push(args.join(' '));
-    });
-  });
-
-  afterEach(() => {
-    consoleSpy.mockRestore();
-    fs.rmSync(tmpDir, { recursive: true });
-  });
-
-  test('does nothing when narration is disabled', async () => {
-    const rl = createMockPrompt([]);
-    await installNarrationHooks(tmpDir, false, rl);
-    expect(fs.existsSync(path.join(tmpDir, '.claude', 'hooks'))).toBe(false);
-  });
-
-  test('does nothing when user declines', async () => {
-    const rl = createMockPrompt(['n']);
-    await installNarrationHooks(tmpDir, true, rl);
-    expect(fs.existsSync(path.join(tmpDir, '.claude', 'hooks'))).toBe(false);
-  });
-
-  test('creates hook scripts when user accepts', async () => {
-    const rl = createMockPrompt(['y']);
-    await installNarrationHooks(tmpDir, true, rl);
-    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
-    expect(fs.existsSync(path.join(hooksDir, 'narrate.sh'))).toBe(true);
-    expect(fs.existsSync(path.join(hooksDir, 'speak.sh'))).toBe(true);
-    expect(fs.existsSync(path.join(hooksDir, 'notify.sh'))).toBe(true);
-  });
-
-  test('prints Created messages for each hook', async () => {
-    const rl = createMockPrompt(['y']);
-    await installNarrationHooks(tmpDir, true, rl);
-    const output = stdoutLines.join('\n');
-    expect(output).toContain('.claude/hooks/narrate.sh (PostToolUse)');
-    expect(output).toContain('.claude/hooks/speak.sh (Stop)');
-    expect(output).toContain('.claude/hooks/notify.sh (Notification)');
-  });
-
-  test('hook scripts are executable', async () => {
-    const rl = createMockPrompt(['y']);
-    await installNarrationHooks(tmpDir, true, rl);
-    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
-    const stat = fs.statSync(path.join(hooksDir, 'narrate.sh'));
-    // Check owner execute bit
-    expect(stat.mode & 0o100).toBeTruthy();
-  });
-
-  test('hook scripts start with #!/bin/bash shebang', async () => {
-    const rl = createMockPrompt(['y']);
-    await installNarrationHooks(tmpDir, true, rl);
-    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
-    for (const hook of ['narrate.sh', 'speak.sh', 'notify.sh']) {
-      const content = fs.readFileSync(path.join(hooksDir, hook), 'utf8');
-      expect(content).toMatch(/^#!\/bin\/bash/);
-    }
-  });
-
-  test('hook scripts point at the cairn-tts socket', async () => {
-    // The hooks are the socket's only clients, and findNarrationSocketPath reads
-    // narrate.sh to decide where to bind — so this line is the authoritative one.
-    const rl = createMockPrompt(['y']);
-    await installNarrationHooks(tmpDir, true, rl);
-    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
-    for (const hook of ['narrate.sh', 'speak.sh', 'notify.sh']) {
-      const content = fs.readFileSync(path.join(hooksDir, hook), 'utf8');
-      expect(content).toContain('/tmp/cairn-tts.sock');
-    }
-  });
-
-  test('prompt mentions the Cairn narration server and socket path', async () => {
-    const questions: string[] = [];
-    const rl: PromptInterface = {
-      question: async (query: string) => {
-        questions.push(query);
-        return 'n';
-      },
-      close: () => {},
-    };
-    await installNarrationHooks(tmpDir, true, rl);
-    const output = stdoutLines.join('\n');
-    expect(output).toContain('Cairn narration server');
-    expect(output).toContain('/tmp/cairn-tts.sock');
-    expect(output).not.toContain('Ralph narration server');
-  });
-
-  test('prints already installed when hooks exist', async () => {
-    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
-    fs.mkdirSync(hooksDir, { recursive: true });
-    fs.writeFileSync(path.join(hooksDir, 'narrate.sh'), '#!/bin/bash\n');
-    const rl = createMockPrompt([]);
-    await installNarrationHooks(tmpDir, true, rl);
-    expect(stdoutLines.join('\n')).toContain('already installed');
   });
 });
 
@@ -2225,11 +2053,10 @@ describe('runInit', () => {
 
   const noopSpawn: SpawnSyncFn = () => ({ status: 0 });
 
-  // 8 base config prompts + reviewPostTask (narration disabled, so voice/ntfy are skipped);
-  // remaining prompts (create CLAUDE.local.md, install settings) fall back to their defaults
-  // once the mock's answers run out.
+  // 7 base config prompts + reviewPostTask; remaining prompts (create CLAUDE.local.md,
+  // install settings) fall back to their defaults once the mock's answers run out.
   function allDefaultAnswers(): string[] {
-    return ['', '', '', '', '', '', '', '', 'n'];
+    return ['', '', '', '', '', '', '', 'n'];
   }
 
   test('creates .cairn/ dir, tasks.json, and cairn.json', async () => {
@@ -2249,6 +2076,14 @@ describe('runInit', () => {
     expect(fs.existsSync(path.join(dataDir, 'tasks.json'))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, 'cairn.json'))).toBe(true);
     expect(stdoutLines.join('\n')).toContain('Created: .cairn/');
+  });
+
+  test('generated cairn.json has no narration key', async () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    const rl = createMockPrompt(allDefaultAnswers());
+    await runInit(tmpDir, dataDir, rl, noopSpawn);
+    const written = JSON.parse(fs.readFileSync(path.join(tmpDir, 'cairn.json'), 'utf8'));
+    expect('narration' in written).toBe(false);
   });
 
   test('prints initializing banner with project root', async () => {
@@ -2273,16 +2108,7 @@ describe('runInit', () => {
     expect(stdoutLines.join('\n')).toContain('Next steps');
   });
 
-  test('installs hooks when narration enabled and user accepts', async () => {
-    const dataDir = path.join(tmpDir, '.cairn');
-    // 9 config prompts (narration='y', voice='', ntfy='', reviewPostTask='') + create CLAUDE.local.md='n' + install hooks='y'
-    const rl = createMockPrompt(['', '', '', '', '', '', '', 'y', '', '', '', 'n', 'y']);
-    await runInit(tmpDir, dataDir, rl, noopSpawn);
-    const hooksDir = path.join(tmpDir, '.claude', 'hooks');
-    expect(fs.existsSync(path.join(hooksDir, 'narrate.sh'))).toBe(true);
-  });
-
-  test('skips hooks when narration disabled', async () => {
+  test('does not create .claude/hooks', async () => {
     const dataDir = path.join(tmpDir, '.cairn');
     const rl = createMockPrompt(allDefaultAnswers());
     await runInit(tmpDir, dataDir, rl, noopSpawn);
@@ -2316,9 +2142,9 @@ describe('runInit', () => {
 
   test('skips the settings file when the user declines', async () => {
     const dataDir = path.join(tmpDir, '.cairn');
-    // 9 config prompts (narration disabled, so voice/ntfy are skipped),
+    // 8 config prompts (7 base + reviewPostTask),
     // create CLAUDE.local.md='n', then settings='n'.
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'n', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'n', 'n']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(path.join(tmpDir, '.claude', 'settings.local.json'))).toBe(false);
   });
@@ -2335,9 +2161,9 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    // 9 config prompts (8 base + reviewPostTask, all default) +
+    // 8 config prompts (7 base + reviewPostTask, all default) +
     // migrate='y' + create/open CLAUDE.local.md='n'.
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'y', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'y', 'n']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(path.join(tmpDir, 'CLAUDE.local.md'))).toBe(true);
     expect(fs.readFileSync(path.join(tmpDir, 'CLAUDE.local.md'), 'utf8')).toBe('* Always use TDD\n');
@@ -2348,7 +2174,7 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'n', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'n', 'n']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(path.join(tmpDir, 'CLAUDE.local.md'))).toBe(false);
     expect(fs.existsSync(path.join(dataDir, 'instructions.md'))).toBe(true);
@@ -2358,7 +2184,7 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'y', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'y', 'n']);
     const notIgnored: CheckIgnoreFn = () => ({ status: 1 });
     await runInit(tmpDir, dataDir, rl, noopSpawn, notIgnored);
     const output = stdoutLines.join('\n');
@@ -2369,7 +2195,7 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'y', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'y', 'n']);
     const ignored: CheckIgnoreFn = () => ({ status: 0 });
     await runInit(tmpDir, dataDir, rl, noopSpawn, ignored);
     expect(stdoutLines.join('\n')).not.toContain('add CLAUDE.local.md');

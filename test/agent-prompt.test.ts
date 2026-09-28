@@ -62,7 +62,6 @@ describe("buildSystemPrompt", () => {
     implementationFile: "",
     truncateText: false,
     summarize: { claudeMdPattern: "" },
-    narration: { enabled: false, voice: "", ntfyTopic: "" },
   };
 
   function makeInput(overrides: Partial<SystemPromptInput> = {}): SystemPromptInput {

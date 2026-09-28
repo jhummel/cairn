@@ -37,9 +37,6 @@ describe('loadConfig', () => {
     expect(config.implementationFile).toBe('IMPLEMENTATION.md');
     expect(config.truncateText).toBe(true);
     expect(config.summarize.claudeMdPattern).toBe('');
-    expect(config.narration.enabled).toBe(false);
-    expect(config.narration.voice).toBe('bf_emma');
-    expect(config.narration.ntfyTopic).toBe('');
   });
 
   it('loads a complete cairn.json', () => {
@@ -51,7 +48,6 @@ describe('loadConfig', () => {
       implementationFile: 'IMPL.md',
       truncateText: false,
       summarize: { claudeMdPattern: '**/CLAUDE.md' },
-      narration: { enabled: true, voice: 'custom_voice', ntfyTopic: 'my-topic' },
     };
     fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
 
@@ -63,9 +59,6 @@ describe('loadConfig', () => {
     expect(config.implementationFile).toBe('IMPL.md');
     expect(config.truncateText).toBe(false);
     expect(config.summarize.claudeMdPattern).toBe('**/CLAUDE.md');
-    expect(config.narration.enabled).toBe(true);
-    expect(config.narration.voice).toBe('custom_voice');
-    expect(config.narration.ntfyTopic).toBe('my-topic');
   });
 
   it('applies defaults for missing fields in partial cairn.json', () => {
@@ -80,19 +73,33 @@ describe('loadConfig', () => {
     expect(config.implementationFile).toBe('IMPLEMENTATION.md');
     expect(config.truncateText).toBe(true);
     expect(config.summarize.claudeMdPattern).toBe('');
-    expect(config.narration.enabled).toBe(false);
-    expect(config.narration.voice).toBe('bf_emma');
-    expect(config.narration.ntfyTopic).toBe('');
   });
 
-  it('applies defaults for partial narration object', () => {
-    const configData = { narration: { enabled: true } };
+  it('loads a legacy cairn.json with a narration block, silently ignoring the key', () => {
+    const configData = {
+      projectName: 'legacy',
+      narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'x' },
+    };
     fs.writeFileSync(path.join(tmpDir, 'cairn.json'), JSON.stringify(configData));
 
-    const config = loadConfig(tmpDir);
-    expect(config.narration.enabled).toBe(true);
-    expect(config.narration.voice).toBe('bf_emma');
-    expect(config.narration.ntfyTopic).toBe('');
+    const seen: string[] = [];
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    const originalStderrWrite = process.stderr.write;
+    console.warn = (...args: unknown[]) => { seen.push(args.join(' ')); };
+    console.error = (...args: unknown[]) => { seen.push(args.join(' ')); };
+    process.stderr.write = ((chunk: unknown) => { seen.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    let config: CairnConfig;
+    try {
+      config = loadConfig(tmpDir);
+    } finally {
+      console.warn = originalWarn;
+      console.error = originalError;
+      process.stderr.write = originalStderrWrite;
+    }
+    expect(seen).toEqual([]);
+    expect(config.projectName).toBe('legacy');
+    expect('narration' in config).toBe(false);
   });
 
   it('applies defaults for partial summarize object', () => {
@@ -443,9 +450,6 @@ describe('setConfigEnvVars', () => {
     'CAIRN_IMPL_FILE',
     'CAIRN_CLAUDE_MD_PATTERN',
     'CAIRN_TRUNCATE_TEXT',
-    'CAIRN_NARRATION_ENABLED',
-    'CAIRN_NARRATION_VOICE',
-    'CAIRN_NTFY_TOPIC',
   ];
 
   beforeEach(() => {
@@ -474,7 +478,6 @@ describe('setConfigEnvVars', () => {
       implementationFile: 'IMPL.md',
       truncateText: false,
       summarize: { claudeMdPattern: '**/CLAUDE.md' },
-      narration: { enabled: true, voice: 'custom', ntfyTopic: 'topic' },
     };
 
     setConfigEnvVars(config);
@@ -486,9 +489,6 @@ describe('setConfigEnvVars', () => {
     expect(process.env.CAIRN_IMPL_FILE).toBe('IMPL.md');
     expect(process.env.CAIRN_CLAUDE_MD_PATTERN).toBe('**/CLAUDE.md');
     expect(process.env.CAIRN_TRUNCATE_TEXT).toBe('false');
-    expect(process.env.CAIRN_NARRATION_ENABLED).toBe('true');
-    expect(process.env.CAIRN_NARRATION_VOICE).toBe('custom');
-    expect(process.env.CAIRN_NTFY_TOPIC).toBe('topic');
   });
 
   it('converts booleans to lowercase strings', () => {
@@ -500,13 +500,11 @@ describe('setConfigEnvVars', () => {
       implementationFile: 'IMPLEMENTATION.md',
       truncateText: true,
       summarize: { claudeMdPattern: '' },
-      narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
     };
 
     setConfigEnvVars(config);
 
     expect(process.env.CAIRN_TRUNCATE_TEXT).toBe('true');
-    expect(process.env.CAIRN_NARRATION_ENABLED).toBe('false');
   });
 });
 
@@ -519,7 +517,6 @@ describe('isValidConfig review.postTask', () => {
     implementationFile: 'IMPLEMENTATION.md',
     truncateText: true,
     summarize: { claudeMdPattern: '' },
-    narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
   };
 
   it('accepts config with review.postTask: false', () => {

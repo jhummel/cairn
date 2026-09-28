@@ -9,7 +9,6 @@ const validConfig = {
   implementationFile: 'IMPLEMENTATION.md',
   truncateText: true,
   summarize: { claudeMdPattern: '**/*.md' },
-  narration: { enabled: false, voice: 'bf_emma', ntfyTopic: '' },
 };
 
 const validTask = {
@@ -50,17 +49,9 @@ describe('isValidConfig', () => {
     expect(isValidConfig({ ...validConfig, summarize: { claudeMdPattern: 123 } })).toBe(false);
   });
 
-  it('rejects missing narration', () => {
-    expect(isValidConfig({ ...validConfig, narration: undefined })).toBe(false);
-  });
-
-  it('rejects narration.enabled as non-boolean', () => {
-    expect(isValidConfig({ ...validConfig, narration: { ...validConfig.narration, enabled: 'true' } })).toBe(false);
-  });
-
-  it('rejects missing narration.voice', () => {
-    const { voice: _, ...narrationRest } = validConfig.narration;
-    expect(isValidConfig({ ...validConfig, narration: narrationRest })).toBe(false);
+  it('accepts a config object with no narration key', () => {
+    expect('narration' in validConfig).toBe(false);
+    expect(isValidConfig(validConfig)).toBe(true);
   });
 
   it('accepts config without review field (optional)', () => {

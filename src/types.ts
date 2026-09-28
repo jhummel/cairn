@@ -6,11 +6,6 @@ export interface CairnConfig {
   implementationFile: string;
   truncateText: boolean;
   summarize: { claudeMdPattern: string };
-  narration: {
-    enabled: boolean;
-    voice: string;
-    ntfyTopic: string;
-  };
   review?: { postTask: boolean };
 }
 
@@ -53,12 +48,6 @@ export function isValidConfig(data: unknown): data is CairnConfig {
   if (typeof d.summarize !== 'object' || d.summarize === null) return false;
   const summarize = d.summarize as Record<string, unknown>;
   if (typeof summarize.claudeMdPattern !== 'string') return false;
-
-  if (typeof d.narration !== 'object' || d.narration === null) return false;
-  const narration = d.narration as Record<string, unknown>;
-  if (typeof narration.enabled !== 'boolean') return false;
-  if (typeof narration.voice !== 'string') return false;
-  if (typeof narration.ntfyTopic !== 'string') return false;
 
   if (d.review !== undefined) {
     if (typeof d.review !== 'object' || d.review === null) return false;

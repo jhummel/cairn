@@ -66,9 +66,6 @@ export interface ConfigDefaults {
   implementationFile: string;
   truncateText: boolean;
   claudeMdPattern: string;
-  narrationEnabled: boolean;
-  narrationVoice: string;
-  ntfyTopic: string;
   reviewPostTask: boolean;
 }
 
@@ -206,9 +203,6 @@ export function getConfigDefaults(projectRoot: string): ConfigDefaults {
     implementationFile: config.implementationFile,
     truncateText: config.truncateText,
     claudeMdPattern: config.summarize.claudeMdPattern,
-    narrationEnabled: config.narration.enabled,
-    narrationVoice: config.narration.voice,
-    ntfyTopic: config.narration.ntfyTopic,
     reviewPostTask: config.review?.postTask ?? false,
   };
 }
@@ -254,15 +248,6 @@ export async function promptForConfig(
   const implementationFile = await promptValue(rl, 'Implementation file', defaults.implementationFile);
   const truncateText = await promptBoolean(rl, 'Truncate agent text output?', defaults.truncateText);
   const claudeMdPattern = await promptValue(rl, 'CLAUDE.md glob pattern for summarize', defaults.claudeMdPattern);
-  const narrationEnabled = await promptBoolean(rl, 'Enable TTS narration?', defaults.narrationEnabled);
-
-  let narrationVoice = defaults.narrationVoice;
-  let ntfyTopic = defaults.ntfyTopic;
-  if (narrationEnabled) {
-    narrationVoice = await promptValue(rl, 'Narration voice', defaults.narrationVoice);
-    ntfyTopic = await promptValue(rl, 'ntfy push notification topic', defaults.ntfyTopic);
-  }
-
   const reviewPostTask = await promptBoolean(rl, 'Enable post-task review?', defaults.reviewPostTask);
 
   return {
@@ -273,7 +258,6 @@ export async function promptForConfig(
     implementationFile,
     truncateText,
     summarize: { claudeMdPattern },
-    narration: { enabled: narrationEnabled, voice: narrationVoice, ntfyTopic },
     review: {
       postTask: reviewPostTask,
     },
@@ -413,75 +397,6 @@ export function warnIfClaudeLocalMdNotIgnored(
   log('    repository. Cairn does not edit .gitignore or your git config for you.');
 }
 
-const NARRATE_SH = `#!/bin/bash
-# PostToolUse hook: narrates what just happened after each tool use
-SOCKET="${BRAND.socket}"
-[ ! -S "$SOCKET" ] && exit 0
-
-INPUT=$(cat)
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
-TOOL_INPUT=$(echo "$INPUT" | jq -r '.tool_input // empty')
-TOOL_OUTPUT=$(echo "$INPUT" | jq -r '.tool_output // empty' | head -c 2000)
-[ -z "$TOOL_NAME" ] && exit 0
-
-PAYLOAD=$(jq -n --arg name "$TOOL_NAME" --arg input "$TOOL_INPUT" --arg output "$TOOL_OUTPUT" \\
-  '{tool: $name, input: $input, output: $output}')
-
-python3 -c "
-import socket, sys
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.connect('$SOCKET')
-s.sendall(sys.stdin.buffer.read())
-s.close()
-" <<< "$PAYLOAD" &
-exit 0
-`;
-
-const SPEAK_SH = `#!/bin/bash
-# Stop hook: speaks assistant responses via narration server
-SOCKET="${BRAND.socket}"
-[ ! -S "$SOCKET" ] && exit 0
-
-INPUT=$(cat)
-MESSAGE=$(echo "$INPUT" | jq -r '.last_assistant_message // empty')
-[ -z "$MESSAGE" ] && exit 0
-
-python3 -c "
-import socket, sys
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.connect('$SOCKET')
-s.sendall(sys.stdin.buffer.read())
-s.close()
-" <<< "$MESSAGE" &
-exit 0
-`;
-
-const NOTIFY_SH = `#!/bin/bash
-# Notification hook: speaks when Claude needs user attention
-SOCKET="${BRAND.socket}"
-[ ! -S "$SOCKET" ] && exit 0
-
-INPUT=$(cat)
-MESSAGE=$(echo "$INPUT" | jq -r '.message // empty')
-[ -z "$MESSAGE" ] && exit 0
-
-python3 -c "
-import socket, sys
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.connect('$SOCKET')
-s.sendall(sys.stdin.buffer.read())
-s.close()
-" <<< "$MESSAGE" &
-exit 0
-`;
-
-/** The three narration hooks, in install order. */
-export const NARRATION_HOOKS: ReadonlyArray<{ name: string; event: string; content: string }> = [
-  { name: 'narrate.sh', event: 'PostToolUse', content: NARRATE_SH },
-  { name: 'speak.sh', event: 'Stop', content: SPEAK_SH },
-  { name: 'notify.sh', event: 'Notification', content: NOTIFY_SH },
-];
-
 /**
  * Shared knobs for the three installers, which write into a project's `.claude/`
  * tree and report each file they touch. `skipUnchanged` lets a re-run skip files
@@ -502,57 +417,6 @@ function sameContent(srcPath: string, destPath: string): boolean {
   } catch {
     return false;
   }
-}
-
-/**
- * Write hook scripts and return the project-relative paths actually written.
- * Overwrites by name only — anything else in the hooks directory is left alone.
- */
-export function writeNarrationHooks(projectRoot: string, opts: InstallOptions = {}): string[] {
-  const log = opts.log ?? ((m: string) => console.log(m));
-  const hooksDir = path.join(projectRoot, '.claude', 'hooks');
-  fs.mkdirSync(hooksDir, { recursive: true });
-
-  const written: string[] = [];
-  for (const hook of NARRATION_HOOKS) {
-    const hookPath = path.join(hooksDir, hook.name);
-    const rel = path.join('.claude', 'hooks', hook.name);
-    if (opts.skipUnchanged && fs.existsSync(hookPath) && fs.readFileSync(hookPath, 'utf8') === hook.content) {
-      continue;
-    }
-    fs.writeFileSync(hookPath, hook.content);
-    fs.chmodSync(hookPath, 0o755);
-    written.push(rel);
-    log(`  Created: .claude/hooks/${hook.name} (${hook.event})`);
-  }
-  return written;
-}
-
-/**
- * Offer to install Claude Code narration hooks (only when narration is enabled).
- */
-export async function installNarrationHooks(
-  projectRoot: string,
-  narrationEnabled: boolean,
-  rl: PromptInterface,
-): Promise<void> {
-  if (!narrationEnabled) return;
-
-  const hooksDir = path.join(projectRoot, '.claude', 'hooks');
-
-  if (fs.existsSync(hooksDir) && fs.existsSync(path.join(hooksDir, 'narrate.sh'))) {
-    console.log('  Narration hooks already installed.');
-    return;
-  }
-
-  console.log('');
-  console.log("Narration is enabled. Install Claude Code hooks for standalone 'claude' usage?");
-  console.log(`  (These forward events to the ${BRAND.displayName} narration server at ${BRAND.socket})`);
-
-  const install = await promptBoolean(rl, 'Install hooks?', false);
-  if (!install) return;
-
-  writeNarrationHooks(projectRoot);
 }
 
 /**
@@ -816,7 +680,6 @@ export async function runInit(
   if (fs.existsSync(path.join(projectRoot, CLAUDE_LOCAL_MD))) {
     warnIfClaudeLocalMdNotIgnored(projectRoot, checkIgnoreFn);
   }
-  await installNarrationHooks(projectRoot, config.narration.enabled, rl);
   await installClaudeSettings(projectRoot, config, rl);
   showNextSteps();
 

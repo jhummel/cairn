@@ -908,7 +908,6 @@ describe("runPostTaskReview", () => {
     implementationFile: "IMPLEMENTATION.md",
     truncateText: false,
     summarize: { claudeMdPattern: "**/*.md" },
-    narration: { enabled: false, voice: "alloy", ntfyTopic: "" },
     review: { postTask: true },
     ...overrides,
   });
