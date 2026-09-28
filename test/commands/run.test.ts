@@ -656,7 +656,7 @@ describe('spawnClaude', () => {
   test('passes streamOpts to processStream', async () => {
     const { child, exit } = makeMockChild();
     const deps = makeDeps(child);
-    const streamOpts = { truncateText: true, taskContext: 'Task #1' };
+    const streamOpts = { truncateText: true };
 
     const promise = spawnClaude({
       prompt: 'test',
@@ -836,12 +836,6 @@ function makeRunDeps(overrides: Partial<RunRunDeps> = {}): RunRunDeps {
     // What the round-end sweep's plain tasks.json read sees: no blocked tasks.
     readFileSync: overrides.readFileSync ?? mock(() => JSON.stringify({ tasks: [] })),
     appendFileSync: overrides.appendFileSync ?? mock(() => undefined),
-    startNarrationServer: overrides.startNarrationServer ?? mock(async () => 99999),
-    stopNarrationServer: overrides.stopNarrationServer ?? mock(async () => {}),
-    checkNarrationHealth: overrides.checkNarrationHealth ?? mock(async () => true),
-    sendToNarrate: overrides.sendToNarrate ?? mock(async () => {}),
-    findNarrationSocketPath: overrides.findNarrationSocketPath ?? mock(() => '/tmp/cairn-tts.sock'),
-    sendNtfy: overrides.sendNtfy ?? mock(async () => {}),
     blockTask: overrides.blockTask ?? mock(() => undefined),
     runState: overrides.runState ?? makeMemoryRunState(),
     log: overrides.log ?? mock(() => {}),
@@ -1839,19 +1833,6 @@ describe('runRun', () => {
     expect(logs.some(l => l.includes('Tasks blocked'))).toBe(false);
   });
 
-  test('completion ntfy warns instead of celebrating when tasks are blocked', async () => {
-    const config = makeTestConfig({ narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
-    const logs: string[] = [];
-    const tasks = [makeTask({ id: 1, status: 'blocked' })];
-    const deps = makeSummaryDeps(tasks, logs);
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    const ntfyCall = (deps.sendNtfy as ReturnType<typeof mock>).mock.calls[0];
-    expect(ntfyCall[0]).toContain('blocked');
-    expect(ntfyCall[2]).toMatchObject({ tags: 'warning', title: 'Cairn - Blocked' });
-  });
-
   test('counts blocked tasks in the summary even when the loop stops without the completion flag', async () => {
     const logs: string[] = [];
     const tasks = [makeTask({ id: 1, status: 'blocked' })];
@@ -2127,113 +2108,15 @@ describe('runRun', () => {
     expect(failLog).toBeDefined();
   });
 
-  // --- Narration lifecycle ---
+  // --- Narration/ntfy removed ---
 
-  test('starts narration server when config.narration.enabled', async () => {
-    const config = makeTestConfig({ narration: { enabled: true, voice: 'af_sarah', ntfyTopic: '' } });
-    const deps = makeRunDeps({
-      selectNextTask: mock(() => null),
-    });
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    expect(deps.startNarrationServer).toHaveBeenCalledTimes(1);
+  test('run.ts no longer references narration or ntfy', async () => {
+    const src = await Bun.file(new URL('../../src/commands/run.ts', import.meta.url)).text();
+    expect(src).not.toMatch(/narrat|ntfy/i);
   });
 
-  test('binds the narration server to the resolved socket, not a hardcoded one', async () => {
-    const config = makeTestConfig({ narration: { enabled: true, voice: 'bf_emma', ntfyTopic: '' } });
-    const deps = makeRunDeps({
-      findNarrationSocketPath: mock(() => '/tmp/resolved-tts.sock'),
-      startNarrationServer: mock(async () => 55555),
-      checkNarrationHealth: mock(async () => true),
-      selectNextTask: mock(() => null),
-    });
-
-    const opts = makeRunOpts({ config });
-    await runRun(opts, deps);
-
-    // Resolution is scoped to the project whose hooks will dial the socket.
-    expect(deps.findNarrationSocketPath).toHaveBeenCalledWith(opts.projectRoot);
-
-    const startCall = (deps.startNarrationServer as ReturnType<typeof mock>).mock.calls[0][0];
-    expect(startCall.socketPath).toBe('/tmp/resolved-tts.sock');
-
-    const stopCall = (deps.stopNarrationServer as ReturnType<typeof mock>).mock.calls[0];
-    expect(stopCall[1]).toBe('/tmp/resolved-tts.sock');
-  });
-
-  test('does not start narration server when disabled', async () => {
-    const deps = makeRunDeps({
-      selectNextTask: mock(() => null),
-    });
-
-    await runRun(makeRunOpts(), deps); // default config has narration.enabled: false
-
-    expect(deps.startNarrationServer).not.toHaveBeenCalled();
-  });
-
-  test('registers narration PID with ProcessManager', async () => {
-    const config = makeTestConfig({ narration: { enabled: true, voice: 'bf_emma', ntfyTopic: '' } });
-    const mockPm = new ProcessManager({ kill: () => true });
-    const registerSpy = spyOn(mockPm, 'register');
-
-    const deps = makeRunDeps({
-      createProcessManager: mock(() => mockPm),
-      startNarrationServer: mock(async () => 55555),
-      selectNextTask: mock(() => null),
-    });
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    expect(registerSpy).toHaveBeenCalledWith('narration', 55555);
-    mockPm.dispose();
-  });
-
-  test('stops narration server on loop exit', async () => {
-    const config = makeTestConfig({ narration: { enabled: true, voice: 'bf_emma', ntfyTopic: '' } });
-    const deps = makeRunDeps({
-      startNarrationServer: mock(async () => 55555),
-      selectNextTask: mock(() => null),
-    });
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    expect(deps.stopNarrationServer).toHaveBeenCalledTimes(1);
-    const stopCall = (deps.stopNarrationServer as ReturnType<typeof mock>).mock.calls[0];
-    expect(stopCall[0]).toBe(55555);
-  });
-
-  test('checks narration health each iteration and restarts if dead', async () => {
-    const config = makeTestConfig({ narration: { enabled: true, voice: 'bf_emma', ntfyTopic: '' } });
-    let callCount = 0;
-    let healthCheckCount = 0;
-
-    const deps = makeRunDeps({
-      startNarrationServer: mock(async () => 55555),
-      checkNarrationHealth: mock(async () => {
-        healthCheckCount++;
-        // Return unhealthy on 2nd check only (iteration 2)
-        return healthCheckCount !== 2;
-      }),
-      selectNextTask: mock(() => {
-        callCount++;
-        // Return task for first 2 iterations, then null
-        return callCount <= 2 ? makeTask({ id: callCount }) : null;
-      }),
-    });
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    // Health check runs each iteration (3 loops: 2 with tasks + 1 that finds no task)
-    expect(deps.checkNarrationHealth).toHaveBeenCalledTimes(3);
-    // start: initial(1) + restart on iter 2(1) = 2
-    expect(deps.startNarrationServer).toHaveBeenCalledTimes(2);
-    // stopNarrationServer called for dead server + final cleanup
-    expect(deps.stopNarrationServer).toHaveBeenCalled();
-  });
-
-  test('passes narrate callback in streamOpts when narration enabled', async () => {
-    const config = makeTestConfig({ narration: { enabled: true, voice: 'bf_emma', ntfyTopic: '' } });
+  test('streamOpts carries no narrate/ntfy callbacks even with narration config on', async () => {
+    const config = makeTestConfig({ narration: { enabled: true, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
     let callCount = 0;
     const deps = makeRunDeps({
       selectNextTask: mock(() => {
@@ -2245,36 +2128,8 @@ describe('runRun', () => {
     await runRun(makeRunOpts({ config }), deps);
 
     const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
-    expect(spawnCall[0].streamOpts.narrate).toBeDefined();
-    expect(typeof spawnCall[0].streamOpts.narrate).toBe('function');
-  });
-
-  test('does not pass narrate callback when narration disabled', async () => {
-    let callCount = 0;
-    const deps = makeRunDeps({
-      selectNextTask: mock(() => {
-        callCount++;
-        return callCount <= 1 ? makeTask() : null;
-      }),
-    });
-
-    await runRun(makeRunOpts(), deps);
-
-    const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
-    expect(spawnCall[0].streamOpts.narrate).toBeUndefined();
-  });
-
-  test('continues without narration if server fails to start', async () => {
-    const config = makeTestConfig({ narration: { enabled: true, voice: 'bf_emma', ntfyTopic: '' } });
-    const deps = makeRunDeps({
-      startNarrationServer: mock(async () => { throw new Error('spawn failed'); }),
-      selectNextTask: mock(() => null),
-    });
-
-    // Should not throw — graceful degradation
-    await runRun(makeRunOpts({ config }), deps);
-
-    expect(deps.stopNarrationServer).not.toHaveBeenCalled();
+    expect('narrate' in spawnCall[0].streamOpts).toBe(false);
+    expect('ntfy' in spawnCall[0].streamOpts).toBe(false);
   });
 
   // --- Final summary ---
@@ -2314,76 +2169,6 @@ describe('runRun', () => {
     expect(summaryLine).toBeDefined();
   });
 
-  test('sends ntfy notification on completion when ntfyTopic is set', async () => {
-    const config = makeTestConfig({ narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
-    let callCount = 0;
-    const deps = makeRunDeps({
-      selectNextTask: mock(() => {
-        callCount++;
-        return callCount <= 1 ? makeTask() : null;
-      }),
-    });
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    expect(deps.sendNtfy).toHaveBeenCalled();
-    const ntfyCall = (deps.sendNtfy as ReturnType<typeof mock>).mock.calls[0];
-    expect(ntfyCall[1]).toBe('my-topic');
-  });
-
-  test('does not send ntfy when ntfyTopic is empty', async () => {
-    const deps = makeRunDeps({
-      selectNextTask: mock(() => null),
-    });
-
-    await runRun(makeRunOpts(), deps);
-
-    expect(deps.sendNtfy).not.toHaveBeenCalled();
-  });
-
-  test('narrates final summary when narration is enabled', async () => {
-    const config = makeTestConfig({ narration: { enabled: true, voice: 'bf_emma', ntfyTopic: '' } });
-    const deps = makeRunDeps({
-      selectNextTask: mock(() => null),
-    });
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    // sendToNarrate should be called with some summary text
-    expect(deps.sendToNarrate).toHaveBeenCalled();
-  });
-
-  test('sends completion ntfy with tada tags when all tasks complete', async () => {
-    const config = makeTestConfig({ narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
-    const existsSync = mock((p: string) => {
-      if (typeof p === 'string' && p.endsWith('tasks.json')) return true;
-      // Complete flag exists after first iteration
-      if (typeof p === 'string' && p.endsWith('.cairn_complete')) return true;
-      return false;
-    });
-    const deps = makeRunDeps({
-      existsSync,
-    });
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    const ntfyCall = (deps.sendNtfy as ReturnType<typeof mock>).mock.calls[0];
-    expect(ntfyCall[0]).toContain('complete');
-    expect(ntfyCall[2]).toMatchObject({ tags: 'tada', title: 'Cairn - Complete' });
-  });
-
-  test('completion ntfy title uses the current brand when the loop stops early', async () => {
-    const config = makeTestConfig({ narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
-    const deps = makeRunDeps({
-      selectNextTask: mock(() => null),
-    });
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    const ntfyCall = (deps.sendNtfy as ReturnType<typeof mock>).mock.calls[0];
-    expect(ntfyCall[2]).toMatchObject({ title: 'Cairn - Stopped' });
-  });
-
   test('final summary banner names the current brand', async () => {
     const logs: string[] = [];
     const deps = makeRunDeps({
@@ -2395,23 +2180,6 @@ describe('runRun', () => {
 
     expect(logs).toContain('Cairn Execution Loop Completed');
     expect(logs.some(l => l.includes('Ralph'))).toBe(false);
-  });
-
-  test('passes ntfy callback in streamOpts when ntfyTopic is set', async () => {
-    const config = makeTestConfig({ narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
-    let callCount = 0;
-    const deps = makeRunDeps({
-      selectNextTask: mock(() => {
-        callCount++;
-        return callCount <= 1 ? makeTask() : null;
-      }),
-    });
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    const spawnCall = (deps.spawnClaude as ReturnType<typeof mock>).mock.calls[0];
-    expect(spawnCall[0].streamOpts.ntfy).toBeDefined();
-    expect(typeof spawnCall[0].streamOpts.ntfy).toBe('function');
   });
 
   // --- Post-task review integration ---
@@ -2680,38 +2448,6 @@ describe('runRun', () => {
 
     const line = logs.find(l => l.includes('corruption events recovered'));
     expect(line).toBeUndefined();
-  });
-
-  test('ntfy body includes corruption count when ntfyTopic is set and corruption occurred', async () => {
-    const config = makeTestConfig({ narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
-    const readTasksFile = mock(() => ({
-      data: { tasks: [makeTask()] },
-      repaired: true,
-      restored: false,
-    }));
-    const deps = makeRunDeps({
-      readTasksFile,
-      selectNextTask: mock(() => null),
-    });
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    expect(deps.sendNtfy).toHaveBeenCalled();
-    const ntfyCall = (deps.sendNtfy as ReturnType<typeof mock>).mock.calls[0];
-    const body = ntfyCall[0];
-    expect(body).toContain('1 corruption');
-  });
-
-  test('ntfy body does NOT mention corruption when zero corruption events', async () => {
-    const config = makeTestConfig({ narration: { enabled: false, voice: 'bf_emma', ntfyTopic: 'my-topic' } });
-    const deps = makeRunDeps({
-      selectNextTask: mock(() => null),
-    });
-
-    await runRun(makeRunOpts({ config }), deps);
-
-    const ntfyCall = (deps.sendNtfy as ReturnType<typeof mock>).mock.calls[0];
-    expect(ntfyCall[0]).not.toContain('corruption');
   });
 
   test('snapshotTasksFile is called after successful main-loop read', async () => {

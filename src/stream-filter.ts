@@ -1,8 +1,5 @@
 import { Readable, Writable } from 'stream';
 import { createInterface } from 'readline';
-import { existsSync } from 'fs';
-import net from 'net';
-import { BRAND } from './brand';
 
 // ANSI color constants for the rendered tool/result lines.
 export const CYAN = '\x1b[36m';
@@ -97,75 +94,8 @@ export function fmtResult(event: ResultEvent): string {
   }
 }
 
-export interface NtfyOpts {
-  title?: string;
-  priority?: string;
-  tags?: string;
-}
-
-/**
- * Forward text to a Unix domain socket. Best-effort, non-blocking.
- * Skips if socketPath is empty, socket doesn't exist, or text is empty.
- * Uses a 1s timeout. Catches all errors silently.
- */
-export async function sendToNarrate(text: string, socketPath: string): Promise<void> {
-  if (!socketPath || !text.trim()) return;
-  try {
-    if (!existsSync(socketPath)) return;
-    await new Promise<void>((resolve) => {
-      const socket = net.createConnection(socketPath);
-      socket.setTimeout(1000);
-      socket.on('connect', () => {
-        socket.write(text, 'utf8', () => {
-          socket.destroy();
-          resolve();
-        });
-      });
-      socket.on('timeout', () => {
-        socket.destroy();
-        resolve();
-      });
-      socket.on('error', () => resolve());
-    });
-  } catch {
-    // best-effort, silently ignore all errors
-  }
-}
-
-/**
- * Send a push notification via ntfy.sh. Best-effort, catches all errors.
- * Skips if topic is empty.
- */
-export async function sendNtfy(message: string, topic: string, opts?: NtfyOpts): Promise<void> {
-  if (!topic) return;
-  try {
-    const headers: Record<string, string> = {};
-    if (opts?.title) headers['Title'] = opts.title;
-    if (opts?.priority) headers['Priority'] = opts.priority;
-    if (opts?.tags) headers['Tags'] = opts.tags;
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    try {
-      await fetch(`https://ntfy.sh/${topic}`, {
-        method: 'POST',
-        headers,
-        body: message,
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    // best-effort, silently ignore all errors
-  }
-}
-
 export interface ProcessStreamOptions {
   truncateText?: boolean;
-  narrate?: (text: string) => void;
-  ntfy?: (msg: string, opts?: NtfyOpts) => void;
-  taskContext?: string;
   taskId?: number;
 }
 
@@ -204,10 +134,6 @@ export async function processStream(
       const model = e.model ?? '?';
       const mode = e.permissionMode ?? '?';
       writeLine(`  ${DIM}[init]${RESET} ${model} | ${mode}\n`);
-      if (options?.taskContext) {
-        options.narrate?.(`Starting work on: ${options.taskContext}`);
-        options.ntfy?.(`Starting: ${options.taskContext}`, { title: BRAND.displayName, tags: 'hammer' });
-      }
     } else if (t === 'assistant') {
       const content: any[] = e.message?.content ?? [];
       for (const block of content) {
@@ -228,27 +154,10 @@ export async function processStream(
               writeLine(`  ${YELLOW}${tline}${RESET}\n`);
             }
           }
-          // Forward to narration server
-          const narrText = options?.taskContext
-            ? `[Task: ${options.taskContext}]\n${text.slice(0, 1000)}`
-            : text.slice(0, 1000);
-          options?.narrate?.(narrText);
         }
       }
     } else if (t === 'result') {
       writeLine(`  ${fmtResult(e)}\n`);
-      // Narrate and notify iteration end
-      const dur = (e.duration_ms ?? 0) / 1000;
-      const turns = e.num_turns ?? 0;
-      const isError = e.is_error ?? false;
-      const status = isError ? 'failed' : 'finished';
-      const tags = isError ? 'x' : 'white_check_mark';
-      const priority = isError ? '4' : '3';
-      const statusTitle = status.charAt(0).toUpperCase() + status.slice(1);
-      let summary = `Task ${status} after ${turns} turns in ${Math.round(dur)} seconds.`;
-      if (options?.taskContext) summary = `${options.taskContext}: ${summary}`;
-      options?.narrate?.(summary);
-      options?.ntfy?.(summary, { title: `${BRAND.displayName} - ${statusTitle}`, tags, priority });
     }
   }
 }

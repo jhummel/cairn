@@ -1,10 +1,32 @@
 import { describe, it, expect } from 'bun:test';
-import { CYAN, DIM, GREEN, RED, YELLOW, BOLD, RESET, shortPath, fmtTool, fmtResult, processStream, sendToNarrate, sendNtfy, type NtfyOpts } from '../src/stream-filter';
+import { CYAN, DIM, GREEN, RED, YELLOW, BOLD, RESET, shortPath, fmtTool, fmtResult, processStream } from '../src/stream-filter';
 import { Readable, Writable } from 'stream';
-import net from 'net';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import { unlinkSync, existsSync } from 'fs';
+
+describe('narration/ntfy removal', () => {
+  it('no longer exports sendToNarrate, sendNtfy', async () => {
+    const mod: Record<string, unknown> = await import('../src/stream-filter');
+    expect(mod.sendToNarrate).toBeUndefined();
+    expect(mod.sendNtfy).toBeUndefined();
+  });
+
+  it('never calls fetch while rendering a full stream', async () => {
+    const origFetch = globalThis.fetch;
+    const calls: unknown[] = [];
+    globalThis.fetch = ((...args: unknown[]) => { calls.push(args); return Promise.resolve(new Response('')); }) as unknown as typeof fetch;
+    try {
+      const events = [
+        JSON.stringify({ type: 'system', subtype: 'init', model: 'm', permissionMode: 'plan' }),
+        JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } }),
+        JSON.stringify({ type: 'result', duration_ms: 1000, num_turns: 1, is_error: false }),
+      ];
+      const { writable } = collectWritable();
+      await processStream(linesStream(events), writable, { taskId: 1 });
+      expect(calls).toHaveLength(0);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});
 
 describe('ANSI constants', () => {
   it('exports all color constants', () => {
@@ -346,19 +368,6 @@ describe('processStream', () => {
     expect(out).toContain('Done');
   });
 
-  it('accepts narrate/ntfy options as no-ops without crashing', async () => {
-    const event = JSON.stringify({ type: 'system', subtype: 'init', model: 'test', permissionMode: 'plan' });
-    const { writable, output } = collectWritable();
-    // These are no-op placeholders for task 3
-    await processStream(linesStream([event]), writable, {
-      narrate: (_text: string) => {},
-      ntfy: (_msg: string, _opts?: NtfyOpts) => {},
-      taskContext: 'test task',
-    });
-    const out = output();
-    expect(out).toContain('[init]');
-  });
-
   it('reads CAIRN_TRUNCATE_TEXT from env when option not provided', async () => {
     const originalEnv = process.env.CAIRN_TRUNCATE_TEXT;
     try {
@@ -400,119 +409,6 @@ describe('processStream', () => {
   });
 });
 
-// --- sendToNarrate tests ---
-
-describe('sendToNarrate', () => {
-  it('skips if socketPath is empty', async () => {
-    await sendToNarrate('hello', '');
-  });
-
-  it('skips if text is empty string', async () => {
-    await sendToNarrate('', '/some/socket');
-  });
-
-  it('skips if text is whitespace only', async () => {
-    await sendToNarrate('   ', '/some/socket');
-  });
-
-  it('skips if socket file does not exist', async () => {
-    // Should complete without throwing
-    await sendToNarrate('hello', '/nonexistent/socket/path.sock');
-  });
-
-  it('sends text to a real Unix domain socket', async () => {
-    const socketPath = join(tmpdir(), `test-narrate-${Date.now()}.sock`);
-    let received = '';
-    const server = net.createServer((client) => {
-      client.on('data', (data) => { received += data.toString(); });
-    });
-
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-
-    try {
-      await sendToNarrate('hello from test', socketPath);
-      // Give data time to arrive
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(received).toBe('hello from test');
-    } finally {
-      server.close();
-      if (existsSync(socketPath)) unlinkSync(socketPath);
-    }
-  });
-});
-
-// --- sendNtfy tests ---
-
-describe('sendNtfy', () => {
-  it('skips if topic is empty', async () => {
-    // Should not throw even without a real network
-    await sendNtfy('message', '');
-  });
-
-  it('sends POST request to ntfy.sh/<topic>', async () => {
-    const calls: { url: string; init: RequestInit }[] = [];
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = ((url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: url.toString(), init: init ?? {} });
-      return Promise.resolve(new Response('', { status: 200 }));
-    }) as unknown as typeof fetch;
-    try {
-      await sendNtfy('test message', 'my-topic');
-      expect(calls.length).toBe(1);
-      expect(calls[0].url).toBe('https://ntfy.sh/my-topic');
-      expect(calls[0].init.method).toBe('POST');
-      expect(calls[0].init.body).toBe('test message');
-    } finally {
-      globalThis.fetch = origFetch;
-    }
-  });
-
-  it('sets Title, Priority, Tags headers when provided', async () => {
-    const calls: { headers: Record<string, string> }[] = [];
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = ((_url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ headers: (init?.headers ?? {}) as Record<string, string> });
-      return Promise.resolve(new Response('', { status: 200 }));
-    }) as unknown as typeof fetch;
-    try {
-      await sendNtfy('msg', 'topic', { title: 'My Title', priority: '3', tags: 'check' });
-      expect(calls[0].headers['Title']).toBe('My Title');
-      expect(calls[0].headers['Priority']).toBe('3');
-      expect(calls[0].headers['Tags']).toBe('check');
-    } finally {
-      globalThis.fetch = origFetch;
-    }
-  });
-
-  it('omits headers not provided in opts', async () => {
-    const calls: { headers: Record<string, string> }[] = [];
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = ((_url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ headers: (init?.headers ?? {}) as Record<string, string> });
-      return Promise.resolve(new Response('', { status: 200 }));
-    }) as unknown as typeof fetch;
-    try {
-      await sendNtfy('msg', 'topic', { title: 'Only Title' });
-      expect(calls[0].headers['Title']).toBe('Only Title');
-      expect(calls[0].headers['Priority']).toBeUndefined();
-      expect(calls[0].headers['Tags']).toBeUndefined();
-    } finally {
-      globalThis.fetch = origFetch;
-    }
-  });
-
-  it('catches network errors silently', async () => {
-    const origFetch = globalThis.fetch;
-    globalThis.fetch = (() => Promise.reject(new Error('network error'))) as unknown as typeof fetch;
-    try {
-      // Should not throw
-      await sendNtfy('msg', 'topic');
-    } finally {
-      globalThis.fetch = origFetch;
-    }
-  });
-});
-
 // --- processStream taskId prefix tests ---
 
 describe('processStream taskId prefix', () => {
@@ -542,168 +438,5 @@ describe('processStream taskId prefix', () => {
     await processStream(linesStream([event]), w2, {});
     expect(out1()).toBe(out2());
     expect(out1()).not.toContain('[#');
-  });
-});
-
-// --- processStream narration integration tests ---
-
-describe('processStream narration', () => {
-  it('calls narrate and ntfy on system/init when taskContext is set', async () => {
-    const event = JSON.stringify({ type: 'system', subtype: 'init', model: 'test', permissionMode: 'plan' });
-    const { writable } = collectWritable();
-    const narrateCalls: string[] = [];
-    const ntfyCalls: { msg: string; opts?: any }[] = [];
-
-    await processStream(linesStream([event]), writable, {
-      taskContext: 'implement feature X',
-      narrate: (text) => { narrateCalls.push(text); },
-      ntfy: (msg, opts) => { ntfyCalls.push({ msg, opts }); },
-    });
-
-    expect(narrateCalls).toContain('Starting work on: implement feature X');
-    expect(ntfyCalls[0].msg).toBe('Starting: implement feature X');
-    expect(ntfyCalls[0].opts?.title).toBe('Cairn');
-    expect(ntfyCalls[0].opts?.tags).toBe('hammer');
-  });
-
-  it('does not call narrate/ntfy on system/init when taskContext is not set', async () => {
-    const event = JSON.stringify({ type: 'system', subtype: 'init', model: 'test', permissionMode: 'plan' });
-    const { writable } = collectWritable();
-    const narrateCalls: string[] = [];
-    const ntfyCalls: { msg: string }[] = [];
-
-    await processStream(linesStream([event]), writable, {
-      narrate: (text) => { narrateCalls.push(text); },
-      ntfy: (msg) => { ntfyCalls.push({ msg }); },
-    });
-
-    expect(narrateCalls).toHaveLength(0);
-    expect(ntfyCalls).toHaveLength(0);
-  });
-
-  it('calls narrate on assistant text blocks without taskContext', async () => {
-    const event = JSON.stringify({
-      type: 'assistant',
-      message: { content: [{ type: 'text', text: 'Some assistant text' }] },
-    });
-    const { writable } = collectWritable();
-    const narrateCalls: string[] = [];
-
-    await processStream(linesStream([event]), writable, {
-      narrate: (text) => { narrateCalls.push(text); },
-    });
-
-    expect(narrateCalls).toHaveLength(1);
-    expect(narrateCalls[0]).toBe('Some assistant text');
-  });
-
-  it('prepends taskContext to narration of text blocks', async () => {
-    const event = JSON.stringify({
-      type: 'assistant',
-      message: { content: [{ type: 'text', text: 'Working on something' }] },
-    });
-    const { writable } = collectWritable();
-    const narrateCalls: string[] = [];
-
-    await processStream(linesStream([event]), writable, {
-      taskContext: 'my task',
-      narrate: (text) => { narrateCalls.push(text); },
-    });
-
-    expect(narrateCalls[0]).toBe('[Task: my task]\nWorking on something');
-  });
-
-  it('truncates narration text to 1000 chars', async () => {
-    const longText = 'X'.repeat(2000);
-    const event = JSON.stringify({
-      type: 'assistant',
-      message: { content: [{ type: 'text', text: longText }] },
-    });
-    const { writable } = collectWritable();
-    const narrateCalls: string[] = [];
-
-    await processStream(linesStream([event]), writable, {
-      narrate: (text) => { narrateCalls.push(text); },
-    });
-
-    expect(narrateCalls[0].length).toBe(1000);
-  });
-
-  it('does not call narrate for empty text blocks', async () => {
-    const event = JSON.stringify({
-      type: 'assistant',
-      message: { content: [{ type: 'text', text: '   ' }] },
-    });
-    const { writable } = collectWritable();
-    const narrateCalls: string[] = [];
-
-    await processStream(linesStream([event]), writable, {
-      narrate: (text) => { narrateCalls.push(text); },
-    });
-
-    expect(narrateCalls).toHaveLength(0);
-  });
-
-  it('calls narrate and ntfy on successful result events', async () => {
-    const event = JSON.stringify({
-      type: 'result',
-      duration_ms: 10000,
-      num_turns: 3,
-      is_error: false,
-    });
-    const { writable } = collectWritable();
-    const narrateCalls: string[] = [];
-    const ntfyCalls: { msg: string; opts?: any }[] = [];
-
-    await processStream(linesStream([event]), writable, {
-      narrate: (text) => { narrateCalls.push(text); },
-      ntfy: (msg, opts) => { ntfyCalls.push({ msg, opts }); },
-    });
-
-    expect(narrateCalls[0]).toContain('finished');
-    expect(narrateCalls[0]).toContain('3 turns');
-    expect(narrateCalls[0]).toContain('10 seconds');
-    expect(ntfyCalls[0].opts?.tags).toBe('white_check_mark');
-    expect(ntfyCalls[0].opts?.priority).toBe('3');
-    expect(ntfyCalls[0].opts?.title).toBe('Cairn - Finished');
-  });
-
-  it('uses error tags/priority for failed result events', async () => {
-    const event = JSON.stringify({
-      type: 'result',
-      duration_ms: 5000,
-      num_turns: 1,
-      is_error: true,
-    });
-    const { writable } = collectWritable();
-    const ntfyCalls: { msg: string; opts?: any }[] = [];
-
-    await processStream(linesStream([event]), writable, {
-      ntfy: (msg, opts) => { ntfyCalls.push({ msg, opts }); },
-    });
-
-    expect(ntfyCalls[0].opts?.tags).toBe('x');
-    expect(ntfyCalls[0].opts?.priority).toBe('4');
-    expect(ntfyCalls[0].opts?.title).toBe('Cairn - Failed');
-    expect(ntfyCalls[0].msg).toContain('failed');
-  });
-
-  it('includes taskContext in result summary', async () => {
-    const event = JSON.stringify({
-      type: 'result',
-      duration_ms: 5000,
-      num_turns: 2,
-      is_error: false,
-    });
-    const { writable } = collectWritable();
-    const narrateCalls: string[] = [];
-
-    await processStream(linesStream([event]), writable, {
-      taskContext: 'build system',
-      narrate: (text) => { narrateCalls.push(text); },
-    });
-
-    expect(narrateCalls[0]).toContain('build system');
-    expect(narrateCalls[0]).toContain('finished');
   });
 });

@@ -5,8 +5,7 @@ import { spawn as nodeSpawn, type ChildProcess } from 'child_process';
 import type { Readable, Writable } from 'stream';
 import type { CairnConfig, AgentInfo, Task } from '../types';
 import { ProcessManager, type ProcessManagerOptions } from '../process';
-import { processStream, sendToNarrate as defaultSendToNarrate, sendNtfy as defaultSendNtfy, type ProcessStreamOptions, type NtfyOpts } from '../stream-filter';
-import { startNarrationServer as defaultStartNarrationServer, stopNarrationServer as defaultStopNarrationServer, checkNarrationHealth as defaultCheckNarrationHealth, findNarrationSocketPath as defaultFindNarrationSocketPath, type StartNarrationOpts } from '../narration';
+import { processStream, type ProcessStreamOptions } from '../stream-filter';
 import { loadCompletedIds as defaultLoadCompletedIds, selectNextTask as defaultSelectNextTask, buildIterationPrompt as defaultBuildIterationPrompt, resolveTaskModel } from '../task-selector';
 
 // Re-exported from its neutral home so settle.ts can use it without a cycle.
@@ -345,12 +344,6 @@ export interface RunRunDeps {
   /** Plain read used by the round-end sweep to find blocked tasks. */
   readFileSync: (p: string, enc: 'utf-8') => string;
   appendFileSync: (p: string, content: string) => void;
-  startNarrationServer: (opts: StartNarrationOpts) => Promise<number>;
-  stopNarrationServer: (pid: number, socketPath?: string) => Promise<void>;
-  checkNarrationHealth: (socketPath?: string) => Promise<boolean>;
-  sendToNarrate: (text: string, socketPath: string) => Promise<void>;
-  findNarrationSocketPath: (projectRoot: string) => string;
-  sendNtfy: (message: string, topic: string, opts?: NtfyOpts) => Promise<void>;
   blockTask: (opts: BlockTaskOpts) => void;
   runState: RunStateStore;
   log: (...args: unknown[]) => void;
@@ -394,12 +387,6 @@ function defaultDeps(): RunRunDeps {
     unlinkSync: fs.unlinkSync,
     readFileSync: (p, enc) => fs.readFileSync(p, enc),
     appendFileSync: fs.appendFileSync as (p: string, content: string) => void,
-    startNarrationServer: defaultStartNarrationServer,
-    stopNarrationServer: defaultStopNarrationServer,
-    checkNarrationHealth: defaultCheckNarrationHealth,
-    sendToNarrate: defaultSendToNarrate,
-    findNarrationSocketPath: defaultFindNarrationSocketPath,
-    sendNtfy: defaultSendNtfy,
     blockTask: ({ tasksFilePath, dataDir, taskId, note }) => {
       // Routed through mutateTasksFile so the write is locked, atomic and
       // snapshotted — same path every `cairn task` mutation takes.
@@ -455,29 +442,6 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   // 4. Write iteration log header
   deps.appendFileSync(iterationLogPath, `${BRAND.displayName} Execution Loop Started: ${new Date().toISOString()}\n\n`);
 
-  // 5. Start narration server if enabled
-  let narrationPid: number | null = null;
-  const narrationEnabled = config.narration.enabled;
-  // The server must bind wherever this project's .claude/hooks/*.sh dial, which
-  // is the legacy path on any project that has not re-run init or migrate.
-  const narrationSocketPath = deps.findNarrationSocketPath(projectRoot);
-
-  if (narrationEnabled) {
-    try {
-      narrationPid = await deps.startNarrationServer({
-        pythonPath: process.env.CAIRN_NARRATE_PYTHON!,
-        scriptPath: path.join(process.env.CAIRN_LIB_DIR!, 'cairn_narrate_server.py'),
-        voice: config.narration.voice,
-        socketPath: narrationSocketPath,
-      });
-      processManager.register('narration', narrationPid);
-      deps.log(`Narration server started (PID: ${narrationPid})`);
-    } catch {
-      deps.log('Narration server failed to start — continuing without narration');
-      narrationPid = null;
-    }
-  }
-
   let prevNotes: string | null = null;
   let iterationsCompleted = 0;
   let totalArchived = 0;
@@ -493,7 +457,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
   const blockedByGuard = new Set<number>();
 
   try {
-    // 6. Main iteration loop
+    // 5. Main iteration loop
     for (let iteration = 1; iteration <= maxIterations; iteration++) {
       // a. Check for the completion flag.
       if (deps.existsSync(tempFilePath(dataDir, 'complete'))) {
@@ -503,28 +467,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         break;
       }
 
-      // b. Narration health check (per-iteration)
-      if (narrationEnabled && narrationPid !== null) {
-        const healthy = await deps.checkNarrationHealth(narrationSocketPath);
-        if (!healthy) {
-          deps.log('Narration server unresponsive — restarting...');
-          await deps.stopNarrationServer(narrationPid, narrationSocketPath).catch(() => {});
-          processManager.unregister('narration');
-          try {
-            narrationPid = await deps.startNarrationServer({
-              pythonPath: process.env.CAIRN_NARRATE_PYTHON!,
-              scriptPath: path.join(process.env.CAIRN_LIB_DIR!, 'cairn_narrate_server.py'),
-              voice: config.narration.voice,
-              socketPath: narrationSocketPath,
-            });
-            processManager.register('narration', narrationPid);
-          } catch {
-            narrationPid = null;
-          }
-        }
-      }
-
-      // c. Load completed IDs
+      // b. Load completed IDs
       const completedIds = deps.loadCompletedIds(dataDir);
 
       // Read tasks from file (defensive: jsonrepair + snapshot recovery inside readTasksFile)
@@ -548,7 +491,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         break;
       }
 
-      // d. Select next task
+      // c. Select next task
       const task = deps.selectNextTask(tasks, completedIds);
       if (!task) {
         deps.log('No actionable tasks remain.');
@@ -574,13 +517,13 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       const taskDirAbs = taskDir ? path.join(projectRoot, taskDir) : projectRoot;
       deps.mkdirSync(taskDirAbs, { recursive: true });
 
-      // e. Run health check
+      // d. Run health check
       const healthResult = await deps.runHealthCheck({
         healthCheck: config.healthCheck,
         projectRoot,
       });
 
-      // f. Build iteration prompt
+      // e. Build iteration prompt
       const totalRemaining = tasks.filter(t => t.status === 'pending' || t.status === 'in-progress').length;
       let iterPrompt = deps.buildIterationPrompt(task, iteration, maxIterations, prevNotes, totalRemaining);
 
@@ -589,7 +532,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         iterPrompt = `${healthResult.output}\n\n---\n\n${iterPrompt}`;
       }
 
-      // g. Build system prompt
+      // f. Build system prompt
       const systemPrompt = deps.buildSystemPrompt({
         taskDir,
         taskAgent: task.agent ?? '',
@@ -600,26 +543,12 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         iteration,
       });
 
-      // h. Build stream options with narration/ntfy callbacks
+      // g. Build stream options
       const streamOpts: ProcessStreamOptions = {
         truncateText: config.truncateText,
-        taskContext: task.title,
       };
 
-      if (narrationEnabled && narrationPid !== null) {
-        streamOpts.narrate = (text: string) => {
-          deps.sendToNarrate(text, narrationSocketPath).catch(() => {});
-        };
-      }
-
-      if (config.narration.ntfyTopic) {
-        const topic = config.narration.ntfyTopic;
-        streamOpts.ntfy = (msg: string, ntfyOpts?: NtfyOpts) => {
-          deps.sendNtfy(msg, topic, ntfyOpts).catch(() => {});
-        };
-      }
-
-      // i. Record the attempt before spawn. A re-pick of the same task keeps
+      // h. Record the attempt before spawn. A re-pick of the same task keeps
       // the first attempt's beforeSha so the eventual review covers every
       // attempt; only the iteration moves forward. HEAD is captured outside
       // the run-state lock, unconditionally — whether a record exists is
@@ -627,7 +556,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       const headSha = deps.captureGitSha(projectRoot);
       const { beforeSha } = ensureAttemptRecord(dataDir, task.id, iteration, headSha, deps.runState);
 
-      // j. Spawn Claude
+      // i. Spawn Claude
       const { exitCode } = await deps.spawnClaude({
         prompt: iterPrompt,
         systemPrompt,
@@ -652,7 +581,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
 
       iterationsCompleted++;
 
-      // k. Settle: validate tests, apply the revert, incomplete, and stall
+      // j. Settle: validate tests, apply the revert, incomplete, and stall
       // guards, re-read the task status, and — for a completed task — archive
       // it and apply the review gate (see src/settle.ts). Settle clears the
       // attempt record on done and on any block (so an unblocked task starts
@@ -680,7 +609,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       if (settled.blockedByGuard) blockedByGuard.add(task.id);
       const { updatedTaskStatus } = settled;
 
-      // l. Post-task review. Settle has already archived the task and passed
+      // k. Post-task review. Settle has already archived the task and passed
       // the review gate; run the headless reviewer, then settle again to close
       // the review phase.
       if (settled.verdict.verdict === 'review') {
@@ -697,7 +626,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
         await settleTask({ ...settleInput, reviewed: true }, settleDeps);
       }
 
-      // m. Archive: settle archived when the task completed; otherwise still
+      // l. Archive: settle archived when the task completed; otherwise still
       // sweep any task an agent completed without it being this iteration's.
       const archiveResult = settled.archive ?? await deps.archiveCompletedTasks({
         tasksFilePath,
@@ -707,16 +636,11 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
 
       totalArchived += archiveResult.archivedCount;
 
-      // l. Carry forward prevNotes
+      // m. Carry forward prevNotes
       prevNotes = archiveResult.prevNotes;
     }
   } finally {
-    // 7. Stop narration server if we started it
-    if (narrationPid !== null) {
-      await deps.stopNarrationServer(narrationPid, narrationSocketPath).catch(() => {});
-    }
-
-    // 8. Final summary
+    // 6. Final summary
     //
     // Blocked tasks are counted from tasks.json rather than from this run's own
     // guard: agents can block tasks too, and a blocked task is neither pending
@@ -750,41 +674,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
     }
     deps.log('=========================================');
 
-    let baseSummary: string;
-    if (allClear) {
-      baseSummary = `All tasks complete after ${iterationsCompleted} iterations`;
-    } else if (completedByFlag) {
-      baseSummary = `No actionable tasks remain after ${iterationsCompleted} iterations — ${blockedCount} task(s) blocked`;
-    } else if (blockedCount > 0) {
-      baseSummary = `Loop stopped after ${iterationsCompleted} iterations — ${blockedCount} task(s) blocked, tasks may remain`;
-    } else {
-      baseSummary = `Loop stopped after ${iterationsCompleted} iterations — tasks may remain`;
-    }
-    const summaryMsg = corruptionEvents > 0
-      ? `${baseSummary} (${corruptionEvents} corruption events recovered)`
-      : baseSummary;
-
-    // Send ntfy notification
-    if (config.narration.ntfyTopic) {
-      const ntfyTags = allClear ? 'tada' : 'warning';
-      const ntfyTitle = allClear
-        ? `${BRAND.displayName} - Complete`
-        : blockedCount > 0
-          ? `${BRAND.displayName} - Blocked`
-          : `${BRAND.displayName} - Stopped`;
-      await deps.sendNtfy(summaryMsg, config.narration.ntfyTopic, {
-        title: ntfyTitle,
-        tags: ntfyTags,
-        priority: '4',
-      }).catch(() => {});
-    }
-
-    // Narrate final summary
-    if (narrationEnabled) {
-      await deps.sendToNarrate(summaryMsg, narrationSocketPath).catch(() => {});
-    }
-
-    // 9. Clean up ProcessManager
+    // 7. Clean up ProcessManager
     processManager.dispose();
 
     // Clean up run-scoped temp files (flat + per-task prompt/review/tests/notes
