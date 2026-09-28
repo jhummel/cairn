@@ -6,7 +6,6 @@ Cairn turns Claude Code into an autonomous development loop. You plan features i
 
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude` on your PATH)
 - [Bun](https://bun.sh) (for building and running Cairn)
-- [ntfy](https://ntfy.sh) (optional) — free push notification service for remote status updates on your phone/desktop
 
 ### API Key
 
@@ -20,7 +19,7 @@ Cairn uses Claude Code under the hood, which requires an Anthropic API key. If y
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-This key is used by both `claude` (for task execution) and the narration server (for Haiku summarization). If you're using Claude Code with a different auth method (e.g., Claude Max), the key is only needed for narration.
+This key is used by `claude` for task execution. If you're using Claude Code with a different auth method (e.g., Claude Max), you don't need to set it.
 
 ## Installation
 
@@ -68,10 +67,6 @@ cairn summarize     # Update architecture docs
 | `cairn status`         | Show current task list overview                                   |
 | `cairn edit [target]`  | Edit `tasks.json` (default), `plan` (planning notes), or `config` |
 | `cairn logs`           | Show iteration log                                                |
-| `cairn narrate on`     | Start the TTS narration server as a background daemon             |
-| `cairn narrate off`    | Stop the narration server                                         |
-| `cairn narrate status` | Check if the narration server is running                          |
-| `cairn narrate "text"` | Speak text directly via Kokoro TTS                                |
 | `cairn help`           | Show usage information                                            |
 
 ## Workflow
@@ -183,74 +178,6 @@ cairn summarize
 
 Spawns a Sonnet agent that reads the entire codebase and writes/updates `IMPLEMENTATION.md` — a high-level architecture summary for returning developers.
 
-## Voice Narration
-
-Cairn can narrate what's happening during execution using [Kokoro](https://github.com/hexgrad/kokoro) TTS and Claude Haiku summarization. Events are summarized into brief spoken commentary — like a sarcastic coworker watching over your shoulder.
-
-### Setup
-
-Voice narration requires Python 3.11 (kokoro's numpy pin doesn't build on 3.13+), a working audio output device, and an Anthropic API key.
-
-1. Create the narration venv and install dependencies:
-
-```bash
-cd ~/cairn   # or wherever you cloned cairn
-python3.11 -m venv .venv
-.venv/bin/pip install kokoro sounddevice anthropic
-```
-
-> If you don't have Python 3.11, install it via pyenv (`pyenv install 3.11`) or Homebrew (`brew install python@3.11`). On Linux, also ensure `libportaudio2` is installed (`apt install libportaudio2`).
-
-2. Make sure `ANTHROPIC_API_KEY` is exported (see [API Key](#api-key) above) — the narration server calls Claude Haiku to summarize events before speaking them.
-
-3. Kokoro downloads its voice models on first use (~80MB per language pack). The first `cairn narrate "test"` call will be slow while it caches.
-
-Cairn automatically uses the venv Python for narration — no activation needed, and it works from any project directory.
-
-### During `cairn run`
-
-Set `narration.enabled` to `true` in `cairn.json`. The narration server starts automatically with the execution loop and stops when it finishes. The stream filter forwards tool use events and assistant text to the server via Unix socket.
-
-### During standalone `claude` usage
-
-```bash
-cairn narrate on          # Start the narration server daemon
-claude                    # Use Claude Code normally — hooks forward events
-cairn narrate off         # Stop when done
-```
-
-Run `cairn init` with narration enabled to install Claude Code hooks (`.claude/hooks/narrate.sh`, `speak.sh`, `notify.sh`) into your project. These detect the server socket and forward events automatically.
-
-The socket lives at `/tmp/cairn-tts.sock` (`BRAND.socket`). Because each project's hooks hardcode a `SOCKET="…"` line at install time, the server binds whatever the project's `.claude/hooks/narrate.sh` dials rather than a fixed path. Resolution lives in `findNarrationSocketPath()` / `findNarrationPidFile()` in `src/narration.ts`.
-
-**Note:** the narration server (`lib/cairn_narrate_server.py`) reads `CAIRN_NARRATE_SOCKET` as the default for its `--socket` argument — but `cairn run` and `cairn narrate on` currently always pass `--socket` explicitly, so exporting the variable has no effect until that wiring task lands. Once it does, standalone `claude` sessions will be able to export `CAIRN_NARRATE_SOCKET` to point hooks at a non-default socket.
-
-### One-off speech
-
-```bash
-cairn narrate "Hello, world"
-```
-
-Speaks text directly via Kokoro TTS without needing the server.
-
-## Push Notifications (ntfy)
-
-Cairn can send push notifications to your phone or desktop via [ntfy.sh](https://ntfy.sh) so you can walk away from the terminal and still know what's happening. You'll get notified when tasks start, complete, fail, and when the entire run finishes.
-
-ntfy is a free, open-source pub/sub notification service — no account required. Just pick a unique topic name (it's public, so make it hard to guess) and subscribe to it in the [ntfy app](https://ntfy.sh/#subscribe) (iOS, Android, or web).
-
-To enable, add `ntfyTopic` to your `cairn.json`:
-
-```json
-{
-  "narration": {
-    "ntfyTopic": "cairn-your-secret-topic-name"
-  }
-}
-```
-
-Notifications work independently of voice narration — you don't need `narration.enabled` set to `true` or Kokoro installed. Just set the topic and you'll get push updates.
-
 ## Personal Agent Instructions
 
 `CLAUDE.local.md` at your project root is Claude Code's native mechanism for personal instructions. It's loaded automatically by every Claude Code session in the project — including Cairn's own headless agents (`cairn run`'s execution agents, the post-task reviewer, `cairn plan`, `cairn summarize`) and `/cairn-run`'s subagents — so Cairn doesn't need to inject it itself. Use it for preferences that shouldn't be shared with your team, like preferred coding style, tools you like to avoid, or communication tone.
@@ -290,11 +217,6 @@ touch CLAUDE.local.md
   "truncateText": true,
   "summarize": {
     "claudeMdPattern": "src/services/*/CLAUDE.md"
-  },
-  "narration": {
-    "enabled": false,
-    "voice": "bf_emma",
-    "ntfyTopic": ""
   }
 }
 ```
@@ -308,9 +230,6 @@ touch CLAUDE.local.md
 | `implementationFile`        | `IMPLEMENTATION.md` | Path to architecture summary document                  |
 | `truncateText`              | `true`              | Truncate verbose agent text output in the terminal     |
 | `summarize.claudeMdPattern` | (empty)             | Glob for CLAUDE.md files to prune during summarization |
-| `narration.enabled`         | `false`             | Enable voice narration during `cairn run`              |
-| `narration.voice`           | `bf_emma`           | Kokoro TTS voice to use                                |
-| `narration.ntfyTopic`       | (empty)             | ntfy.sh topic for push notifications (no account needed) |
 
 `healthCheck` and `defaultTestCommand` also feed the permission rules `cairn init` can seed into `.claude/settings.local.json` — see [Initialize](#1-initialize).
 
@@ -350,8 +269,7 @@ cairn/
 │   │   ├── summarize.ts         # IMPLEMENTATION.md generator
 │   │   ├── status.ts            # Task list overview
 │   │   ├── edit.ts              # Open tasks.json / plan / config in editor
-│   │   ├── logs.ts              # Iteration log viewer
-│   │   └── narrate.ts           # TTS narration server management
+│   │   └── logs.ts              # Iteration log viewer
 │   ├── brand.ts                 # Project name/paths (BRAND)
 │   ├── config.ts                # Config loading from cairn.json
 │   ├── task-selector.ts         # Task selection logic
@@ -359,12 +277,9 @@ cairn/
 │   ├── settle.ts                # Settle an attempt: validate, guards, archive, review gate
 │   ├── run-state.ts             # Locked .cairn_run_state.json store
 │   ├── post-task-reviewer.ts    # Headless reviewer + reviewer prompt builder
-│   └── stream-filter.ts         # Stream-json formatter + narration forwarding
+│   └── stream-filter.ts         # Stream-json formatter
 ├── agents/                      # Agent definitions installed into .claude/agents/ (cairn-task-agent, post-task-reviewer, ...)
 ├── commands/                    # Slash commands installed into .claude/commands/ (cairn-run, generate-tasks, ...)
-├── lib/
-│   ├── cairn_narrate.py         # Standalone TTS narration utility
-│   └── cairn_narrate_server.py  # TTS server (Kokoro + Haiku summarization)
 ├── dist/cairn                   # Compiled binary (generated by bun build)
 └── install.sh                   # Builds and installs cairn
 ```

@@ -30,7 +30,7 @@ export const BRAND = Object.freeze({
  * renaming it would churn committed .gitignore history in every project for
  * zero behavioural gain.
  *
- * Consumers: `buildSystemPrompt` and `NOTES_TEMPFILE_RE` in
- * src/commands/run.ts, and the .gitignore block in src/commands/init.ts.
+ * Consumers: `buildSystemPrompt` in src/commands/run.ts, `NOTES_TEMPFILE_RE` in
+ * src/temp-sweep.ts, and the .gitignore block in src/commands/init.ts.
  */
 export const NOTES_TEMP_PREFIX = '.ralph_';

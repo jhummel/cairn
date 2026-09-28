@@ -48,11 +48,6 @@ every design choice below is constrained by them:
   ever mutates the file at a time.
 - **Per-iteration snapshot.** Before spawning, the loop snapshots a known-good
   `tasks.json` (`src/commands/run.ts:454–463`) for corruption recovery.
-- **Single narration socket.** `src/narration.ts` talks to one Unix socket
-  (`/tmp/cairn-tts.sock`, resolved per project by `findNarrationSocketPath`);
-  `processStream` invokes `streamOpts.narrate` for the
-  one running agent (`src/commands/run.ts:539–543`). Audio is inherently a
-  single shared channel — you cannot play two narrations at once intelligibly.
 - **Single prevNotes predecessor.** `prevNotes` is one string carried from the
   archive result of the immediately-preceding task
   (`src/commands/run.ts:624–625`) into `buildIterationPrompt`
@@ -182,7 +177,7 @@ Two execution shapes are possible:
 - **Rolling:** maintain a pool of `N` slots; as each agent finishes, immediately
   post-process it and pull the next ready task into the freed slot. Better
   utilization, but post-processing (validate/review/archive) now interleaves
-  with running agents, complicating the snapshot and task-file timing (§6).
+  with running agents, complicating the snapshot and task-file timing (§7.2, §7.3).
 
 **Recommendation:** ship **wave** first (smaller delta to `runRun`'s
 single-barrier loop), with rolling as a follow-up once the wave version is
@@ -209,35 +204,12 @@ everywhere, including non-TTY), **always also write (2) per-task log files** for
 debuggability, and treat **(3)** as an optional enhancement gated on `isTTY`.
 The serial path is unchanged — no prefix needed when there is one agent.
 
-## 6. Narration & notifications
+## 6. (Removed)
 
-Audio narration is a *single shared channel* (`/tmp/cairn-tts.sock`,
-`src/narration.ts`) and ntfy push is rate-sensitive. Streaming per-token
-narration for `N` agents at once is incoherent. Therefore:
-
-### Parallel mode
-
-- **Drop per-agent streaming narration.** Do **not** wire
-  `streamOpts.narrate` for individual agents (the hook set at
-  `src/commands/run.ts:539–543`). The continuous narration that makes sense for
-  one agent becomes babble for many.
-- **Narrate lifecycle milestones only**, via a **serialized queue**: emit a
-  short utterance on task **started**, **completed**, and **failed**
-  (e.g. "Task 12 started", "Task 12 complete", "Task 9 failed tests"). Because
-  the socket is single-consumer, milestone events from concurrent agents are
-  pushed onto an in-process queue and drained one at a time so utterances never
-  overlap. The narration health-check / restart logic
-  (`src/commands/run.ts:428–447`) is unchanged — there is still one server.
-- **Batch ntfy into wave summaries.** Instead of per-event pushes, send one
-  notification per wave: "Wave complete: 3/4 tasks done, task 9 failed." This
-  respects ntfy rate limits and keeps the phone usable. The final-summary ntfy
-  (`src/commands/run.ts:654–663`) stays as-is.
-
-### Serial mode (`--parallel` unset or `1`)
-
-- **Unchanged.** Full per-token streaming narration and per-event behavior
-  exactly as today (`src/commands/run.ts:533–550`). This is a hard
-  compatibility requirement: no observable behavior change for existing users.
+This section covered audio narration and push notifications under
+parallelism. Both features have since been removed from Cairn entirely, so
+there is nothing left to design here; the heading is kept only so the section
+numbers cited elsewhere in this RFC stay stable.
 
 ## 7. Knock-on effects
 
@@ -327,8 +299,8 @@ diff would conflate multiple tasks' changes. Mitigations:
      own, lands first.
   2. Plural `selectReadyTasks` selector (§4), unit-tested against the same
      fixtures as `selectNextTask`, with `N=1` proven identical to serial.
-  3. Wave execution in `runRun` with prefixed output (§5) and milestone
-     narration (§6), behind `--parallel`.
+  3. Wave execution in `runRun` with prefixed output (§5), behind
+     `--parallel`.
   4. Isolation: ship **Option B** (directory-disjoint, §3) first *or* **Option
      A** (worktrees) — this is the open decision §3 must resolve before step 3
      can be finalized.
