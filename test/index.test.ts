@@ -82,6 +82,16 @@ describe('setupProjectContext', () => {
   const envKeys = [
     'CAIRN_PROJECT_ROOT',
     'CAIRN_DATA_DIR',
+    // These two are no longer set by setupProjectContext (narration was
+    // removed), but they're still kept in this list — not just deleted
+    // outright — so beforeEach/afterEach save, clear, and restore whatever
+    // the outer process environment happens to have for them (e.g. a pinned
+    // `cairn` binary's own setupProjectContext call still exports them into
+    // the shell that spawns `bun test`). Without this, the assertion below
+    // that they're unset would depend on the ambient environment instead of
+    // on setupProjectContext's own behavior.
+    'CAIRN_LIB_DIR',
+    'CAIRN_NARRATE_PYTHON',
     'CAIRN_PROJECT_NAME',
     'CAIRN_PROJECT_DESC',
     'CAIRN_HEALTH_CHECK',
