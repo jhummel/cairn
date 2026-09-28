@@ -49,12 +49,10 @@ describe('createProgram', () => {
     expect(runCmd!.description()).not.toContain('[shell fallback]');
   });
 
-  test('registers native narrate command (not a shell fallback)', () => {
+  test('does not register a narrate command (narration was removed)', () => {
     const program = createProgram();
     const commandNames = program.commands.map((c) => c.name());
-    expect(commandNames).toContain('narrate');
-    const narrCmd = program.commands.find((c) => c.name() === 'narrate');
-    expect(narrCmd!.description()).not.toContain('[shell fallback]');
+    expect(commandNames).not.toContain('narrate');
   });
 
   test('registers native plan command (not a shell fallback)', () => {
@@ -84,8 +82,6 @@ describe('setupProjectContext', () => {
   const envKeys = [
     'CAIRN_PROJECT_ROOT',
     'CAIRN_DATA_DIR',
-    'CAIRN_LIB_DIR',
-    'CAIRN_NARRATE_PYTHON',
     'CAIRN_PROJECT_NAME',
     'CAIRN_PROJECT_DESC',
     'CAIRN_HEALTH_CHECK',
@@ -130,17 +126,10 @@ describe('setupProjectContext', () => {
     expect(path.dirname(result.dataDir)).toBe(result.projectRoot);
   });
 
-  test('sets CAIRN_LIB_DIR to <cairnRoot>/lib', () => {
-    const result = setupProjectContext();
-    expect(process.env.CAIRN_LIB_DIR).toBe(path.join(result.cairnRoot, 'lib'));
-    expect(result.libDir).toBe(path.join(result.cairnRoot, 'lib'));
-  });
-
-  test('sets CAIRN_NARRATE_PYTHON', () => {
-    const result = setupProjectContext();
-    expect(process.env.CAIRN_NARRATE_PYTHON).toBe(
-      path.join(result.cairnRoot, '.venv', 'bin', 'python3')
-    );
+  test('does not set CAIRN_LIB_DIR or CAIRN_NARRATE_PYTHON (narration was removed)', () => {
+    setupProjectContext();
+    expect(process.env.CAIRN_LIB_DIR).toBeUndefined();
+    expect(process.env.CAIRN_NARRATE_PYTHON).toBeUndefined();
   });
 
   test('sets config env vars', () => {
@@ -349,9 +338,8 @@ describe('command registration', () => {
     // Native plan command
     expect(commandNames).toContain('plan');
 
-    // Native run and narrate
+    // Native run command
     expect(commandNames).toContain('run');
-    expect(commandNames).toContain('narrate');
   });
 
   test('registers round command group with next and settle subcommands', () => {
@@ -410,15 +398,6 @@ describe('command registration', () => {
     const args = runCmd!.registeredArguments;
     expect(args.length).toBe(1);
     expect(args[0].required).toBe(false); // optional argument
-  });
-
-  test('narrate command accepts required <action> argument', () => {
-    const program = createProgram();
-    const narrCmd = program.commands.find((c) => c.name() === 'narrate');
-    expect(narrCmd).toBeDefined();
-    const args = narrCmd!.registeredArguments;
-    expect(args.length).toBe(1);
-    expect(args[0].required).toBe(true); // required argument
   });
 
   test('edit command accepts optional target argument', () => {

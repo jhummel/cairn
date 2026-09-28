@@ -1,6 +1,5 @@
 .DS_Store
 .venv/
-lib/__pycache__/
 node_modules/
 dist/
 CLAUDE.local.md

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { join } from 'path';
 import * as readline from 'readline';
-import { findProjectRoot, findDataDir, resolveCairnRoot } from './utils';
+import { findProjectRoot, findDataDir } from './utils';
 import { loadConfig, autoDetectHealthCheck, setConfigEnvVars, discoverAgents } from './config';
 import { runStatus } from './commands/status';
 import { runEdit } from './commands/edit';
@@ -10,7 +10,6 @@ import { runInit } from './commands/init';
 import { runSummarize } from './commands/summarize';
 import { runPlan } from './commands/plan';
 import { runRun } from './commands/run';
-import { runNarrate } from './commands/narrate';
 import { registerTaskCommands } from './commands/task';
 import { registerRoundCommands } from './commands/round';
 import { runPreToolUseHook } from './commands/hook';
@@ -26,8 +25,6 @@ const CAIRN_VERSION = '0.1.0';
 export function setupProjectContext(projectRootOverride?: string): {
   projectRoot: string;
   dataDir: string;
-  cairnRoot: string;
-  libDir: string;
 } {
   // If an override is provided, set env var so findProjectRoot picks it up
   if (projectRootOverride) {
@@ -35,16 +32,12 @@ export function setupProjectContext(projectRootOverride?: string): {
   }
 
   const projectRoot = findProjectRoot();
-  const cairnRoot = resolveCairnRoot();
   // Resolve (never reconstruct) the data dir.
   const dataDir = findDataDir(projectRoot);
-  const libDir = join(cairnRoot, 'lib');
 
   // Set env vars for subcommands
   process.env.CAIRN_PROJECT_ROOT = projectRoot;
   process.env.CAIRN_DATA_DIR = dataDir;
-  process.env.CAIRN_LIB_DIR = libDir;
-  process.env.CAIRN_NARRATE_PYTHON = join(cairnRoot, '.venv', 'bin', 'python3');
 
   // Load config and set config env vars
   const config = loadConfig(projectRoot);
@@ -58,7 +51,7 @@ export function setupProjectContext(projectRootOverride?: string): {
   process.env.CAIRN_AGENTS_DIR = join(projectRoot, '.claude', 'agents');
   process.env.CAIRN_AGENTS_JSON = JSON.stringify(agents);
 
-  return { projectRoot, dataDir, cairnRoot, libDir };
+  return { projectRoot, dataDir };
 }
 
 /**
@@ -171,15 +164,6 @@ export function createProgram(): Command {
       const config = cfg;
       const maxIterations = max !== undefined ? parseInt(max, 10) : 30;
       await runRun({ projectRoot, dataDir, config, agents, maxIterations });
-    });
-
-  // --- Native narrate command ---
-
-  program
-    .command('narrate <action>')
-    .description('Control narration server (on/off/status) or speak text')
-    .action(async (action: string) => {
-      await runNarrate(action);
     });
 
   // --- Task subcommand group ---
