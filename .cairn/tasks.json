@@ -1,34 +1,4 @@
 {
   "project": "cairn-cli-tool",
-  "tasks": [
-    {
-      "id": 142,
-      "priority": 5,
-      "title": "Docs: narration/ntfy removal, .cairn_ prefix wording, unpin step, blocked-log exception",
-      "status": "complete",
-      "directory": "",
-      "model": "opus",
-      "dependencies": [
-        138,
-        139,
-        140,
-        141
-      ],
-      "files": [
-        "README.md",
-        "CLAUDE.md",
-        "docs/parallel-execution-rfc.md",
-        "src/temp-sweep.ts",
-        "src/brand.ts"
-      ],
-      "tests": [
-        "bun run typecheck",
-        "bun test"
-      ],
-      "description": "Final docs task for round 19. Before this task: narration and ntfy were removed completely (run loop, stream filter, src/narration.ts, `cairn narrate`, lib/, config.narration, init's TTS prompts and hook scripts, BRAND.socket/pidFile — tasks #139-#141), and sweepRoundTempFiles gained a blocked-log exception (task #138). VERIFY EVERY CLAIM YOU WRITE AGAINST THE SHIPPED CODE (read src/temp-sweep.ts, src/brand.ts, src/config.ts, src/index.ts) — round 18's docs task left an inverted claim that the reviewer caught.\n\nREADME.md — remove: the ntfy prerequisite (~line 9); the narration part of the API-key sentence (~line 23: the key is no longer needed 'for narration' — reword to describe only claude's use); the `cairn narrate on|off|status|\"text\"` rows in the command table (~71-74); the whole 'Voice Narration' section (venv/kokoro/sounddevice setup, hooks, socket; ~186-234); the whole 'Push Notifications (ntfy)' section (~236-252); the `narration` block in the cairn.json example and the narration.* rows in the config reference table (~294-313); the narrate.ts / lib/ / 'narration forwarding' entries in the file tree (~354-367).\n\nCLAUDE.md:\n(a) drop `narrate` from the '**init**, **status**, **edit**, **logs**, **narrate**' command list, and drop the **Narration** bullet under Key design patterns;\n(b) in **Branding**, remove `socket` and `pidFile` from BRAND's field list;\n(c) Conventions: remove the sentence saying `lib/` contains only Python narration scripts (lib/ no longer exists);\n(d) rewrite the BRAND standing-rule bullet to cover only BRAND.dataDir / BRAND.configFile -> findDataDir() / findConfigFile() (BRAND.socket / BRAND.pidFile and findNarrationSocketPath() / findNarrationPidFile() are gone);\n(e) in the Run state 'Round-scoped temp-file sweep' bullet, change 'the legacy `.cairn_` spelling' to 'the defensive `.cairn_` spelling' — `.cairn_` is BRAND.tempPrefix, the CURRENT prefix, covered only as a precaution; the permanent pre-rename spelling is `.ralph_` (NOTES_TEMP_PREFIX);\n(f) in the same bullet, document the blocked-log exception: a `_tests.log` whose task is `blocked` in tasks.json is kept; its prompt/review-prompt/notes files are still swept; if tasks.json can't be read, all `_tests.log` files are kept; still best-effort, never throws. Match the wording to what src/temp-sweep.ts actually does;\n(g) in the Pin/unpin procedure's Unpin steps, after `./install.sh`, add: run `cairn round next` once from the repo root (with tasks.json empty it returns `round-done`) so any round-end behavior added during the round — e.g. the temp-file sweep — actually runs and gets a live check. Note this is safe because it happens after unpinning (the ban on running `cairn round` in the project root covers only the round itself). Add one sentence on why: round-end behavior added mid-round never runs at that round's end, because the pinned binary predates it;\n(h) grep CLAUDE.md for any other narrat|ntfy|socket|pidFile|lib/ mention and fix it.\n\ndocs/parallel-execution-rfc.md: drop or rewrite the 'Single narration socket' point (~lines 51-55), section '6. Narration & notifications' (~212-238), and the §6 reference near line 331, so the RFC no longer describes narration/ntfy as a current concern. Keep section numbering coherent (or note the removal).\n\nFinal check: `grep -rn -i 'narrat\\|ntfy\\|kokoro' README.md CLAUDE.md docs/` returns nothing (or only a deliberate historical mention). TDD does not apply to prose; run `bun run typecheck` and `bun test` to confirm nothing regressed.\n\nCONSTRAINTS (self-modifying round, binary pinned): do NOT modify cairn.json (including its healthCheck and its narration block — the user removes that by hand after the round), install.sh, or package.json's build script. Never run `cairn round`, `cairn hook`, `cairn init` (or `bun src/index.ts round|hook|init`) against the project root — temp dirs only. Do not run ./install.sh. Both `bun run typecheck` and `bun test` must be green at the end.",
-      "completedAt": "2026-09-28T06:03:09.524Z",
-      "completedBy": "iteration-19",
-      "notes": "Docs-only task (TDD n/a for prose; no failing test to record). Claims checked against src/temp-sweep.ts, src/brand.ts, src/config.ts, src/index.ts (lib/ and src/narration.ts confirmed gone; BRAND has no socket/pidFile).\n- README.md: removed the ntfy prerequisite, the narration clause of the API-key sentence (it now covers only claude's use), the `cairn narrate` command rows, the Voice Narration and Push Notifications sections, the cairn.json `narration` block and narration.* config rows, and the narrate.ts, lib/ and \"narration forwarding\" file-tree entries.\n- CLAUDE.md (a)-(h): dropped narrate from the command list and the Narration bullet; removed socket/pidFile from the BRAND fields; removed the lib/ sentence; limited the BRAND standing rule to dataDir/configFile -> findDataDir/findConfigFile. Temp-sweep bullet: `.ralph_` (NOTES_TEMP_PREFIX) is now called the permanent spelling and `.cairn_` (BRAND.tempPrefix) the defensive one. Documented the blocked-log exception to match temp-sweep.ts: a blocked task's _tests.log is kept, its prompt/review-prompt/notes are still swept, and every log is kept if tasks.json is missing, unreadable, unparseable or has no tasks array. It is best-effort. Unpin steps now include `cairn round next` plus the reason and the safety note.\n- docs/parallel-execution-rfc.md: removed the \"Single narration socket\" point. §6 became \"(Removed)\" with a one-paragraph historical note so the numbering stays stable. Removed the §6 narration mention in Rollout. Fixed a stale §6 cross-ref in §4 (it concerns snapshot/task-file timing) to §7.2, §7.3.\n- src/brand.ts: the NOTES_TEMP_PREFIX docblock had wrongly said NOTES_TEMPFILE_RE lives in run.ts; it is in temp-sweep.ts.\n- Final grep for narrat|ntfy|kokoro finds only the deliberate historical note in RFC §6. typecheck green; bun test 1154 pass / 0 fail.\n- Reminder for the user, not done here per the constraints: cairn.json still has its narration block and the pinned healthCheck.\n"
-    }
-  ]
+  "tasks": []
 }
