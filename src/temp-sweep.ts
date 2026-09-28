@@ -14,19 +14,31 @@ import { BRAND, NOTES_TEMP_PREFIX } from './brand';
  * the reviewer's prompt and `_prompt.md` is re-read verbatim on a `retry`
  * relaunch, so removing either mid-round breaks the settle/retry/review
  * cycle.
+ *
+ * One exception survives even round end: a BLOCKED task's `_tests.log` is
+ * kept, because it is the only full diagnostic for the block (the task's note
+ * carries just a short failure summary). Only the log is kept — the blocked
+ * task's prompt, review-prompt and notes scratch are still swept. Blocked
+ * status comes from a plain read of `<dataDir>/tasks.json` (never
+ * readTasksFile, which can repair/restore/write); if that read fails for any
+ * reason, status is unknown and EVERY `_tests.log` is kept. A kept log goes at
+ * the first round end after its task stops being blocked, or is overwritten by
+ * validation if the task re-runs first.
  */
 
 export interface SweepRoundTempFilesDeps {
   existsSync: (p: string) => boolean;
   unlinkSync: (p: string) => void;
   readdirSync: (p: string) => string[];
+  readFileSync: (p: string, enc: 'utf-8') => string;
 }
 
-function defaultSweepDeps(): SweepRoundTempFilesDeps {
+export function defaultSweepDeps(): SweepRoundTempFilesDeps {
   return {
     existsSync: fs.existsSync,
     unlinkSync: fs.unlinkSync,
     readdirSync: fs.readdirSync as (p: string) => string[],
+    readFileSync: (p, enc) => fs.readFileSync(p, enc),
   };
 }
 
@@ -58,11 +70,39 @@ export const TASK_SCOPED_TEMPFILE_RE = new RegExp(
   `^${escapeRegExp(BRAND.tempPrefix)}task_\\d+_(?:prompt\\.md|review_prompt\\.md|tests\\.log)$`
 );
 
+const TESTS_LOG_RE = new RegExp(`^${escapeRegExp(BRAND.tempPrefix)}task_(\\d+)_tests\\.log$`);
+
+/**
+ * Ids of the tasks whose `_tests.log` must survive the sweep: those with
+ * status 'blocked' in tasks.json, or `'all'` when tasks.json is missing,
+ * unreadable, unparseable or the wrong shape (status unknown => keep
+ * diagnostics). Never throws.
+ */
+function blockedTaskIds(dataDir: string, deps: SweepRoundTempFilesDeps): Set<number> | 'all' {
+  try {
+    const parsed: unknown = JSON.parse(deps.readFileSync(path.join(dataDir, 'tasks.json'), 'utf-8'));
+    const tasks = (parsed as { tasks?: unknown } | null)?.tasks;
+    if (!Array.isArray(tasks)) return 'all';
+    const ids = new Set<number>();
+    for (const t of tasks) {
+      if (t && typeof t === 'object' && (t as { status?: unknown }).status === 'blocked') {
+        const id = (t as { id?: unknown }).id;
+        if (typeof id === 'number') ids.add(id);
+      }
+    }
+    return ids;
+  } catch {
+    return 'all';
+  }
+}
+
 /**
  * Remove the run-scoped temp files a round leaves behind: the flat
  * `.cairn_complete` / `.cairn_prev_notes` / `.cairn_completed_ids` files, plus
  * every per-task `..._notes.md`, `..._prompt.md`, `..._review_prompt.md` and
- * `..._tests.log` scratch file in `dataDir`. Best-effort throughout — a
+ * `..._tests.log` scratch file in `dataDir` — except the `_tests.log` of a task
+ * that tasks.json marks 'blocked' (every `_tests.log` when tasks.json can't be
+ * read or parsed; see the module docblock). Best-effort throughout — a
  * failed unlink (or an unreadable dataDir) is swallowed, never thrown, so a
  * sweep failure can never change a caller's verdict or exit code.
  *
@@ -86,8 +126,14 @@ export function sweepRoundTempFiles(dataDir: string, deps: SweepRoundTempFilesDe
 
   try {
     const entries = deps.readdirSync(dataDir);
+    let keepLogs: Set<number> | 'all' | undefined;
     for (const name of entries) {
       if (NOTES_TEMPFILE_RE.test(name) || TASK_SCOPED_TEMPFILE_RE.test(name)) {
+        const logMatch = TESTS_LOG_RE.exec(name);
+        if (logMatch) {
+          keepLogs ??= blockedTaskIds(dataDir, deps);
+          if (keepLogs === 'all' || keepLogs.has(Number(logMatch[1]))) continue;
+        }
         try {
           deps.unlinkSync(path.join(dataDir, name));
         } catch {

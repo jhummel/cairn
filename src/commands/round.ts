@@ -26,7 +26,7 @@ import { archiveCompletedTasks as defaultArchiveCompletedTasks } from '../task-a
 import { loadConfig, autoDetectHealthCheck } from '../config';
 import { buildSystemPrompt } from './run';
 import { hookErrorLogPath } from './hook';
-import { sweepRoundTempFiles } from '../temp-sweep';
+import { sweepRoundTempFiles, defaultSweepDeps } from '../temp-sweep';
 import { BRAND } from '../brand';
 import { defaultStdout, defaultStderr, type Writer } from '../cli-io';
 
@@ -58,6 +58,8 @@ export interface RoundNextDeps {
   captureGitSha?: (projectRoot: string) => string | null;
   writeReviewPromptFile?: (opts: WriteReviewPromptFileOpts) => string;
   runState?: RunStateStore;
+  /** tasks.json reader for the round-done sweep's blocked-log check (default fs.readFileSync). */
+  sweepReadFileSync?: (p: string, enc: 'utf-8') => string;
 }
 
 /**
@@ -120,7 +122,9 @@ async function pickNext(input: RoundNextInput, deps: RoundNextDeps): Promise<Rou
     // Round-scoped scratch (prompt/review-prompt/tests-log/notes files, plus
     // the flat complete/prev-notes/completed-ids files) is swept only here,
     // at round end — never per-task. See sweepRoundTempFiles.
-    sweepRoundTempFiles(dataDir);
+    const sweepDeps = defaultSweepDeps();
+    if (deps.sweepReadFileSync) sweepDeps.readFileSync = deps.sweepReadFileSync;
+    sweepRoundTempFiles(dataDir, sweepDeps);
     return {
       verdict: 'round-done',
       blocked,

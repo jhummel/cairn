@@ -260,6 +260,84 @@ describe('roundNext', () => {
       }
     });
 
+    test("keeps a blocked task's _tests.log but sweeps its other scratch", async () => {
+      writeTasks([makeTask({ id: 1, status: 'blocked' })]);
+      const blockedScratch = [
+        '.cairn_task_1_prompt.md',
+        '.cairn_task_1_review_prompt.md',
+        '.ralph_task_1_notes.md',
+        '.cairn_task_1_notes.md',
+      ];
+      for (const name of [...blockedScratch, '.cairn_task_1_tests.log']) {
+        fs.writeFileSync(path.join(dataDir, name), 'scratch');
+      }
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'round-done', blocked: 1 });
+      expect(fs.existsSync(path.join(dataDir, '.cairn_task_1_tests.log'))).toBe(true);
+      for (const name of blockedScratch) {
+        expect(fs.existsSync(path.join(dataDir, name))).toBe(false);
+      }
+    });
+
+    test("sweeps a pending or archived task's _tests.log alongside a kept blocked one", async () => {
+      writeTasks([
+        makeTask({ id: 1, status: 'blocked' }),
+        makeTask({ id: 2, status: 'pending', dependencies: [1] }),
+        makeTask({ id: 3, status: 'pending', dependencies: [2] }),
+      ]);
+      // An in-progress task is always selectable, so round-done can't include
+      // one; run.test.ts covers the in-progress case. 99 = archived/absent.
+      for (const id of [1, 2, 3, 99]) {
+        fs.writeFileSync(path.join(dataDir, `.cairn_task_${id}_tests.log`), 'log');
+      }
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'round-done' });
+      expect(fs.existsSync(path.join(dataDir, '.cairn_task_1_tests.log'))).toBe(true);
+      for (const id of [2, 3, 99]) {
+        expect(fs.existsSync(path.join(dataDir, `.cairn_task_${id}_tests.log`))).toBe(false);
+      }
+    });
+
+    test('an unreadable tasks.json at sweep time keeps every _tests.log, sweeps other scratch, and leaves the verdict unchanged', async () => {
+      writeTasks([]);
+      const logs = ['.cairn_task_1_tests.log', '.cairn_task_2_tests.log'];
+      const other = ['.cairn_task_1_prompt.md', '.ralph_task_2_notes.md', '.cairn_complete'];
+      for (const name of [...logs, ...other]) {
+        fs.writeFileSync(path.join(dataDir, name), 'scratch');
+      }
+      const deps = {
+        ...makeHarness().deps,
+        sweepReadFileSync: () => { throw new Error('EACCES'); },
+      };
+      const stdout = makeWriter();
+      const stderr = makeWriter();
+
+      const code = await roundNextCommand({ ...input(), stdout, stderr }, deps);
+
+      expect(code).toBe(0);
+      expect(stderr.lines).toHaveLength(0);
+      expect(JSON.parse(stdout.lines[0])).toMatchObject({ verdict: 'round-done', blocked: 0 });
+      for (const name of logs) expect(fs.existsSync(path.join(dataDir, name))).toBe(true);
+      for (const name of other) expect(fs.existsSync(path.join(dataDir, name))).toBe(false);
+    });
+
+    test('an unparseable tasks.json at sweep time keeps every _tests.log', async () => {
+      writeTasks([]);
+      fs.writeFileSync(path.join(dataDir, '.cairn_task_4_tests.log'), 'log');
+      fs.writeFileSync(path.join(dataDir, '.cairn_task_4_prompt.md'), 'p');
+      const deps = { ...makeHarness().deps, sweepReadFileSync: () => '{not json' };
+
+      const result = await roundNext(input(), deps);
+
+      expect(result).toMatchObject({ verdict: 'round-done' });
+      expect(fs.existsSync(path.join(dataDir, '.cairn_task_4_tests.log'))).toBe(true);
+      expect(fs.existsSync(path.join(dataDir, '.cairn_task_4_prompt.md'))).toBe(false);
+    });
+
     test('never sweeps run state, logs, snapshot, gitignore, tasks or planning files', async () => {
       writeTasks([]);
       const protectedNames = [

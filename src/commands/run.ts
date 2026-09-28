@@ -342,6 +342,8 @@ export interface RunRunDeps {
   readdirSync: (p: string) => string[];
   mkdirSync: (p: string, opts?: { recursive: boolean }) => void;
   unlinkSync: (p: string) => void;
+  /** Plain read used by the round-end sweep to find blocked tasks. */
+  readFileSync: (p: string, enc: 'utf-8') => string;
   appendFileSync: (p: string, content: string) => void;
   startNarrationServer: (opts: StartNarrationOpts) => Promise<number>;
   stopNarrationServer: (pid: number, socketPath?: string) => Promise<void>;
@@ -390,6 +392,7 @@ function defaultDeps(): RunRunDeps {
     readdirSync: fs.readdirSync as (p: string) => string[],
     mkdirSync: fs.mkdirSync as (p: string, opts?: { recursive: boolean }) => void,
     unlinkSync: fs.unlinkSync,
+    readFileSync: (p, enc) => fs.readFileSync(p, enc),
     appendFileSync: fs.appendFileSync as (p: string, content: string) => void,
     startNarrationServer: defaultStartNarrationServer,
     stopNarrationServer: defaultStopNarrationServer,
@@ -790,6 +793,7 @@ export async function runRun(opts: RunRunOpts, deps: RunRunDeps = defaultDeps())
       existsSync: deps.existsSync,
       unlinkSync: deps.unlinkSync,
       readdirSync: deps.readdirSync,
+      readFileSync: deps.readFileSync,
     });
   }
 }

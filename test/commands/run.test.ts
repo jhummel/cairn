@@ -833,6 +833,8 @@ function makeRunDeps(overrides: Partial<RunRunDeps> = {}): RunRunDeps {
     readdirSync: overrides.readdirSync ?? mock(() => []),
     mkdirSync: overrides.mkdirSync ?? mock(() => undefined),
     unlinkSync: overrides.unlinkSync ?? mock(() => undefined),
+    // What the round-end sweep's plain tasks.json read sees: no blocked tasks.
+    readFileSync: overrides.readFileSync ?? mock(() => JSON.stringify({ tasks: [] })),
     appendFileSync: overrides.appendFileSync ?? mock(() => undefined),
     startNarrationServer: overrides.startNarrationServer ?? mock(async () => 99999),
     stopNarrationServer: overrides.stopNarrationServer ?? mock(async () => {}),
@@ -2795,6 +2797,89 @@ describe('runRun', () => {
     expect(unlinked.some(p => p.endsWith('.cairn_task_1_tests.log'))).toBe(true);
     expect(unlinked.some(p => p.endsWith('.cairn_task_42_prompt.md'))).toBe(true);
   });
+
+  test("cleanup keeps a blocked task's _tests.log but sweeps its prompt, review-prompt and notes", async () => {
+    const readdirSync = mock(() => [
+      '.cairn_task_1_prompt.md',
+      '.cairn_task_1_review_prompt.md',
+      '.cairn_task_1_tests.log',
+      '.ralph_task_1_notes.md',
+      '.cairn_task_1_notes.md',
+    ]);
+    const readFileSync = mock((_p: string, _enc: 'utf-8') => JSON.stringify({ tasks: [makeTask({ id: 1, status: 'blocked' })] }));
+    const unlinked: string[] = [];
+    const deps = makeRunDeps({
+      readdirSync,
+      readFileSync,
+      selectNextTask: mock(() => null),
+      unlinkSync: mock((p: string) => { unlinked.push(p); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(readFileSync).toHaveBeenCalledWith('/projects/myapp/.cairn/tasks.json', 'utf-8');
+    expect(unlinked.some(p => p.endsWith('.cairn_task_1_tests.log'))).toBe(false);
+    expect(unlinked.some(p => p.endsWith('.cairn_task_1_prompt.md'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('.cairn_task_1_review_prompt.md'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('.ralph_task_1_notes.md'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('.cairn_task_1_notes.md'))).toBe(true);
+  });
+
+  test("cleanup sweeps a non-blocked or archived task's _tests.log", async () => {
+    const readdirSync = mock(() => [
+      '.cairn_task_1_tests.log',
+      '.cairn_task_2_tests.log',
+      '.cairn_task_3_tests.log',
+      '.cairn_task_99_tests.log',
+    ]);
+    const readFileSync = mock(() => JSON.stringify({ tasks: [
+      makeTask({ id: 1, status: 'blocked' }),
+      makeTask({ id: 2, status: 'pending' }),
+      makeTask({ id: 3, status: 'in-progress' }),
+    ] }));
+    const unlinked: string[] = [];
+    const deps = makeRunDeps({
+      readdirSync,
+      readFileSync,
+      selectNextTask: mock(() => null),
+      unlinkSync: mock((p: string) => { unlinked.push(p); }),
+    });
+
+    await runRun(makeRunOpts(), deps);
+
+    expect(unlinked.some(p => p.endsWith('.cairn_task_1_tests.log'))).toBe(false);
+    expect(unlinked.some(p => p.endsWith('.cairn_task_2_tests.log'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('.cairn_task_3_tests.log'))).toBe(true);
+    expect(unlinked.some(p => p.endsWith('.cairn_task_99_tests.log'))).toBe(true);
+  });
+
+  for (const [label, reader] of [
+    ['unreadable', () => { throw new Error('ENOENT'); }],
+    ['unparseable', () => '{not json'],
+    ['wrong-shape', () => JSON.stringify({ tasks: 'nope' })],
+  ] as const) {
+    test(`cleanup keeps every _tests.log when tasks.json is ${label}, still sweeps other scratch, and does not throw`, async () => {
+      const readdirSync = mock(() => [
+        '.cairn_task_1_tests.log',
+        '.cairn_task_2_tests.log',
+        '.cairn_task_1_prompt.md',
+        '.ralph_task_2_notes.md',
+      ]);
+      const unlinked: string[] = [];
+      const deps = makeRunDeps({
+        readdirSync,
+        readFileSync: mock(reader as (p: string, enc: 'utf-8') => string),
+        selectNextTask: mock(() => null),
+        unlinkSync: mock((p: string) => { unlinked.push(p); }),
+      });
+
+      await runRun(makeRunOpts(), deps);
+
+      expect(unlinked.some(p => p.endsWith('_tests.log'))).toBe(false);
+      expect(unlinked.some(p => p.endsWith('.cairn_task_1_prompt.md'))).toBe(true);
+      expect(unlinked.some(p => p.endsWith('.ralph_task_2_notes.md'))).toBe(true);
+    });
+  }
 
   test('cleanup never sweeps run state, logs, snapshot, gitignore, tasks or planning files', async () => {
     const protectedNames = [
