@@ -33,6 +33,8 @@ const TEMP_IGNORE_SUFFIXES = [
   'run_state.json',
   'run_state.json.lock',
   'hook_errors.log',
+  // The `/teach` running log of the planning session.
+  'planning_session.md',
 ] as const;
 
 const GITIGNORE_CURRENT_HEADER =
@@ -51,7 +53,9 @@ const GITIGNORE_CONTENT =
   // file. Drop this line and each iteration leaves a scratch file for the
   // agent's own commit to pick up.
   `${NOTES_TEMP_PREFIX}task_*_notes.md\n` +
-  'instructions.md\n';
+  'instructions.md\n' +
+  // The personal `/teach` glossary.
+  'concepts.md\n';
 
 export interface PromptInterface {
   question(query: string): Promise<string>;

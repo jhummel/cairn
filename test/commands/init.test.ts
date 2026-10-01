@@ -90,8 +90,10 @@ describe('initCoreFiles', () => {
       '.cairn_run_state.json',
       '.cairn_run_state.json.lock',
       '.cairn_hook_errors.log',
+      '.cairn_planning_session.md',
       '.ralph_task_*_notes.md',
       'instructions.md',
+      'concepts.md',
     ]);
   });
 
@@ -160,7 +162,7 @@ describe('initCoreFiles', () => {
     expect(content).toContain('.cairn_task_*_tests.log');
     expect(content).toContain('.cairn_hook_errors.log');
     const output = stdoutLines.join('\n');
-    expect(output).toMatch(/Updated: \.cairn\/\.gitignore \(added 12 entries\)/);
+    expect(output).toMatch(/Updated: \.cairn\/\.gitignore \(added 14 entries\)/);
   });
 
   test('a file that already has every entry mid-file is left unchanged with no output', () => {
@@ -172,6 +174,8 @@ describe('initCoreFiles', () => {
     const mixedContent =
       '# my custom header\n' +
       '.cairn_hook_errors.log\n' +
+      '.cairn_planning_session.md\n' +
+      'concepts.md\n' +
       '.cairn_run_state.json.lock\n' +
       '.cairn_run_state.json\n' +
       '.cairn_task_*_prompt.md\n' +
@@ -209,6 +213,37 @@ describe('initCoreFiles', () => {
     expect(content).toContain('my-scratch-dir/');
     expect(content).toContain('*.local');
     expect(content).toContain('.cairn_run_state.json');
+  });
+
+  test('re-init appends the /teach entries under the merge header without reordering existing lines', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    const gitignorePath = path.join(dataDir, '.gitignore');
+    const existing = '# mine\nzzz/\n.cairn_complete\ninstructions.md\n';
+    fs.writeFileSync(gitignorePath, existing);
+
+    initCoreFiles(tmpDir, dataDir);
+
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    expect(content.startsWith(existing)).toBe(true);
+    const added = content.slice(existing.length);
+    expect(added.startsWith('# Added by cairn init (missing entries)\n')).toBe(true);
+    expect(added).toContain('.cairn_planning_session.md\n');
+    expect(added).toContain('concepts.md\n');
+  });
+
+  test('a !concepts.md negation is respected and not re-added', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    const gitignorePath = path.join(dataDir, '.gitignore');
+    fs.writeFileSync(gitignorePath, '# mine\n!concepts.md\n');
+
+    initCoreFiles(tmpDir, dataDir);
+
+    const lines = fs.readFileSync(gitignorePath, 'utf8').split('\n').map((l) => l.trim());
+    expect(lines).not.toContain('concepts.md');
+    expect(lines).toContain('!concepts.md');
+    expect(lines).toContain('.cairn_planning_session.md');
   });
 
   test('a second init on an already-merged file adds nothing', () => {
