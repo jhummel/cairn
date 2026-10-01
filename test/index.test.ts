@@ -372,6 +372,15 @@ describe('command registration', () => {
     expect(longFlags).toContain('--test-timeout');
   });
 
+  test('registers watch command with --session and --all options', () => {
+    const program = createProgram();
+    const watch = program.commands.find((c) => c.name() === 'watch');
+    expect(watch).toBeDefined();
+    const longFlags = watch!.options.map((o) => o.long);
+    expect(longFlags).toContain('--session');
+    expect(longFlags).toContain('--all');
+  });
+
   test('registers hook command group with pre-tool-use subcommand', () => {
     const program = createProgram();
     const hook = program.commands.find((c) => c.name() === 'hook');

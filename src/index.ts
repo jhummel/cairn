@@ -13,6 +13,8 @@ import { runRun } from './commands/run';
 import { registerTaskCommands } from './commands/task';
 import { registerRoundCommands } from './commands/round';
 import { runPreToolUseHook } from './commands/hook';
+import { runWatch } from './commands/watch';
+import { claudeConfigDir } from './transcripts';
 import type { AgentInfo } from './types';
 import { BRAND } from './brand';
 
@@ -164,6 +166,30 @@ export function createProgram(): Command {
       const config = cfg;
       const maxIterations = max !== undefined ? parseInt(max, 10) : 30;
       await runRun({ projectRoot, dataDir, config, agents, maxIterations });
+    });
+
+  // --- Live read-only view of the running /cairn-run subagent ---
+
+  program
+    .command('watch')
+    .description('Follow the running /cairn-run subagent transcript live (read-only)')
+    .option('--session <id>', 'Use this Claude Code session instead of the newest')
+    .option('--all', 'Show every subagent, not just cairn-task-agent / post-task-reviewer')
+    .action(async (opts: { session?: string; all?: boolean }) => {
+      const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
+      const config = loadConfig(projectRoot);
+      const code = await runWatch(
+        { projectRoot, sessionId: opts.session, all: opts.all, truncateText: config.truncateText },
+        {
+          configDir: claudeConfigDir(),
+          sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+          write: (t) => process.stdout.write(t),
+          writeErr: (t) => process.stderr.write(t),
+          // Runs until Ctrl-C (default SIGINT handling ends the process).
+          shouldStop: () => false,
+        },
+      );
+      if (code !== 0) process.exit(code);
     });
 
   // --- Task subcommand group ---
