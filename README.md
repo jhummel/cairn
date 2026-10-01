@@ -171,7 +171,7 @@ cairn watch --all           # include every subagent, not just those two
 cairn watch --session <id>  # pin a specific Claude Code session instead of the newest
 ```
 
-The command replays the newest matching subagent transcript from the start, then follows it. When the next agent starts, it switches to that agent and prints a header line. It shows assistant text and tool calls, but not tool results, which is the same view as `cairn run`. It is read-only, polls every 500ms, and runs until Ctrl-C. It reads Claude Code's undocumented transcript files under `~/.claude/projects/` (or `$CLAUDE_CONFIG_DIR`). If that layout changes, it fails with an error that names the missing path.
+The command replays the newest matching subagent transcript from the start, then follows it. When the next agent starts, it switches to that agent and prints a header line. It shows assistant text and tool calls, but not tool results, which is the same view as `cairn run`. It is read-only, polls every 500ms, and runs until Ctrl-C. It reads Claude Code's undocumented transcript files under `~/.claude/projects/` (or `$CLAUDE_CONFIG_DIR`). If that layout changes, it fails with an error that names the missing path. With `--session`, it exits with an error if that session doesn't exist; a session that exists but hasn't launched a subagent yet is fine, and watch waits for the first one.
 
 #### Containment under /cairn-run
 

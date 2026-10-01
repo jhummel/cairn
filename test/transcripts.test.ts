@@ -83,7 +83,23 @@ describe("findSession", () => {
     expect(r.ok && r.sessionDir).toContain("old");
     const bad = findSession({ configDir: tmp, projectRoot: root, sessionId: "nope" });
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.error).toContain(join("nope", "subagents"));
+    if (!bad.ok) expect(bad.error).toContain(join(tmp, "projects", projectSlug(root), "nope"));
+  });
+
+  test("pinned session with a transcript but no subagents/ yet -> ok, not an error", () => {
+    const slugDir = join(tmp, "projects", projectSlug(root));
+    mkdirSync(slugDir, { recursive: true });
+    writeFileSync(join(slugDir, "fresh.jsonl"), "{}\n");
+    const r = findSession({ configDir: tmp, projectRoot: root, sessionId: "fresh" });
+    expect(r).toEqual({ ok: true, sessionDir: join(slugDir, "fresh") });
+  });
+
+  test("pinned sessionId that is not a plain name is rejected", () => {
+    mkSub("s", 1000);
+    for (const id of ["../s", "a/b", "..", ".", ""]) {
+      const r = findSession({ configDir: tmp, projectRoot: root, sessionId: id });
+      expect(r.ok).toBe(false);
+    }
   });
 });
 

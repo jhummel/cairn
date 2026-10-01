@@ -50,10 +50,15 @@ export function findSession(opts: {
   }
 
   if (opts.sessionId !== undefined) {
+    // A plain name only: a pinned id must not resolve outside the slug dir.
+    if (!/^[A-Za-z0-9_-]+$/.test(opts.sessionId)) {
+      return { ok: false, error: `Invalid session id: ${JSON.stringify(opts.sessionId)}` };
+    }
+    // Claude Code writes <session>.jsonl from the start but creates <session>/subagents/
+    // only when the first subagent launches, so either one means the session exists.
     const sessionDir = path.join(slugDir, opts.sessionId);
-    const sub = path.join(sessionDir, "subagents");
-    if (!isDir(sub)) {
-      return { ok: false, error: `Session subagents directory not found: ${sub}` };
+    if (!isDir(sessionDir) && !fs.existsSync(`${sessionDir}.jsonl`)) {
+      return { ok: false, error: `Session not found: neither ${sessionDir}.jsonl nor ${sessionDir}/ exists` };
     }
     return { ok: true, sessionDir };
   }

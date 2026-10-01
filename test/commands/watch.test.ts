@@ -198,4 +198,24 @@ describe("runWatch", () => {
     const latest = await harness({}, 2);
     expect(latest.out).toBe("── Newest · cairn-task-agent ──\n  newest\n");
   });
+
+  test("--session for a session with no subagents yet waits quietly, then picks one up", async () => {
+    const slugDir = join(tmp, "projects", projectSlug(root));
+    mkdirSync(slugDir, { recursive: true });
+    writeFileSync(join(slugDir, "fresh.jsonl"), "{}\n");
+    const r = await harness({ sessionId: "fresh" }, 3, [
+      () => {},
+      () => agent(subDir("fresh"), "a1", "cairn-task-agent", "Task #1", text("late"), 1000),
+    ]);
+    expect(r.code).toBe(0);
+    expect(r.err).toBe("");
+    expect(r.out).toBe("── Task #1 · cairn-task-agent ──\n  late\n");
+  });
+
+  test("--session for an unknown session -> error naming path, exit 1", async () => {
+    mkdirSync(join(tmp, "projects", projectSlug(root)), { recursive: true });
+    const r = await harness({ sessionId: "nope" }, 3);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain(join(tmp, "projects", projectSlug(root), "nope"));
+  });
 });
