@@ -60,6 +60,9 @@ cairn summarize     # Update architecture docs
 | `/cairn-run`           | Slash command: run a round from an interactive Claude Code session (see [Execute](#3-execute)) |
 | `cairn round next`     | Used by `/cairn-run`: pick the next step (review, task, or round-done) as JSON |
 | `cairn round settle <id> [--reviewed] [--before-sha <sha>] [--test-timeout <seconds>]` | Used by `/cairn-run`: validate, guard, archive, and gate a task attempt for review; prints a JSON verdict |
+| `cairn round new`      | Used by `/generate-tasks`: start a new planning round (bumps `state.json`'s round); prints JSON |
+| `cairn watch [--session <id>] [--all]` | Follow the running `/cairn-run` subagent live, read-only; run it in a second terminal (see [Watching a round](#watching-a-round-cairn-watch)) |
+| `/teach`, `/teach off` | Slash command: turn learning-mode planning on or off (see [Plan](#2-plan)) |
 | `cairn task <subcommand>` | Task-state mutations for agents (`start`, `complete`, `note`, `set-status`, `add`, `next-id`, `show`) |
 | `cairn hook pre-tool-use` | PreToolUse hook that contains `/cairn-run` subagents (seeded by `cairn init`; not run by hand) |
 | `cairn summarize`      | Update IMPLEMENTATION.md with current system state                |
@@ -107,6 +110,10 @@ cairn plan
 
 Claude explores your codebase and discusses what to build. When the discussion feels complete, it writes `planning-notes.md`. You review, then Claude generates a concrete task list in `tasks.json`.
 
+**Planning rounds.** Each task generation starts a new planning round. After you approve the tasks, `/generate-tasks` runs `cairn round new` once. That command bumps the `round` in `.cairn/state.json` (an absent round becomes 1) and deletes the `/teach` running log, and post-task reviews for the round go to `.cairn/reviews/round-<N>.md`. Launching `cairn plan` does **not** bump the round, so quitting and re-running a planning session never skips a number. During the planning discussion, `state.json` still shows the previous round. One limitation is accepted: running `/generate-tasks` twice for the same plan bumps the round twice.
+
+**Learning mode (`/teach`).** Type `/teach` in the planning session for an opt-in learning-mode planning style. It is off by default. In this mode Claude explains from first principles, checks your understanding before locking decisions, and challenges your design choices. It also keeps a re-entry log at `.cairn/.cairn_planning_session.md` and a personal glossary at `.cairn/concepts.md` that carries across rounds; both files are gitignored. `/teach off` returns to the normal planner style. `/teach` is a slash command on purpose. If it lived in `CLAUDE.local.md`, every session would load it, task agents included, and they would stall waiting for confirmation. If it lived in the planner agent file, `cairn init` would overwrite it.
+
 ### 3. Execute
 
 There are two ways to run a round. Both settle each task attempt with the same code (`src/settle.ts`), so guards, archival, and review behave identically.
@@ -153,6 +160,18 @@ The `round` commands are deliberately not under `cairn task`: task agents use `c
 - **`bypassPermissions`** (recommended) — the round runs unattended, and the containment hook below still applies.
 - **`auto`** — may work, but its classifier can deny routine actions (`git commit`, running tests, `cairn task ...`), which show up as stalled or blocked tasks.
 - **`default` / `acceptEdits`** — the round stalls on the first permission prompt nobody is there to answer.
+
+#### Watching a round: `cairn watch`
+
+`/cairn-run` subagents run inside the session, so their tool calls aren't streamed to your terminal the way `cairn run`'s are. To follow one live, run this in a second terminal in the project during `/cairn-run`:
+
+```bash
+cairn watch                 # follow the newest cairn-task-agent / post-task-reviewer
+cairn watch --all           # include every subagent, not just those two
+cairn watch --session <id>  # pin a specific Claude Code session instead of the newest
+```
+
+The command replays the newest matching subagent transcript from the start, then follows it. When the next agent starts, it switches to that agent and prints a header line. It shows assistant text and tool calls, but not tool results, which is the same view as `cairn run`. It is read-only, polls every 500ms, and runs until Ctrl-C. It reads Claude Code's undocumented transcript files under `~/.claude/projects/` (or `$CLAUDE_CONFIG_DIR`). If that layout changes, it fails with an error that names the missing path.
 
 #### Containment under /cairn-run
 
@@ -262,9 +281,10 @@ cairn/
 │   ├── commands/
 │   │   ├── plan.ts              # Planning discussion + task generation
 │   │   ├── run.ts               # Headless execution loop + system prompt builder
-│   │   ├── round.ts             # `cairn round next` / `settle` (used by /cairn-run)
+│   │   ├── round.ts             # `cairn round new` (used by /generate-tasks) / `next` / `settle` (used by /cairn-run)
 │   │   ├── hook.ts              # `cairn hook pre-tool-use` containment hook
 │   │   ├── task.ts              # `cairn task` subcommands
+│   │   ├── watch.ts             # `cairn watch` live read-only subagent view
 │   │   ├── init.ts              # Project initialization
 │   │   ├── summarize.ts         # IMPLEMENTATION.md generator
 │   │   ├── status.ts            # Task list overview
@@ -276,10 +296,11 @@ cairn/
 │   ├── test-validator.ts        # Post-iteration test validation
 │   ├── settle.ts                # Settle an attempt: validate, guards, archive, review gate
 │   ├── run-state.ts             # Locked .cairn_run_state.json store
+│   ├── transcripts.ts           # Claude Code subagent transcript discovery (for cairn watch)
 │   ├── post-task-reviewer.ts    # Headless reviewer + reviewer prompt builder
 │   └── stream-filter.ts         # Stream-json formatter
 ├── agents/                      # Agent definitions installed into .claude/agents/ (cairn-task-agent, post-task-reviewer, ...)
-├── commands/                    # Slash commands installed into .claude/commands/ (cairn-run, generate-tasks, ...)
+├── commands/                    # Slash commands installed into .claude/commands/ (cairn-run, generate-tasks, teach, ...)
 ├── dist/cairn                   # Compiled binary (generated by bun build)
 └── install.sh                   # Builds and installs cairn
 ```
@@ -291,10 +312,12 @@ your-project/
 ├── .cairn/
 │   ├── tasks.json              # Active task list
 │   ├── tasks.completed.json    # Archive of completed tasks
-│   ├── state.json              # Monotonic task-ID counter + planning round — never reuses IDs (committed to git)
+│   ├── state.json              # Monotonic task-ID counter + planning round (bumped by `cairn round new`) — never reuses IDs (committed to git)
 │   ├── reviews/
 │   │   └── round-<N>.md        # Per-planning-round post-task review logs
 │   ├── planning-notes.md       # Output from planning discussions
+│   ├── concepts.md             # Personal /teach glossary, cumulative across rounds (gitignored)
+│   ├── .cairn_planning_session.md  # /teach running log (temp; deleted by `cairn round new`)
 │   ├── .gitignore              # Ignores the temp files below (and instructions.md, if still present); re-init appends any missing entries, never reorders/removes
 │   ├── .cairn_run_state.json   # Iteration counter + per-task attempt records (temp)
 │   ├── .cairn_task_<id>_tests.log         # Test validation output (temp)
