@@ -507,7 +507,7 @@ describe('runPlan', () => {
       const args = calls[0].args;
       expect(args).toContain('--allowedTools');
       const idx = args.indexOf('--allowedTools');
-      expect(args[idx + 1]).toBe('Read,Glob,Grep,Write,Edit,Agent,Bash(cairn task next-id:*)');
+      expect(args[idx + 1]).toBe('Read,Glob,Grep,Write,Edit,Agent,Bash(cairn task next-id:*),Bash(cairn round new:*)');
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
@@ -651,11 +651,11 @@ describe('runPlan', () => {
     }
   });
 
-  test('bumps the planning round in state.json', () => {
+  test('leaves the planning round in state.json unchanged (the bump moved to cairn round new)', () => {
     const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn } = makeSpawnSyncSpy();
     try {
-      expect(getRound(cairnDir)).toBe(1);
+      fs.writeFileSync(path.join(cairnDir, 'state.json'), JSON.stringify({ nextTaskId: 42, round: 5 }));
       runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
@@ -663,13 +663,15 @@ describe('runPlan', () => {
         agents: [],
         spawnSyncFn: spawnFn,
       });
-      expect(getRound(cairnDir)).toBe(2);
+      const state = JSON.parse(fs.readFileSync(path.join(cairnDir, 'state.json'), 'utf8'));
+      expect(state).toEqual({ nextTaskId: 42, round: 5 });
+      expect(getRound(cairnDir)).toBe(5);
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
   });
 
-  test('bumps the round even though spawnSyncFn is a stub', () => {
+  test('does not create state.json when it is absent', () => {
     const { tmpDir, cairnDir } = makeTempDir(true, true);
     const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
@@ -681,20 +683,17 @@ describe('runPlan', () => {
         spawnSyncFn: spawnFn,
       });
       expect(calls).toHaveLength(1);
-      const statePath = path.join(cairnDir, 'state.json');
-      expect(fs.existsSync(statePath)).toBe(true);
-      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-      expect(state.round).toBe(2);
+      expect(fs.existsSync(path.join(cairnDir, 'state.json'))).toBe(false);
+      expect(getRound(cairnDir)).toBe(1);
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }
   });
 
-  test('preserves an existing nextTaskId across the bump', () => {
+  test("grants the planner Bash(cairn round new:*) in --allowedTools", () => {
     const { tmpDir, cairnDir } = makeTempDir(true, true);
-    const { spawnFn } = makeSpawnSyncSpy();
+    const { spawnFn, calls } = makeSpawnSyncSpy();
     try {
-      fs.writeFileSync(path.join(cairnDir, 'state.json'), JSON.stringify({ nextTaskId: 42 }));
       runPlan({
         projectName: 'proj',
         projectRoot: tmpDir,
@@ -702,9 +701,10 @@ describe('runPlan', () => {
         agents: [],
         spawnSyncFn: spawnFn,
       });
-      const state = JSON.parse(fs.readFileSync(path.join(cairnDir, 'state.json'), 'utf8'));
-      expect(state.nextTaskId).toBe(42);
-      expect(state.round).toBe(2);
+      const args = calls[0].args as string[];
+      const allowedTools = args[args.indexOf('--allowedTools') + 1];
+      expect(allowedTools.split(',')).toContain('Bash(cairn round new:*)');
+      expect(allowedTools.split(',')).toContain('Bash(cairn task next-id:*)');
     } finally {
       fs.rmSync(tmpDir, { recursive: true });
     }

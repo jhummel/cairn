@@ -146,7 +146,7 @@ AGENT SELECTION:
 RULES:
 
 - NEVER modify tasks with status `complete` or their metadata (`completedAt`, `completedBy`, `notes`)
-- Assign IDs to new tasks only after user approval: run `cairn task next-id --count <n>` (where `n` = the number of new tasks), then assign the returned IDs sequentially. The command outputs one integer per line. Never reuse archived IDs. Preserve existing completed tasks' IDs and all their metadata unchanged.
+- Assign IDs to new tasks only after user approval: run `cairn task next-id --count <n>` (where `n` = the number of new tasks), then assign the returned IDs sequentially. The command outputs one integer per line. Then run `cairn round new` once, before writing `tasks.json` — it starts the new planning round and prints one JSON object whose `round` field is the new round number (post-task reviews for the round go to `.cairn/reviews/round-<N>.md`). Run it ONCE per approved generation: do NOT re-run it when tasks are edited or regenerated later in the same session, because every run bumps the round again. Never reuse archived IDs. Preserve existing completed tasks' IDs and all their metadata unchanged.
 - The description field should give the worker agent enough context to complete the task independently
 - Include specific file paths in the `files` array so the worker knows where to look
 - Each task should be scoped to ~5 minutes of focused agent work
@@ -156,4 +156,4 @@ RULES:
 
 ---
 
-After receiving the subagent's proposed tasks, present them to the user for review. Once approved: (1) run `cairn task next-id --count <n>` (where `n` = the number of new tasks) and assign the returned IDs sequentially to the new tasks — the command outputs one integer per line; (2) write `.cairn/tasks.json` directly using the Write tool — do NOT spawn another agent just to write the file.
+After receiving the subagent's proposed tasks, present them to the user for review. Once approved: (1) run `cairn task next-id --count <n>` (where `n` = the number of new tasks) and assign the returned IDs sequentially to the new tasks — the command outputs one integer per line; (2) run `cairn round new` exactly once — its JSON output (`{"verdict": "round-started", "round": N, ...}`) reports the new round. Do NOT re-run it if the tasks are edited or regenerated later in this session: each run bumps the round again; (3) write `.cairn/tasks.json` directly using the Write tool — do NOT spawn another agent just to write the file.

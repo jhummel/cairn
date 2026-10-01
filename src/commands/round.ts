@@ -28,6 +28,7 @@ import { buildSystemPrompt } from './run';
 import { hookErrorLogPath } from './hook';
 import { sweepRoundTempFiles, defaultSweepDeps } from '../temp-sweep';
 import { BRAND } from '../brand';
+import { bumpRound as defaultBumpRound } from '../task-counter';
 import { defaultStdout, defaultStderr, type Writer } from '../cli-io';
 
 /**
@@ -329,7 +330,60 @@ export async function roundSettleCommand(opts: RoundSettleCommandOpts, deps: Par
   }
 }
 
-/** Shared project context for both `round` subcommands, resolved from the env vars `setupProjectContext` sets. */
+/**
+ * `cairn round new` — start a new planning round. Run once by /generate-tasks
+ * after the user approves the generated tasks (after `cairn task next-id`,
+ * before tasks.json is written), not by `cairn plan`, so a planning session
+ * that is quit and re-run never skips a round number. Bumps state.json's
+ * round (absent -> 1), best-effort deletes the /teach learning-mode log
+ * (`<dataDir>/.cairn_planning_session.md`), and prints one JSON verdict.
+ * Exit 1 with one stderr line only when state.json cannot be updated (e.g. a
+ * lock timeout). Each run bumps the round, so re-running it in the same
+ * session double-bumps — an accepted, documented limitation.
+ */
+export type RoundNewResult = { verdict: 'round-started'; round: number; next: string };
+
+export interface RoundNewCommandOpts {
+  dataDir: string;
+  stdout?: Writer;
+  stderr?: Writer;
+}
+
+export interface RoundNewDeps {
+  bumpRound?: (dataDir: string) => number;
+  unlinkSync?: (p: string) => void;
+}
+
+/** The /teach learning-mode running log, discarded when a new round starts. */
+export function planningSessionLogPath(dataDir: string): string {
+  return path.join(dataDir, `${BRAND.tempPrefix}planning_session.md`);
+}
+
+export function roundNewCommand(opts: RoundNewCommandOpts, deps: RoundNewDeps = {}): number {
+  const stdout = opts.stdout ?? defaultStdout();
+  const stderr = opts.stderr ?? defaultStderr();
+  let round: number;
+  try {
+    round = (deps.bumpRound ?? defaultBumpRound)(opts.dataDir);
+  } catch (err) {
+    stderr.write(`cairn round new: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+  try {
+    (deps.unlinkSync ?? fs.unlinkSync)(planningSessionLogPath(opts.dataDir));
+  } catch {
+    // Missing file or failed unlink: best-effort, never changes the verdict.
+  }
+  const result: RoundNewResult = {
+    verdict: 'round-started',
+    round,
+    next: `Round ${round} started. Write ${path.join(opts.dataDir, 'tasks.json')} now; post-task reviews for this round go to ${path.join(opts.dataDir, 'reviews', `round-${round}.md`)}. Do not run this again for this generation.`,
+  };
+  stdout.write(JSON.stringify(result) + '\n');
+  return 0;
+}
+
+/** Shared project context for the `round` subcommands, resolved from the env vars `setupProjectContext` sets. */
 function loadRoundContext(): { projectRoot: string; dataDir: string; config: CairnConfig; agents: AgentInfo[] } {
   const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
   const dataDir = process.env.CAIRN_DATA_DIR!;
@@ -345,15 +399,25 @@ function loadRoundContext(): { projectRoot: string; dataDir: string; config: Cai
 }
 
 /**
- * Wire the `round` subcommand group onto a Commander program. These commands
- * deliberately live under `round`, not `task`: task execution agents use
- * `cairn task`, and a task agent calling settle would archive its own task
- * and skip its own review.
+ * Wire the `round` subcommand group onto a Commander program: `new` (run by
+ * /generate-tasks to start a planning round) and `next` / `settle` (driven by
+ * /cairn-run). These commands deliberately live under `round`, not `task`:
+ * task execution agents use `cairn task`, so they can neither bump the round
+ * mid-round nor settle their own task (which would archive it and skip its
+ * own review).
  */
 export function registerRoundCommands(program: Command): void {
   const round = program
     .command('round')
-    .description(`Interactive round commands used by /${BRAND.name}-run`);
+    .description(`Round commands: 'new' starts a planning round (used by /generate-tasks); 'next' and 'settle' drive /${BRAND.name}-run`);
+
+  round
+    .command('new')
+    .description('Start a new planning round: bump state.json\'s round and clear the planning-session log')
+    .action(() => {
+      const dataDir = process.env.CAIRN_DATA_DIR!;
+      process.exit(roundNewCommand({ dataDir }));
+    });
 
   round
     .command('next')

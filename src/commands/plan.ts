@@ -4,7 +4,6 @@ import { spawnSync as nodeSpawnSync, type SpawnSyncReturns, type SpawnSyncOption
 import { Task, AgentInfo } from '../types';
 import { buildAgentArgs } from '../agent-prompt';
 import { loadPersonalInstructions } from '../personal-instructions';
-import { bumpRound } from '../task-counter';
 
 const STATUS_ICONS: Record<string, string> = {
   complete: '✓',
@@ -156,14 +155,12 @@ export function runPlan(opts: RunPlanOpts): void {
 
   displayPreflight(projectName, dataDir);
 
-  bumpRound(dataDir);
-
   const dynamicContext = buildDynamicContext({ projectName, projectRoot, dataDir, agents });
 
   spawnSyncFn('claude', [
     ...buildAgentArgs('planner', 'Planning assistant / software architect', projectRoot),
     '--append-system-prompt', dynamicContext,
-    '--allowedTools', 'Read,Glob,Grep,Write,Edit,Agent,Bash(cairn task next-id:*)',
+    '--allowedTools', 'Read,Glob,Grep,Write,Edit,Agent,Bash(cairn task next-id:*),Bash(cairn round new:*)',
   ], {
     stdio: 'inherit',
     cwd: projectRoot,

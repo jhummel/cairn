@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { Command } from 'commander';
-import { roundNext, roundNextCommand, roundSettleCommand, registerRoundCommands, type RoundNextDeps } from '../../src/commands/round';
+import { roundNext, roundNextCommand, roundNewCommand, roundSettleCommand, registerRoundCommands, type RoundNextDeps } from '../../src/commands/round';
 import { buildSystemPrompt, resolveTaskModel } from '../../src/commands/run';
 import { newAttemptRecord, readRunState, updateRunState, type RunState, type RunStateStore } from '../../src/run-state';
 import type { HealthCheckOpts, HealthCheckResult } from '../../src/health-check';
@@ -986,6 +986,7 @@ describe('registerRoundCommands', () => {
     const subNames = round!.commands.map((c) => c.name());
     expect(subNames).toContain('next');
     expect(subNames).toContain('settle');
+    expect(subNames).toContain('new');
   });
 
   test('settle has the documented options', () => {
@@ -1001,5 +1002,91 @@ describe('registerRoundCommands', () => {
     const args = settle!.registeredArguments;
     expect(args.length).toBe(1);
     expect(args[0].required).toBe(true);
+  });
+});
+
+describe('roundNewCommand', () => {
+  const statePath = () => path.join(dataDir, 'state.json');
+  const sessionLog = () => path.join(dataDir, '.cairn_planning_session.md');
+  const readState = () => JSON.parse(fs.readFileSync(statePath(), 'utf8'));
+
+  test('increments an existing round and prints one round-started JSON line', () => {
+    fs.writeFileSync(statePath(), JSON.stringify({ nextTaskId: 147, round: 20 }));
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+
+    const code = roundNewCommand({ dataDir, stdout, stderr });
+
+    expect(code).toBe(0);
+    expect(stderr.lines).toHaveLength(0);
+    expect(stdout.lines).toHaveLength(1);
+    const parsed = JSON.parse(stdout.lines[0]);
+    expect(parsed.verdict).toBe('round-started');
+    expect(parsed.round).toBe(21);
+    expect(typeof parsed.next).toBe('string');
+    expect(parsed.next).toContain('round-21.md');
+    expect(readState().round).toBe(21);
+  });
+
+  test('sets an absent round to 1', () => {
+    fs.writeFileSync(statePath(), JSON.stringify({ nextTaskId: 3 }));
+    const stdout = makeWriter();
+
+    const code = roundNewCommand({ dataDir, stdout, stderr: makeWriter() });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout.lines[0])).toMatchObject({ verdict: 'round-started', round: 1 });
+    expect(readState().round).toBe(1);
+  });
+
+  test('preserves nextTaskId and unknown keys', () => {
+    fs.writeFileSync(statePath(), JSON.stringify({ nextTaskId: 99, round: 4, extra: 'keep' }));
+
+    roundNewCommand({ dataDir, stdout: makeWriter(), stderr: makeWriter() });
+
+    expect(readState()).toEqual({ nextTaskId: 99, round: 5, extra: 'keep' });
+  });
+
+  test('deletes the planning-session log when present', () => {
+    fs.writeFileSync(statePath(), JSON.stringify({ round: 1 }));
+    fs.writeFileSync(sessionLog(), '# learning log');
+
+    const code = roundNewCommand({ dataDir, stdout: makeWriter(), stderr: makeWriter() });
+
+    expect(code).toBe(0);
+    expect(fs.existsSync(sessionLog())).toBe(false);
+  });
+
+  test('succeeds when the planning-session log is absent', () => {
+    const stdout = makeWriter();
+    const code = roundNewCommand({ dataDir, stdout, stderr: makeWriter() });
+    expect(code).toBe(0);
+    expect(stdout.lines).toHaveLength(1);
+    expect(JSON.parse(stdout.lines[0]).round).toBe(1);
+  });
+
+  test('a failed unlink of the planning-session log is swallowed', () => {
+    const stdout = makeWriter();
+    const code = roundNewCommand({ dataDir, stdout, stderr: makeWriter() }, {
+      unlinkSync: () => {
+        throw new Error('EPERM');
+      },
+    });
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout.lines[0]).verdict).toBe('round-started');
+  });
+
+  test('a state.json update failure exits 1 with one stderr line and no stdout', () => {
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+    const code = roundNewCommand({ dataDir, stdout, stderr }, {
+      bumpRound: () => {
+        throw new FileLockError('lock timeout');
+      },
+    });
+    expect(code).toBe(1);
+    expect(stdout.lines).toHaveLength(0);
+    expect(stderr.lines).toHaveLength(1);
+    expect(stderr.lines[0]).toContain('cairn round new');
   });
 });

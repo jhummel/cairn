@@ -161,11 +161,13 @@ export function getRound(dataDir: string): number {
 }
 
 /**
- * Atomically increment the planning round in <dataDir>/state.json and return the
+ * Atomically start a new planning round in <dataDir>/state.json and return the
  * new value. Runs under the same state.json.lock and temp-file-rename machinery
- * as reserveTaskIds. An absent round semantically equals 1, so bumping a state
- * file without a round field writes round: 2. Every other field (nextTaskId and
- * any unknown keys) is preserved exactly.
+ * as reserveTaskIds. An existing numeric round is incremented; an absent or
+ * non-finite round is set to 1, so the first `cairn round new` (run by
+ * /generate-tasks) in a fresh project starts round 1. (getRound still *reads*
+ * an absent round as 1.) Every other field (nextTaskId and any unknown keys) is
+ * preserved exactly.
  */
 export function bumpRound(dataDir: string): number {
   const statePath = path.join(dataDir, 'state.json');
@@ -173,11 +175,10 @@ export function bumpRound(dataDir: string): number {
   const fd = acquireLock(lockPath);
   try {
     const existing = readState(statePath);
-    const current =
+    const next =
       existing && typeof existing.round === 'number' && Number.isFinite(existing.round)
-        ? existing.round
+        ? existing.round + 1
         : 1;
-    const next = current + 1;
 
     writeStateAtomic(statePath, { ...(existing ?? {}), round: next });
     return next;
