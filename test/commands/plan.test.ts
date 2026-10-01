@@ -258,6 +258,17 @@ describe('displayPreflight', () => {
     }
   });
 
+  test('prints a /teach learning-mode tip', () => {
+    const { tmpDir, cairnDir } = makeTempDir(true);
+    try {
+      displayPreflight('proj', cairnDir);
+      const output = stdoutLines.join('\n');
+      expect(output).toContain('Tip: type /teach in the session for learning mode');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
   test('prints starting fresh message when tasks.json missing', () => {
     const { tmpDir, cairnDir } = makeTempDir(true);
     try {

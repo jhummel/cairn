@@ -1346,6 +1346,16 @@ describe('installSlashCommands', () => {
     expect(fs.existsSync(path.join(destDir, 'codebase-audit.md'))).toBe(true);
   });
 
+  test('installs teach.md naming the session log, glossary and planning notes paths', () => {
+    installSlashCommands(tmpDir);
+    const teachPath = path.join(tmpDir, '.claude', 'commands', 'teach.md');
+    expect(fs.existsSync(teachPath)).toBe(true);
+    const content = fs.readFileSync(teachPath, 'utf8');
+    expect(content).toContain('.cairn/.cairn_planning_session.md');
+    expect(content).toContain('.cairn/concepts.md');
+    expect(content).toContain('.cairn/planning-notes.md');
+  });
+
   test('copied files have the same content as source', () => {
     installSlashCommands(tmpDir);
     const { resolveCairnRoot } = require('../../src/utils');

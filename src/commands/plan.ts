@@ -4,6 +4,7 @@ import { spawnSync as nodeSpawnSync, type SpawnSyncReturns, type SpawnSyncOption
 import { Task, AgentInfo } from '../types';
 import { buildAgentArgs } from '../agent-prompt';
 import { loadPersonalInstructions } from '../personal-instructions';
+import { DIM, RESET } from '../stream-filter';
 
 const STATUS_ICONS: Record<string, string> = {
   complete: '✓',
@@ -105,6 +106,8 @@ export function displayPreflight(projectName: string, dataDir: string): void {
   if (completedLine !== null) {
     console.log(completedLine);
   }
+
+  console.log(`  ${DIM}Tip: type /teach in the session for learning mode (explain-as-we-go).${RESET}`);
 
   const tasksFile = path.join(dataDir, 'tasks.json');
   if (!fs.existsSync(tasksFile)) {
