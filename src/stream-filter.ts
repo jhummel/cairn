@@ -94,6 +94,46 @@ export function fmtResult(event: ResultEvent): string {
   }
 }
 
+/**
+ * Render one parsed stream-json (or subagent transcript) event into zero or
+ * more lines, without any prefix or trailing newline.
+ */
+export function renderEvent(e: Record<string, any>, opts: { truncateText: boolean }): string[] {
+  const lines: string[] = [];
+  const t = e.type ?? '';
+
+  if (t === 'system' && e.subtype === 'init') {
+    const model = e.model ?? '?';
+    const mode = e.permissionMode ?? '?';
+    lines.push(`  ${DIM}[init]${RESET} ${model} | ${mode}`);
+  } else if (t === 'assistant') {
+    const content: any[] = e.message?.content ?? [];
+    for (const block of content) {
+      const bt = block.type ?? '';
+      if (bt === 'tool_use') {
+        lines.push(`  > ${fmtTool(block)}`);
+      } else if (bt === 'text') {
+        const text = (block.text ?? '').trim();
+        if (!text) continue;
+        if (opts.truncateText) {
+          let firstLine = text.split('\n')[0];
+          if (firstLine.length > 80) {
+            firstLine = firstLine.slice(0, 77) + '...';
+          }
+          lines.push(`  ${YELLOW}${firstLine}${RESET}`);
+        } else {
+          for (const tline of text.split('\n')) {
+            lines.push(`  ${YELLOW}${tline}${RESET}`);
+          }
+        }
+      }
+    }
+  } else if (t === 'result') {
+    lines.push(`  ${fmtResult(e)}`);
+  }
+  return lines;
+}
+
 export interface ProcessStreamOptions {
   truncateText?: boolean;
   taskId?: number;
@@ -128,36 +168,8 @@ export async function processStream(
       continue;
     }
 
-    const t = e.type ?? '';
-
-    if (t === 'system' && e.subtype === 'init') {
-      const model = e.model ?? '?';
-      const mode = e.permissionMode ?? '?';
-      writeLine(`  ${DIM}[init]${RESET} ${model} | ${mode}\n`);
-    } else if (t === 'assistant') {
-      const content: any[] = e.message?.content ?? [];
-      for (const block of content) {
-        const bt = block.type ?? '';
-        if (bt === 'tool_use') {
-          writeLine(`  > ${fmtTool(block)}\n`);
-        } else if (bt === 'text') {
-          const text = (block.text ?? '').trim();
-          if (!text) continue;
-          if (truncateText) {
-            let firstLine = text.split('\n')[0];
-            if (firstLine.length > 80) {
-              firstLine = firstLine.slice(0, 77) + '...';
-            }
-            writeLine(`  ${YELLOW}${firstLine}${RESET}\n`);
-          } else {
-            for (const tline of text.split('\n')) {
-              writeLine(`  ${YELLOW}${tline}${RESET}\n`);
-            }
-          }
-        }
-      }
-    } else if (t === 'result') {
-      writeLine(`  ${fmtResult(e)}\n`);
+    for (const out of renderEvent(e, { truncateText })) {
+      writeLine(out + '\n');
     }
   }
 }

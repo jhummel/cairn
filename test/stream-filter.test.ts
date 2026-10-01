@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { CYAN, DIM, GREEN, RED, YELLOW, BOLD, RESET, shortPath, fmtTool, fmtResult, processStream } from '../src/stream-filter';
+import { CYAN, DIM, GREEN, RED, YELLOW, BOLD, RESET, shortPath, fmtTool, fmtResult, processStream, renderEvent } from '../src/stream-filter';
 import { Readable, Writable } from 'stream';
 
 describe('narration/ntfy removal', () => {
@@ -438,5 +438,59 @@ describe('processStream taskId prefix', () => {
     await processStream(linesStream([event]), w2, {});
     expect(out1()).toBe(out2());
     expect(out1()).not.toContain('[#');
+  });
+});
+
+describe('renderEvent', () => {
+  it('renders an assistant tool_use block in transcript shape', () => {
+    const e = { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/a/b' } }] } };
+    expect(renderEvent(e, { truncateText: true })).toEqual([`  > ${fmtTool({ name: 'Read', input: { file_path: '/a/b' } })}`]);
+  });
+
+  it('truncates text to the first line when truncateText is true', () => {
+    const e = { type: 'assistant', message: { content: [{ type: 'text', text: 'one\ntwo\nthree' }] } };
+    expect(renderEvent(e, { truncateText: true })).toEqual([`  ${YELLOW}one${RESET}`]);
+  });
+
+  it('truncates long first lines to 80 chars', () => {
+    const e = { type: 'assistant', message: { content: [{ type: 'text', text: 'x'.repeat(100) }] } };
+    expect(renderEvent(e, { truncateText: true })).toEqual([`  ${YELLOW}${'x'.repeat(77)}...${RESET}`]);
+  });
+
+  it('renders all text lines when truncateText is false', () => {
+    const e = { type: 'assistant', message: { content: [{ type: 'text', text: 'one\ntwo' }] } };
+    expect(renderEvent(e, { truncateText: false })).toEqual([`  ${YELLOW}one${RESET}`, `  ${YELLOW}two${RESET}`]);
+  });
+
+  it('renders a mixed content array in order', () => {
+    const e = { type: 'assistant', message: { content: [
+      { type: 'text', text: 'hello' },
+      { type: 'tool_use', name: 'Glob', input: { pattern: '*.ts' } },
+      { type: 'text', text: '   ' },
+    ] } };
+    expect(renderEvent(e, { truncateText: true })).toEqual([
+      `  ${YELLOW}hello${RESET}`,
+      `  > ${fmtTool({ name: 'Glob', input: { pattern: '*.ts' } })}`,
+    ]);
+  });
+
+  it('renders system init', () => {
+    expect(renderEvent({ type: 'system', subtype: 'init', model: 'm', permissionMode: 'plan' }, { truncateText: true }))
+      .toEqual([`  ${DIM}[init]${RESET} m | plan`]);
+  });
+
+  it('renders a result event', () => {
+    const e = { type: 'result', duration_ms: 2000, total_cost_usd: 0.5, num_turns: 3, is_error: false };
+    expect(renderEvent(e, { truncateText: true })).toEqual([`  ${fmtResult(e)}`]);
+  });
+
+  it('returns [] for user tool_result events', () => {
+    const e = { type: 'user', message: { content: [{ type: 'tool_result', content: 'ok' }] } };
+    expect(renderEvent(e, { truncateText: true })).toEqual([]);
+  });
+
+  it('returns [] for unknown types', () => {
+    expect(renderEvent({ type: 'weird' }, { truncateText: false })).toEqual([]);
+    expect(renderEvent({}, { truncateText: false })).toEqual([]);
   });
 });
