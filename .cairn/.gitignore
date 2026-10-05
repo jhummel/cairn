@@ -20,3 +20,6 @@
 .ralph_tasks_snapshot.json
 .ralph_task_*_notes.md
 instructions.md
+# Added by cairn init (missing entries)
+.cairn_planning_session.md
+concepts.md
