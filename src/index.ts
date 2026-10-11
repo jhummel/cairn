@@ -205,7 +205,7 @@ export function createProgram(): Command {
 
   hook
     .command('pre-tool-use')
-    .description('PreToolUse hook: contain /cairn-run subagents (tasks.json, post-task-reviewer scope)')
+    .description('PreToolUse hook: contain /cairn-run subagents (tasks.json, post-task-reviewer and post-round-reviewer scopes)')
     .action(async () => {
       await runPreToolUseHook();
     });

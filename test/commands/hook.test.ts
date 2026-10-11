@@ -8,6 +8,7 @@ import {
   hookErrorLogPath,
   resolveHookErrorLogDir,
   reviewerBashPrefixes,
+  ROUND_REVIEWER_AGENT_TYPE,
   type HookContext,
 } from '../../src/commands/hook';
 import { GIT_INSPECTION_RULES } from '../../src/claude-settings';
@@ -217,6 +218,155 @@ describe('decidePreToolUse', () => {
 
     test('an agent_type merely containing the reviewer name is not the reviewer', () => {
       expect(decidePreToolUse(subagent('post-task-reviewer-2', 'Bash', { command: 'bun test' }), CTX)).toEqual({ decision: 'allow' });
+    });
+  });
+});
+
+describe('decidePreToolUse: post-round-reviewer containment', () => {
+  const roundReviewer = (tool_name: string, tool_input: Record<string, unknown>) => subagent('post-round-reviewer', tool_name, tool_input);
+  const bash = (command: string) => decidePreToolUse(roundReviewer('Bash', { command }), CTX);
+  const denyReason = (result: ReturnType<typeof decidePreToolUse>): string => {
+    if (result.decision !== 'deny') throw new Error('expected deny');
+    return result.reason;
+  };
+
+  test('the agent type constant is post-round-reviewer', () => {
+    expect(ROUND_REVIEWER_AGENT_TYPE).toBe('post-round-reviewer');
+  });
+
+  test('Write inside reviews/ → allow', () => {
+    expect(decidePreToolUse(roundReviewer('Write', { file_path: path.join(CTX.reviewsDir, 'round-21.md'), content: 'x' }), CTX)).toEqual({ decision: 'allow' });
+  });
+
+  test('Write of a fix-task JSON scratch file inside reviews/ → allow', () => {
+    expect(decidePreToolUse(roundReviewer('Write', { file_path: path.join(CTX.reviewsDir, '.cairn_round_review_fix_1.json'), content: '{}' }), CTX)).toEqual({ decision: 'allow' });
+  });
+
+  test('Edit inside reviews/, given relative → allow', () => {
+    expect(decidePreToolUse(roundReviewer('Edit', { file_path: '.cairn/reviews/round-21.md', old_string: 'a', new_string: 'b' }), CTX)).toEqual({ decision: 'allow' });
+  });
+
+  for (const [label, file_path] of [
+    ['src/x.ts', path.join(PROJECT, 'src', 'x.ts')],
+    ['the data dir itself', path.join(PROJECT, '.cairn', 'planning-notes.md')],
+    ['the reviews dir path itself', CTX.reviewsDir],
+    ['a ../ escape', path.join(CTX.reviewsDir, '..', 'tasks.completed.json')],
+    ['a relative ../ escape', '.cairn/reviews/../state.json'],
+    ['a sibling dir sharing the reviews prefix', `${CTX.reviewsDir}-evil/x.md`],
+  ] as const) {
+    for (const tool of ['Write', 'Edit'] as const) {
+      test(`${tool} to ${label} → deny naming post-round-reviewer`, () => {
+        const reason = denyReason(decidePreToolUse(roundReviewer(tool, { file_path, content: 'x' }), CTX));
+        expect(reason).toBe(`post-round-reviewer may only ${tool} files inside ${CTX.reviewsDir}.`);
+      });
+    }
+  }
+
+  test('Write with no file_path → deny', () => {
+    expect(decidePreToolUse(roundReviewer('Write', { content: 'x' }), CTX).decision).toBe('deny');
+  });
+
+  test('Write to tasks.json → deny by rule 1', () => {
+    const reason = denyReason(decidePreToolUse(roundReviewer('Write', { file_path: CTX.tasksFilePath, content: '' }), CTX));
+    expect(reason).toContain('Subagents may not Write');
+    expect(reason).toContain('cairn task');
+  });
+
+  for (const prefix of reviewerBashPrefixes()) {
+    test(`Bash ${JSON.stringify(prefix)} → allow`, () => {
+      expect(bash(prefix)).toEqual({ decision: 'allow' });
+      expect(bash(`${prefix} HEAD`)).toEqual({ decision: 'allow' });
+    });
+  }
+
+  for (const command of [
+    'cairn task add --file /abs/path.json',
+    'cairn task add --file .cairn/reviews/.cairn_round_review_fix_1.json',
+    'cairn task add --file x.json',
+    'cairn task add --file "/tmp/my dir/fix 1.json"',
+    "cairn task add --file '/tmp/my dir/fix 1.json'",
+    'git log --oneline -3 && cairn task add --file x.json',
+    'cairn task add --file a.json && cairn task add --file b.json\ngit status',
+  ]) {
+    test(`Bash ${JSON.stringify(command)} → allow`, () => {
+      expect(bash(command)).toEqual({ decision: 'allow' });
+    });
+  }
+
+  for (const command of [
+    'cairn task add',
+    'cairn task add --file',
+    'cairn task add --file a.json --extra',
+    'cairn task add --file a.json b.json',
+    'cairn task add --file=a.json',
+    'cairn task add --title x --description y',
+    'cairn task add --file "a.json" extra',
+    'cairn task add --file "a b.json',
+    'cairn task add --file a"b c".json',
+    'cairn task add --file a\\ b.json',
+    'cairn task add  --file a.json',
+    'cairn task start 1 --iteration 1',
+    'cairn task complete 1 --iteration 1',
+    'cairn task note 1 hello',
+    'cairn task set-status 1 pending',
+    'cairn task next-id',
+    'cairn task show 1',
+    'cairn round next',
+    'cairn round settle 1',
+    'cairn hook pre-tool-use',
+    'cairn',
+    '/usr/local/bin/cairn task add --file a.json',
+    'cairn task add --file a.json; rm -rf x',
+    'cairn task add --file a.json && bun test',
+    'cairn task add --file $HOME/a.json',
+    'cairn task add --file `pwd`/a.json',
+    'cairn task add --file a.json > out',
+    'cairn task add --file a.json < in',
+    'cairn task add --file "a;rm x.json"',
+    'git log --output=/tmp/f',
+    'git log --output /tmp/f && cairn task add --file a.json',
+    'git diff $(rm x)',
+    'git commit -m x',
+    'bun test',
+    '',
+  ]) {
+    test(`Bash ${JSON.stringify(command)} → deny`, () => {
+      const reason = denyReason(bash(command));
+      expect(reason).toContain('post-round-reviewer may only run');
+      for (const prefix of reviewerBashPrefixes()) expect(reason).toContain(prefix);
+      expect(reason).toContain('cairn task add --file <path>');
+    });
+  }
+
+  test('Bash with a non-string command → deny', () => {
+    expect(decidePreToolUse(roundReviewer('Bash', {}), CTX).decision).toBe('deny');
+  });
+
+  test('an agent_type merely containing the round reviewer name is not contained', () => {
+    expect(decidePreToolUse(subagent('post-round-reviewer-2', 'Bash', { command: 'bun test' }), CTX)).toEqual({ decision: 'allow' });
+  });
+
+  describe('post-task-reviewer is unchanged', () => {
+    for (const command of ['cairn task add --file a.json', 'git log --oneline -3 && cairn task add --file x.json', 'cairn task add --file "/tmp/my dir/a.json"']) {
+      test(`Bash ${JSON.stringify(command)} → deny`, () => {
+        expect(decidePreToolUse(reviewer('Bash', { command }), CTX).decision).toBe('deny');
+      });
+    }
+
+    test('Bash deny reason text is exactly the pre-existing one', () => {
+      expect(denyReason(decidePreToolUse(reviewer('Bash', { command: 'bun test' }), CTX))).toBe(
+        'post-task-reviewer may only run read-only git inspection commands (git diff, git log, git show, git status, git rev-parse), without redirection, command substitution, shell variables/expansion (any `$`), or the --output option (which writes files).'
+      );
+    });
+
+    test('file deny reason text is exactly the pre-existing one', () => {
+      expect(denyReason(decidePreToolUse(reviewer('Write', { file_path: path.join(PROJECT, 'src', 'x.ts'), content: 'x' }), CTX))).toBe(
+        `post-task-reviewer may only Write files inside ${CTX.reviewsDir}.`
+      );
+    });
+
+    test('inspection commands still allowed', () => {
+      expect(decidePreToolUse(reviewer('Bash', { command: 'git log --oneline -3' }), CTX)).toEqual({ decision: 'allow' });
     });
   });
 });

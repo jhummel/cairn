@@ -29,6 +29,7 @@ import type { Writer } from '../cli-io';
  */
 
 export const REVIEWER_AGENT_TYPE = 'post-task-reviewer';
+export const ROUND_REVIEWER_AGENT_TYPE = 'post-round-reviewer';
 
 export interface HookContext {
   projectRoot: string;
@@ -145,14 +146,73 @@ function hasOutputOption(subcommand: string): boolean {
  * survive a strip-then-compare check as `--output{X}=f`, matching neither
  * `--output` nor `--output=`, while the shell still expands `${X}` away and
  * git still writes the file.
+ *
+ * `alsoAllowed` widens the per-subcommand test for an agent type that may run
+ * something besides git inspection. It only ever replaces the prefix match: the
+ * character ban and the `--output` check above it apply to every subcommand
+ * regardless.
  */
-function isInspectionOnly(command: string): boolean {
+function isInspectionOnly(command: string, alsoAllowed?: (subcommand: string) => boolean): boolean {
   if (/[`<>$]/.test(command)) return false;
   const subcommands = splitSubcommands(command);
   if (subcommands.length === 0) return false;
   if (subcommands.some(hasOutputOption)) return false;
   const prefixes = reviewerBashPrefixes();
-  return subcommands.every((cmd) => prefixes.some((p) => cmd === p || cmd.startsWith(`${p} `)));
+  return subcommands.every(
+    (cmd) => prefixes.some((p) => cmd === p || cmd.startsWith(`${p} `)) || (alsoAllowed !== undefined && alsoAllowed(cmd))
+  );
+}
+
+/**
+ * Exactly `cairn task add --file <path>`: one path argument, bare or fully
+ * single- or double-quoted, and nothing after it. Every other `cairn`
+ * invocation fails the match — `task add` without `--file`, `--file=<path>`,
+ * trailing flags or arguments, the other `task` subcommands, `round`, `hook`.
+ * The task's text lives in the JSON file, so it never reaches the command
+ * line, which is why the `$` / backtick / redirection ban can stay in force.
+ */
+const TASK_ADD_FILE_RE = new RegExp(`^${BRAND.name} task add --file (?:[^\\s'"\\\\]+|"[^"\\\\]*"|'[^'\\\\]*')$`);
+
+function isTaskAddFile(subcommand: string): boolean {
+  return TASK_ADD_FILE_RE.test(subcommand);
+}
+
+interface ReviewerScope {
+  agentType: string;
+  /** A subcommand shape allowed in addition to git inspection. */
+  alsoAllowed?: (subcommand: string) => boolean;
+  /** The Bash deny reason's description of what the agent may run. */
+  bashAllowance: () => string;
+}
+
+const REVIEWER_SCOPES: readonly ReviewerScope[] = [
+  {
+    agentType: REVIEWER_AGENT_TYPE,
+    bashAllowance: () => `read-only git inspection commands (${reviewerBashPrefixes().join(', ')})`,
+  },
+  {
+    agentType: ROUND_REVIEWER_AGENT_TYPE,
+    alsoAllowed: isTaskAddFile,
+    bashAllowance: () =>
+      `read-only git inspection commands (${reviewerBashPrefixes().join(', ')}) and \`${BRAND.name} task add --file <path>\` (exactly one path argument, nothing after it)`,
+  },
+];
+
+/** The reviewer scope: Edit/Write only inside the reviews dir, Bash only as the scope allows. */
+function decideReviewerScope(scope: ReviewerScope, input: PreToolUseInput, ctx: HookContext, tool: string, isFileTool: boolean, target: string | null): HookDecision {
+  if (isFileTool) {
+    if (target !== null && isInside(ctx.reviewsDir, target)) return ALLOW;
+    return {
+      decision: 'deny',
+      reason: `${scope.agentType} may only ${tool} files inside ${ctx.reviewsDir}.`,
+    };
+  }
+  const command = toolInput(input).command;
+  if (typeof command === 'string' && isInspectionOnly(command, scope.alsoAllowed)) return ALLOW;
+  return {
+    decision: 'deny',
+    reason: `${scope.agentType} may only run ${scope.bashAllowance()}, without redirection, command substitution, shell variables/expansion (any \`$\`), or the --output option (which writes files).`,
+  };
 }
 
 /** Pure containment policy. */
@@ -170,22 +230,10 @@ export function decidePreToolUse(input: PreToolUseInput, ctx: HookContext): Hook
     };
   }
 
-  // Rule 2: the post-task reviewer writes only its reviews and runs only git inspection.
-  if (input.agent_type === REVIEWER_AGENT_TYPE) {
-    if (isFileTool) {
-      if (target !== null && isInside(ctx.reviewsDir, target)) return ALLOW;
-      return {
-        decision: 'deny',
-        reason: `${REVIEWER_AGENT_TYPE} may only ${tool} files inside ${ctx.reviewsDir}.`,
-      };
-    }
-    const command = toolInput(input).command;
-    if (typeof command === 'string' && isInspectionOnly(command)) return ALLOW;
-    return {
-      decision: 'deny',
-      reason: `${REVIEWER_AGENT_TYPE} may only run read-only git inspection commands (${reviewerBashPrefixes().join(', ')}), without redirection, command substitution, shell variables/expansion (any \`$\`), or the --output option (which writes files).`,
-    };
-  }
+  // Rule 2: a reviewer writes only inside the reviews dir and runs only git
+  // inspection — plus, for the post-round reviewer, `cairn task add --file <path>`.
+  const scope = REVIEWER_SCOPES.find((s) => s.agentType === input.agent_type);
+  if (scope !== undefined) return decideReviewerScope(scope, input, ctx, tool, isFileTool, target);
 
   return ALLOW;
 }
