@@ -1517,6 +1517,27 @@ describe('installSlashCommands', () => {
     }
   });
 
+  test('cairn-run.md teaches the post-round review, in source and in a temp-dir install', () => {
+    const repoRoot = path.join(__dirname, '..', '..');
+    const content = fs.readFileSync(path.join(repoRoot, 'commands', 'cairn-run.md'), 'utf8');
+    for (const needle of [
+      'round-review',
+      'post-round-reviewer',
+      'cairn round review-settle',
+      'round-review-settled',
+      'round-review-failed',
+      'no-round-review',
+      'unresolved',
+      'roundReviewFailed',
+    ]) {
+      expect(content).toContain(needle);
+    }
+    installSlashCommands(tmpDir, repoRoot);
+    const installed = fs.readFileSync(path.join(tmpDir, '.claude', 'commands', 'cairn-run.md'), 'utf8');
+    expect(installed).toContain('post-round-reviewer');
+    expect(installed).toContain('cairn round review-settle');
+  });
+
   test("cairn-run.md relaunches retries from the verdict's promptFile and model, not remembered values", () => {
     const repoRoot = path.join(__dirname, '..', '..');
     const content = fs.readFileSync(path.join(repoRoot, 'commands', 'cairn-run.md'), 'utf8');
