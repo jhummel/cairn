@@ -5,7 +5,7 @@ import type { AgentInfo, CairnConfig, Task } from '../types';
 import { loadCompletedIds, selectNextTask, buildIterationPrompt, resolveTaskModel } from '../task-selector';
 import { runHealthCheck as defaultRunHealthCheck, type HealthCheckOpts, type HealthCheckResult } from '../health-check';
 import { readTasksFile, mutateTasksFile } from '../tasks-file';
-import { captureGitSha as defaultCaptureGitSha } from '../post-task-reviewer';
+import { captureGitSha as defaultCaptureGitSha, resolveReviewFilePath } from '../post-task-reviewer';
 import { fileRunStateStore, upsertAttemptRecord, orphanedAttemptKeys, pruneOrphanedAttempts, type RunStateStore } from '../run-state';
 import {
   reviewPromptFilePath,
@@ -23,7 +23,17 @@ import {
 export { taskPromptFilePath };
 import { validateTaskTests as defaultValidateTaskTests, type ValidateTaskTestsOpts } from '../test-validator';
 import { archiveCompletedTasks as defaultArchiveCompletedTasks } from '../task-archiver';
-import { loadConfig, autoDetectHealthCheck } from '../config';
+import { loadConfig, autoDetectHealthCheck, isPostRoundReviewEnabled } from '../config';
+import {
+  readRoundReview,
+  advanceRoundReview,
+  decideRoundReview,
+  snapshotReviewFile,
+  roundReviewSnapshotPath,
+  writeRoundReviewPromptFile,
+  countUnresolvedInFile,
+  cleanupRoundReviewScratch,
+} from '../round-review';
 import { buildSystemPrompt } from './run';
 import { hookErrorLogPath } from './hook';
 import { sweepRoundTempFiles, defaultSweepDeps } from '../temp-sweep';
@@ -35,11 +45,18 @@ import { defaultStdout, defaultStderr, type Writer } from '../cli-io';
  * `cairn round next` — the pick step of `/cairn-run`. Decides what the run
  * agent does next and writes everything the task agent needs to a prompt
  * file, so the run agent never reads tasks.json itself.
+ *
+ * Verdicts: `review` (a per-task review left open), `round-review` (a
+ * post-round review pass, `triage` or `closing`, for the post-round-reviewer
+ * agent), `task`, or `round-done`. `round-done` carries `unresolved`, the
+ * number of review sections the round review left open, and
+ * `roundReviewFailed` when the round review failed its append-only check.
  */
 
 export type RoundNextResult = (
   | { verdict: 'review'; taskId: number; reviewPromptFile: string; next: string }
-  | { verdict: 'round-done'; blocked: number; next: string }
+  | { verdict: 'round-review'; pass: 'triage' | 'closing'; promptFile: string; next: string }
+  | { verdict: 'round-done'; blocked: number; unresolved: number; roundReviewFailed?: true; next: string }
   | { verdict: 'task'; taskId: number; title: string; iteration: number; model: string; promptFile: string; next: string }
 ) & {
   /** Present only when there is something to warn about. */
@@ -86,6 +103,15 @@ export async function roundNext(input: RoundNextInput, deps: RoundNextDeps = {})
   return warnings.length > 0 ? { ...result, warnings } : result;
 }
 
+function roundReviewVerdict(pass: 'triage' | 'closing', promptFile: string): RoundNextResult {
+  return {
+    verdict: 'round-review',
+    pass,
+    promptFile,
+    next: `Launch the Agent tool with subagent_type 'post-round-reviewer' and prompt 'Read ${promptFile} and follow it', then run: ${BRAND.name} round review-settle`,
+  };
+}
+
 async function pickNext(input: RoundNextInput, deps: RoundNextDeps): Promise<RoundNextResult> {
   const { projectRoot, dataDir, config, agents } = input;
   const store = deps.runState ?? fileRunStateStore;
@@ -107,7 +133,24 @@ async function pickNext(input: RoundNextInput, deps: RoundNextDeps): Promise<Rou
     return reviewVerdict(taskId, reviewPromptFile);
   }
 
-  // 2. Select. A tasks.json that repair and snapshot recovery cannot read
+  // 2. A round-review pass that was handed out and never settled (crash,
+  // compaction) is handed out again before any task is selected, so fix tasks
+  // never run before triage has settled. The existing snapshot is kept:
+  // re-snapshotting would bless whatever the interrupted agent already wrote.
+  const enabled = isPostRoundReviewEnabled(config);
+  const rr = readRoundReview(dataDir);
+  const { reviewFilePath } = resolveReviewFilePath(projectRoot, dataDir);
+  const reviewFileExists = fs.existsSync(reviewFilePath);
+  const pendingPass = decideRoundReview({ enabled, phase: rr.phase, reviewFileExists, readyTasksRemain: true });
+  if (pendingPass === 'triage' || pendingPass === 'closing') {
+    if (reviewFileExists && !fs.existsSync(roundReviewSnapshotPath(dataDir))) {
+      snapshotReviewFile(dataDir, reviewFilePath);
+    }
+    const promptFile = writeRoundReviewPromptFile({ pass: pendingPass, projectRoot, dataDir, record: rr });
+    return roundReviewVerdict(pendingPass, promptFile);
+  }
+
+  // 3. Select. A tasks.json that repair and snapshot recovery cannot read
   // throws TasksFileError.
   const tasks: Task[] = readTasksFile(path.join(dataDir, 'tasks.json'), { dataDir }).data.tasks ?? [];
   const task = selectNextTask(tasks, loadCompletedIds(dataDir));
@@ -119,29 +162,50 @@ async function pickNext(input: RoundNextInput, deps: RoundNextDeps): Promise<Rou
     if (orphanedAttemptKeys(state, liveTaskIds).length > 0) {
       store.update(dataDir, (s) => pruneOrphanedAttempts(s, liveTaskIds));
     }
+    // A fresh round-review pass: no health check, no iteration bump, no sweep
+    // (the round is not over). Snapshot and prompt come before the phase
+    // advance, so the snapshot is always fresh when the phase changes.
+    const pass = decideRoundReview({ enabled, phase: rr.phase, reviewFileExists, readyTasksRemain: false });
+    if (pass === 'triage' || pass === 'closing') {
+      snapshotReviewFile(dataDir, reviewFilePath);
+      const promptFile = writeRoundReviewPromptFile({ pass, projectRoot, dataDir, record: rr });
+      if (pass === 'triage') advanceRoundReview(dataDir, 'triage', { baselineTaskIds: tasks.map((t) => t.id) });
+      else advanceRoundReview(dataDir, 'closing');
+      return roundReviewVerdict(pass, promptFile);
+    }
+
     const blocked = tasks.filter((t) => t.status === 'blocked').length;
+    // Neither of these throws: an unreadable review file counts as 0.
+    const unresolved = countUnresolvedInFile(reviewFilePath);
+    cleanupRoundReviewScratch(dataDir);
+    const roundReviewFailed = rr.phase === 'failed';
     // Round-scoped scratch (prompt/review-prompt/tests-log/notes files, plus
     // the flat complete/prev-notes/completed-ids files) is swept only here,
     // at round end — never per-task. See sweepRoundTempFiles.
     const sweepDeps = defaultSweepDeps();
     if (deps.sweepReadFileSync) sweepDeps.readFileSync = deps.sweepReadFileSync;
     sweepRoundTempFiles(dataDir, sweepDeps);
+    const summary = [
+      blocked > 0 ? `No ready tasks remain; ${blocked} blocked task(s) need attention` : 'All tasks are done',
+      ...(unresolved > 0 ? [`${unresolved} round-review item(s) left UNRESOLVED in the review file`] : []),
+      ...(roundReviewFailed ? ['the round review failed its append-only check'] : []),
+    ].join('; ');
     return {
       verdict: 'round-done',
       blocked,
-      next: blocked > 0
-        ? `No ready tasks remain; ${blocked} blocked task(s) need attention. Send a notification summarizing the round, then stop.`
-        : 'All tasks are done. Send a notification summarizing the round, then stop.',
+      unresolved,
+      ...(roundReviewFailed ? { roundReviewFailed: true as const } : {}),
+      next: `${summary}. Send a notification summarizing the round, then stop.`,
     };
   }
 
   const taskDir = task.directory ?? '';
   fs.mkdirSync(taskDir ? path.join(projectRoot, taskDir) : projectRoot, { recursive: true });
 
-  // 3. Health check — no run-state lock held while it runs.
+  // 4. Health check — no run-state lock held while it runs.
   const healthResult = await (deps.runHealthCheck ?? defaultRunHealthCheck)({ healthCheck: config.healthCheck, projectRoot });
 
-  // 4–5. Attempt record, iteration, and orphan prune, in one short locked update. A re-pick
+  // 5–6. Attempt record, iteration, and orphan prune, in one short locked update. A re-pick
   // keeps the first attempt's beforeSha so the review covers every attempt.
   // HEAD is captured outside the lock, unconditionally — whether a record
   // exists is decided under the lock, not from the entry read above.
@@ -154,7 +218,7 @@ async function pickNext(input: RoundNextInput, deps: RoundNextDeps): Promise<Rou
     return next;
   });
 
-  // 6. Prompt file. A round has no iteration cap, so "of N" is the iteration
+  // 7. Prompt file. A round has no iteration cap, so "of N" is the iteration
   // the round would end on if every remaining task took one attempt.
   const totalRemaining = tasks.filter((t) => t.status === 'pending' || t.status === 'in-progress').length;
   const maxIterations = iteration + Math.max(totalRemaining, 1) - 1;
@@ -175,7 +239,7 @@ async function pickNext(input: RoundNextInput, deps: RoundNextDeps): Promise<Rou
   const promptFile = taskPromptFilePath(dataDir, task.id);
   fs.writeFileSync(promptFile, `${systemPrompt}\n\n---\n\n${iterPrompt}\n`);
 
-  // 7. Hand off.
+  // 8. Hand off.
   const model = resolveTaskModel(task, agents);
   return {
     verdict: 'task',
@@ -421,7 +485,7 @@ export function registerRoundCommands(program: Command): void {
 
   round
     .command('next')
-    .description('Pick the next round step: a pending review, a task to run, or round-done')
+    .description('Pick the next round step: a pending review, a round-review pass, a task to run, or round-done')
     .action(async () => {
       const { projectRoot, dataDir, config, agents } = loadRoundContext();
       const code = await roundNextCommand({ projectRoot, dataDir, config, agents });

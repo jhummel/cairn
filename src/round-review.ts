@@ -297,6 +297,15 @@ export function countUnresolved(reviewText: string): number {
   return count;
 }
 
+/** countUnresolved for the file at `reviewFilePath`; 0 when it cannot be read. Never throws. */
+export function countUnresolvedInFile(reviewFilePath: string): number {
+  try {
+    return countUnresolved(fs.readFileSync(reviewFilePath, 'utf8'));
+  } catch {
+    return 0;
+  }
+}
+
 const BLOCK_FORMAT = [
   '```',
   TRIAGE_HEADING,

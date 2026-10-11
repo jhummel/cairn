@@ -12,6 +12,7 @@ import { TasksFileError } from '../../src/tasks-file';
 import { FileLockError } from '../../src/file-lock';
 import type { ValidationResult } from '../../src/test-validator';
 import type { AgentInfo, CairnConfig, Task } from '../../src/types';
+import { advanceRoundReview } from '../../src/round-review';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -218,6 +219,8 @@ describe('roundNext', () => {
       expect(result.verdict).toBe('round-done');
       if (result.verdict !== 'round-done') throw new Error('unreachable');
       expect(result.blocked).toBe(2);
+      expect(result.unresolved).toBe(0);
+      expect('roundReviewFailed' in result).toBe(false);
       expect(result.next).toMatch(/notification/i);
       expect(result.next).toMatch(/stop/i);
       expect(h.healthCalls).toHaveLength(0);
@@ -227,7 +230,7 @@ describe('roundNext', () => {
     test('an empty task list is round-done with zero blocked', async () => {
       writeTasks([]);
       const result = await roundNext(input(), makeHarness().deps);
-      expect(result).toMatchObject({ verdict: 'round-done', blocked: 0 });
+      expect(result).toMatchObject({ verdict: 'round-done', blocked: 0, unresolved: 0 });
     });
 
     test('an unreadable tasks.json with no snapshot throws', async () => {
@@ -319,7 +322,7 @@ describe('roundNext', () => {
 
       expect(code).toBe(0);
       expect(stderr.lines).toHaveLength(0);
-      expect(JSON.parse(stdout.lines[0])).toMatchObject({ verdict: 'round-done', blocked: 0 });
+      expect(JSON.parse(stdout.lines[0])).toMatchObject({ verdict: 'round-done', blocked: 0, unresolved: 0 });
       for (const name of logs) expect(fs.existsSync(path.join(dataDir, name))).toBe(true);
       for (const name of other) expect(fs.existsSync(path.join(dataDir, name))).toBe(false);
     });
@@ -356,7 +359,10 @@ describe('roundNext', () => {
       fs.mkdirSync(path.join(dataDir, 'reviews'));
       fs.writeFileSync(path.join(dataDir, 'reviews', 'round-1.md'), 'keep');
 
-      const result = await roundNext(input(), makeHarness().deps);
+      // postRound off: with it on, this review file would start a triage pass
+      // instead of ending the round.
+      const config = makeConfig({ review: { postTask: true, postRound: false } });
+      const result = await roundNext(input({ config }), makeHarness().deps);
 
       expect(result).toMatchObject({ verdict: 'round-done' });
       for (const name of protectedNames) {
@@ -365,6 +371,339 @@ describe('roundNext', () => {
       expect(fs.existsSync(path.join(dataDir, 'reviews', 'round-1.md'))).toBe(true);
       // tasks.json itself must survive too — writeTasks([]) created it above.
       expect(fs.existsSync(path.join(dataDir, 'tasks.json'))).toBe(true);
+    });
+  });
+
+  describe('round review', () => {
+    const reviewFile = () => path.join(dataDir, 'reviews', 'round-1.md');
+    const promptFile = () => path.join(dataDir, '.cairn_round_review_prompt.md');
+    const snapshotFile = () => path.join(dataDir, '.cairn_round_review_snapshot.md');
+    const fixJson = (n: number) => path.join(dataDir, 'reviews', `.cairn_round_review_fix_${n}.json`);
+    const section = (id: number, extra = '') =>
+      `## Task #${id}: Title ${id}\nReviewed: 2026-10-01T00:00:00Z\n### Verdict\nHAS_GAPS\n${extra}---\n`;
+    const writeReview = (text: string = section(1)) => {
+      fs.mkdirSync(path.dirname(reviewFile()), { recursive: true });
+      fs.writeFileSync(reviewFile(), text);
+    };
+    const storedReview = () => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(dataDir, 'state.json'), 'utf8')).roundReview;
+      } catch {
+        return undefined;
+      }
+    };
+    const reviewNext = (file: string) =>
+      `Launch the Agent tool with subagent_type 'post-round-reviewer' and prompt 'Read ${file} and follow it', then run: cairn round review-settle`;
+
+    for (const [label, config] of [
+      ['absent', makeConfig()],
+      ['true', makeConfig({ review: { postTask: true, postRound: true } })],
+    ] as const) {
+      test(`review.postRound ${label}: a review file and no ready task hands out triage`, async () => {
+        writeTasks([]);
+        writeReview();
+        const scratch = ['.cairn_task_1_prompt.md', '.cairn_task_1_tests.log', '.cairn_complete'];
+        for (const name of scratch) fs.writeFileSync(path.join(dataDir, name), 'scratch');
+        const h = makeHarness();
+
+        const result = await roundNext(input({ config }), h.deps);
+
+        expect(result).toEqual({
+          verdict: 'round-review',
+          pass: 'triage',
+          promptFile: promptFile(),
+          next: reviewNext(promptFile()),
+        });
+        expect(fs.readFileSync(promptFile(), 'utf8')).toContain('TRIAGE pass');
+        expect(fs.readFileSync(snapshotFile(), 'utf8')).toBe(section(1));
+        expect(storedReview()).toEqual({ round: 1, phase: 'triage', baselineTaskIds: [], fixTaskIds: [] });
+        for (const name of scratch) expect(fs.existsSync(path.join(dataDir, name))).toBe(true);
+        expect(h.healthCalls).toHaveLength(0);
+        expect(readRunState(dataDir).iteration).toBe(0);
+      });
+    }
+
+    test('a fresh triage overwrites a stale snapshot', async () => {
+      writeTasks([]);
+      writeReview();
+      fs.writeFileSync(snapshotFile(), 'stale');
+
+      await roundNext(input(), makeHarness().deps);
+
+      expect(fs.readFileSync(snapshotFile(), 'utf8')).toBe(section(1));
+    });
+
+    test('an unsettled triage is handed out again with its original snapshot', async () => {
+      writeTasks([]);
+      writeReview();
+      const h = makeHarness();
+      await roundNext(input(), h.deps);
+      fs.appendFileSync(reviewFile(), 'written by the interrupted agent\n');
+      fs.unlinkSync(promptFile());
+
+      const second = await roundNext(input(), h.deps);
+
+      expect(second).toMatchObject({ verdict: 'round-review', pass: 'triage', promptFile: promptFile() });
+      expect(fs.readFileSync(snapshotFile(), 'utf8')).toBe(section(1));
+      expect(fs.existsSync(promptFile())).toBe(true);
+      expect(storedReview().phase).toBe('triage');
+    });
+
+    test('a pending pass with a missing snapshot takes a new one', async () => {
+      writeTasks([]);
+      writeReview();
+      advanceRoundReview(dataDir, 'triage');
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'round-review', pass: 'triage' });
+      expect(fs.readFileSync(snapshotFile(), 'utf8')).toBe(section(1));
+    });
+
+    test('a pending triage is returned even when a ready task exists', async () => {
+      writeTasks([makeTask({ id: 7 })]);
+      writeReview();
+      advanceRoundReview(dataDir, 'triage', { baselineTaskIds: [] });
+      const h = makeHarness();
+
+      const result = await roundNext(input(), h.deps);
+
+      expect(result).toMatchObject({ verdict: 'round-review', pass: 'triage' });
+      expect(h.healthCalls).toHaveLength(0);
+      expect(readRunState(dataDir).attempts['7']).toBeUndefined();
+      expect(fs.existsSync(path.join(dataDir, '.cairn_task_7_prompt.md'))).toBe(false);
+    });
+
+    test('a pending closing is returned even when a ready task exists', async () => {
+      writeTasks([makeTask({ id: 7 })]);
+      writeReview();
+      advanceRoundReview(dataDir, 'closing');
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'round-review', pass: 'closing', next: reviewNext(promptFile()) });
+      expect(fs.readFileSync(promptFile(), 'utf8')).toContain('CLOSING pass');
+    });
+
+    test('a ready task wins over a fresh triage', async () => {
+      writeTasks([makeTask({ id: 7 })]);
+      writeReview();
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'task', taskId: 7 });
+      expect(storedReview()).toBeUndefined();
+      expect(fs.existsSync(snapshotFile())).toBe(false);
+    });
+
+    test('phase fixing with a ready task is an ordinary task verdict', async () => {
+      writeTasks([makeTask({ id: 7 })]);
+      writeReview();
+      advanceRoundReview(dataDir, 'fixing', { fixTaskIds: [7] });
+      const h = makeHarness();
+
+      const result = await roundNext(input(), h.deps);
+
+      expect(result).toMatchObject({ verdict: 'task', taskId: 7, iteration: 1 });
+      expect(h.healthCalls).toHaveLength(1);
+      expect(storedReview().phase).toBe('fixing');
+    });
+
+    test('phase fixing with no ready task hands out closing', async () => {
+      writeTasks([makeTask({ id: 7, status: 'blocked' })]);
+      writeReview();
+      advanceRoundReview(dataDir, 'fixing', { baselineTaskIds: [3], fixTaskIds: [7] });
+      fs.writeFileSync(path.join(dataDir, '.cairn_task_7_prompt.md'), 'scratch');
+      const h = makeHarness();
+
+      const result = await roundNext(input(), h.deps);
+
+      expect(result).toEqual({
+        verdict: 'round-review',
+        pass: 'closing',
+        promptFile: promptFile(),
+        next: reviewNext(promptFile()),
+      });
+      const prompt = fs.readFileSync(promptFile(), 'utf8');
+      expect(prompt).toContain('CLOSING pass');
+      expect(prompt).toContain('#7: Task seven');
+      expect(fs.readFileSync(snapshotFile(), 'utf8')).toBe(section(1));
+      expect(storedReview()).toEqual({ round: 1, phase: 'closing', baselineTaskIds: [3], fixTaskIds: [7] });
+      expect(fs.existsSync(path.join(dataDir, '.cairn_task_7_prompt.md'))).toBe(true);
+      expect(h.healthCalls).toHaveLength(0);
+    });
+
+    test('phase done is round-done with the unresolved count and no round-review scratch', async () => {
+      writeTasks([makeTask({ id: 1, status: 'blocked' })]);
+      writeReview(
+        section(1, '### Round Triage\n1. x\n\n### Round Verdict\nUNRESOLVED\n') +
+          section(2, '### Round Triage\n1. y\n') +
+          section(3, '### Round Triage\n1. z\n\n### Round Verdict\nRESOLVED\n') +
+          section(4)
+      );
+      advanceRoundReview(dataDir, 'done');
+      for (const p of [promptFile(), snapshotFile(), fixJson(1), fixJson(2)]) fs.writeFileSync(p, 'scratch');
+      fs.writeFileSync(path.join(dataDir, '.cairn_task_1_prompt.md'), 'scratch');
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result.verdict).toBe('round-done');
+      if (result.verdict !== 'round-done') throw new Error('unreachable');
+      expect(result.blocked).toBe(1);
+      expect(result.unresolved).toBe(2);
+      expect('roundReviewFailed' in result).toBe(false);
+      expect(result.next).toContain('1 blocked task(s)');
+      expect(result.next).toContain('2 round-review item(s) left UNRESOLVED');
+      expect(result.next).toMatch(/notification.*stop\.$/i);
+      for (const p of [promptFile(), snapshotFile(), fixJson(1), fixJson(2)]) expect(fs.existsSync(p)).toBe(false);
+      expect(fs.existsSync(path.join(dataDir, '.cairn_task_1_prompt.md'))).toBe(false);
+      expect(fs.existsSync(reviewFile())).toBe(true);
+      expect(storedReview().phase).toBe('done');
+    });
+
+    test('phase done with nothing unresolved keeps the plain wording', async () => {
+      writeTasks([]);
+      writeReview();
+      advanceRoundReview(dataDir, 'done');
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toEqual({
+        verdict: 'round-done',
+        blocked: 0,
+        unresolved: 0,
+        next: 'All tasks are done. Send a notification summarizing the round, then stop.',
+      });
+    });
+
+    test('phase failed is round-done with roundReviewFailed', async () => {
+      writeTasks([]);
+      writeReview();
+      advanceRoundReview(dataDir, 'failed');
+      fs.writeFileSync(snapshotFile(), 'scratch');
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'round-done', blocked: 0, unresolved: 0, roundReviewFailed: true });
+      if (result.verdict !== 'round-done') throw new Error('unreachable');
+      expect(result.next).toContain('append-only check');
+      expect(result.next).toMatch(/notification.*stop\.$/i);
+      expect(fs.existsSync(snapshotFile())).toBe(false);
+    });
+
+    test('review.postRound false is round-done as before, with no state written', async () => {
+      writeTasks([]);
+      writeReview(section(1, '### Round Triage\n1. x\n'));
+      fs.writeFileSync(path.join(dataDir, '.cairn_task_1_prompt.md'), 'scratch');
+
+      const result = await roundNext(input({ config: makeConfig({ review: { postTask: true, postRound: false } }) }), makeHarness().deps);
+
+      expect(result).toEqual({
+        verdict: 'round-done',
+        blocked: 0,
+        unresolved: 1,
+        next: 'All tasks are done; 1 round-review item(s) left UNRESOLVED in the review file. Send a notification summarizing the round, then stop.',
+      });
+      expect(fs.existsSync(path.join(dataDir, 'state.json'))).toBe(false);
+      expect(fs.existsSync(promptFile())).toBe(false);
+      expect(fs.existsSync(snapshotFile())).toBe(false);
+      expect(fs.existsSync(path.join(dataDir, '.cairn_task_1_prompt.md'))).toBe(false);
+    });
+
+    test('review.postRound false ignores a pending pass left in state.json', async () => {
+      writeTasks([makeTask({ id: 7 })]);
+      writeReview();
+      advanceRoundReview(dataDir, 'triage');
+
+      const result = await roundNext(input({ config: makeConfig({ review: { postTask: true, postRound: false } }) }), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'task', taskId: 7 });
+    });
+
+    test('no review file is round-done and the phase stays none', async () => {
+      writeTasks([]);
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toEqual({
+        verdict: 'round-done',
+        blocked: 0,
+        unresolved: 0,
+        next: 'All tasks are done. Send a notification summarizing the round, then stop.',
+      });
+      expect(storedReview()).toBeUndefined();
+      expect(fs.existsSync(promptFile())).toBe(false);
+    });
+
+    test('only blocked tasks remaining plus a review file hands out triage with those ids as the baseline', async () => {
+      writeTasks([
+        makeTask({ id: 4, status: 'blocked' }),
+        makeTask({ id: 5, status: 'pending', dependencies: [4] }),
+      ]);
+      writeReview();
+      fs.writeFileSync(path.join(dataDir, '.cairn_task_4_tests.log'), 'log');
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'round-review', pass: 'triage' });
+      expect(storedReview()).toEqual({ round: 1, phase: 'triage', baselineTaskIds: [4, 5], fixTaskIds: [] });
+      expect(fs.existsSync(path.join(dataDir, '.cairn_task_4_tests.log'))).toBe(true);
+    });
+
+    test('the review file of the current round is the one used', async () => {
+      fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 9, round: 3 }));
+      writeTasks([]);
+      writeReview(); // round-1.md only
+      expect(await roundNext(input(), makeHarness().deps)).toMatchObject({ verdict: 'round-done', unresolved: 0 });
+
+      fs.writeFileSync(path.join(dataDir, 'reviews', 'round-3.md'), section(2));
+      expect(await roundNext(input(), makeHarness().deps)).toMatchObject({ verdict: 'round-review', pass: 'triage' });
+      expect(storedReview()).toMatchObject({ round: 3, phase: 'triage' });
+    });
+
+    test('a pending per-task review wins over a pending round-review pass', async () => {
+      writeTasks([]);
+      writeReview();
+      advanceRoundReview(dataDir, 'triage');
+      updateRunState(dataDir, (state) => {
+        state.attempts['3'] = { ...newAttemptRecord('sha-before', 1), phase: 'awaiting-review' };
+      });
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'review', taskId: 3 });
+      expect(fs.existsSync(promptFile())).toBe(false);
+    });
+
+    test('an executing orphan is still pruned when a round-review pass is handed out', async () => {
+      writeTasks([]);
+      writeReview();
+      updateRunState(dataDir, (state) => {
+        state.iteration = 5;
+        state.attempts['99'] = newAttemptRecord('orphan-sha', 5);
+      });
+
+      const result = await roundNext(input(), makeHarness().deps);
+
+      expect(result).toMatchObject({ verdict: 'round-review', pass: 'triage' });
+      expect(readRunState(dataDir).attempts['99']).toBeUndefined();
+      expect(readRunState(dataDir).iteration).toBe(5);
+    });
+
+    test('roundNextCommand prints the round-review verdict with warnings and exits 0', async () => {
+      writeTasks([]);
+      writeReview();
+      fs.writeFileSync(path.join(dataDir, '.cairn_hook_errors.log'), 'one line\n');
+      const stdout = makeWriter();
+      const stderr = makeWriter();
+
+      const code = await roundNextCommand({ ...input(), stdout, stderr }, makeHarness().deps);
+
+      expect(code).toBe(0);
+      expect(stderr.lines).toHaveLength(0);
+      const parsed = JSON.parse(stdout.lines[0]);
+      expect(parsed).toMatchObject({ verdict: 'round-review', pass: 'triage' });
+      expect(parsed.warnings).toHaveLength(1);
     });
   });
 
