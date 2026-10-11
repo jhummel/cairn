@@ -11,7 +11,14 @@ import {
   roundReviewSnapshotPath,
   roundReviewRejectedPath,
   fixTaskFilePath,
+  ROUND_REVIEW_STATE_KEY,
+  readRoundReview,
+  advanceRoundReview,
+  decideRoundReview,
+  type RoundReviewPhase,
+  type RoundReviewRecord,
 } from '../src/round-review';
+import { bumpRound } from '../src/task-counter';
 
 describe('isAppendOnly', () => {
   const snap = '# R\n\n---\n\nblock A\n\n---\n';
@@ -114,5 +121,242 @@ describe('verifyAppendOnly / cleanup', () => {
     expect(() => cleanupRoundReviewScratch(empty)).not.toThrow();
     fs.rmSync(empty, { recursive: true });
     expect(() => cleanupRoundReviewScratch(empty)).not.toThrow();
+  });
+});
+
+describe('round-review phase tracking', () => {
+  let dataDir: string;
+  const statePath = () => path.join(dataDir, 'state.json');
+  const rawState = (): Record<string, unknown> => JSON.parse(fs.readFileSync(statePath(), 'utf8'));
+  const writeState = (s: unknown) => fs.writeFileSync(statePath(), JSON.stringify(s));
+  const none = (round: number): RoundReviewRecord => ({
+    round,
+    phase: 'none',
+    baselineTaskIds: [],
+    fixTaskIds: [],
+  });
+
+  beforeEach(() => {
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-rr-phase-'));
+    writeState({ nextTaskId: 10, round: 4 });
+  });
+  afterEach(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+
+  test('state key constant', () => expect(ROUND_REVIEW_STATE_KEY).toBe('roundReview'));
+
+  describe('readRoundReview', () => {
+    test('absent record → none for the current round', () => {
+      expect(readRoundReview(dataDir)).toEqual(none(4));
+    });
+    test('missing state.json → none for round 1, file not created', () => {
+      fs.rmSync(statePath());
+      expect(readRoundReview(dataDir)).toEqual(none(1));
+      expect(fs.existsSync(statePath())).toBe(false);
+    });
+    test('unparseable state.json → none', () => {
+      fs.writeFileSync(statePath(), '{ nope');
+      expect(readRoundReview(dataDir)).toEqual(none(1));
+    });
+    const malformed: Array<[string, unknown]> = [
+      ['string', 'triage'],
+      ['null', null],
+      ['array', []],
+      ['number', 3],
+      ['unknown phase', { round: 4, phase: 'bogus', baselineTaskIds: [], fixTaskIds: [] }],
+      ['stored none phase', { round: 4, phase: 'none', baselineTaskIds: [], fixTaskIds: [] }],
+      ['missing phase', { round: 4, baselineTaskIds: [], fixTaskIds: [] }],
+      ['non-numeric round', { round: '4', phase: 'triage', baselineTaskIds: [], fixTaskIds: [] }],
+      ['missing round', { phase: 'triage', baselineTaskIds: [], fixTaskIds: [] }],
+      ['non-array baseline', { round: 4, phase: 'triage', baselineTaskIds: 'x', fixTaskIds: [] }],
+      ['missing fixTaskIds', { round: 4, phase: 'triage', baselineTaskIds: [] }],
+      ['non-number ids', { round: 4, phase: 'triage', baselineTaskIds: ['1'], fixTaskIds: [] }],
+    ];
+    for (const [name, value] of malformed) {
+      test(`malformed (${name}) → none`, () => {
+        writeState({ round: 4, roundReview: value });
+        expect(readRoundReview(dataDir)).toEqual(none(4));
+      });
+    }
+    test('record from another round → none', () => {
+      writeState({
+        round: 4,
+        roundReview: { round: 3, phase: 'fixing', baselineTaskIds: [1], fixTaskIds: [2] },
+      });
+      expect(readRoundReview(dataDir)).toEqual(none(4));
+    });
+    test('valid record for the current round is returned', () => {
+      const rec = { round: 4, phase: 'fixing', baselineTaskIds: [1, 2], fixTaskIds: [9] };
+      writeState({ round: 4, roundReview: rec });
+      expect(readRoundReview(dataDir)).toEqual(rec as RoundReviewRecord);
+    });
+  });
+
+  describe('advanceRoundReview', () => {
+    type Stored = Exclude<RoundReviewPhase, 'none'>;
+    const rank: Record<RoundReviewPhase, number> = {
+      none: 0,
+      triage: 1,
+      fixing: 2,
+      closing: 3,
+      done: 4,
+      failed: 4,
+    };
+    const stored: Stored[] = ['triage', 'fixing', 'closing', 'done', 'failed'];
+    const all: RoundReviewPhase[] = ['none', ...stored];
+    const seed = (phase: RoundReviewPhase) => {
+      if (phase === 'none') return;
+      writeState({
+        nextTaskId: 10,
+        round: 4,
+        roundReview: { round: 4, phase, baselineTaskIds: [1], fixTaskIds: [2] },
+      });
+    };
+
+    for (const from of all) {
+      for (const to of stored) {
+        const forward = rank[to] > rank[from];
+        test(`${from} → ${to} ${forward ? 'advances' : 'is a no-op'}`, () => {
+          seed(from);
+          const before = fs.existsSync(statePath()) ? rawState() : null;
+          const out = advanceRoundReview(dataDir, to);
+          if (forward) {
+            const arrays =
+              from === 'none'
+                ? { baselineTaskIds: [], fixTaskIds: [] }
+                : { baselineTaskIds: [1], fixTaskIds: [2] };
+            expect(out).toEqual({ round: 4, phase: to, ...arrays });
+            expect(rawState().roundReview).toEqual({ round: 4, phase: to, ...arrays });
+          } else {
+            expect(out).toEqual({ round: 4, phase: from, baselineTaskIds: [1], fixTaskIds: [2] });
+            expect(rawState()).toEqual(before!);
+          }
+          expect(readRoundReview(dataDir)).toEqual(out);
+        });
+      }
+    }
+
+    test('a no-op ignores its patch', () => {
+      seed('closing');
+      const out = advanceRoundReview(dataDir, 'fixing', { fixTaskIds: [99] });
+      expect(out.fixTaskIds).toEqual([2]);
+      expect(readRoundReview(dataDir).fixTaskIds).toEqual([2]);
+    });
+
+    test('preserves nextTaskId, round and unknown keys', () => {
+      writeState({ nextTaskId: 10, round: 4, other: 'keep' });
+      advanceRoundReview(dataDir, 'triage');
+      expect(rawState()).toEqual({
+        nextTaskId: 10,
+        round: 4,
+        other: 'keep',
+        roundReview: { round: 4, phase: 'triage', baselineTaskIds: [], fixTaskIds: [] },
+      });
+    });
+
+    test('works with no state.json (round 1)', () => {
+      fs.rmSync(statePath());
+      expect(advanceRoundReview(dataDir, 'triage')).toEqual({
+        round: 1,
+        phase: 'triage',
+        baselineTaskIds: [],
+        fixTaskIds: [],
+      });
+      expect(readRoundReview(dataDir).phase).toBe('triage');
+    });
+
+    test('patch arrays are stored and survive a later advance without a patch', () => {
+      advanceRoundReview(dataDir, 'triage', { baselineTaskIds: [5, 6] });
+      expect(readRoundReview(dataDir)).toEqual({
+        round: 4,
+        phase: 'triage',
+        baselineTaskIds: [5, 6],
+        fixTaskIds: [],
+      });
+      advanceRoundReview(dataDir, 'fixing', { fixTaskIds: [11, 12] });
+      const out = advanceRoundReview(dataDir, 'closing');
+      expect(out).toEqual({
+        round: 4,
+        phase: 'closing',
+        baselineTaskIds: [5, 6],
+        fixTaskIds: [11, 12],
+      });
+      expect(readRoundReview(dataDir)).toEqual(out);
+    });
+
+    test('after bumpRound the old record reads as none and a new triage can be stored', () => {
+      advanceRoundReview(dataDir, 'done', { baselineTaskIds: [1], fixTaskIds: [2] });
+      expect(bumpRound(dataDir)).toBe(5);
+      expect(readRoundReview(dataDir)).toEqual(none(5));
+      // The old-round record is discarded, not merged.
+      expect(advanceRoundReview(dataDir, 'triage')).toEqual({
+        round: 5,
+        phase: 'triage',
+        baselineTaskIds: [],
+        fixTaskIds: [],
+      });
+      expect(rawState().roundReview).toEqual({
+        round: 5,
+        phase: 'triage',
+        baselineTaskIds: [],
+        fixTaskIds: [],
+      });
+    });
+
+    test('a malformed stored value is treated as none and overwritten', () => {
+      writeState({ round: 4, roundReview: 'garbage' });
+      expect(advanceRoundReview(dataDir, 'fixing').phase).toBe('fixing');
+      expect(readRoundReview(dataDir).phase).toBe('fixing');
+    });
+  });
+});
+
+describe('decideRoundReview', () => {
+  const d = (
+    enabled: boolean,
+    phase: RoundReviewPhase,
+    reviewFileExists: boolean,
+    readyTasksRemain: boolean,
+  ) => decideRoundReview({ enabled, phase, reviewFileExists, readyTasksRemain });
+  const phases: RoundReviewPhase[] = ['none', 'triage', 'fixing', 'closing', 'done', 'failed'];
+
+  test('flag off: task while ready tasks remain, else done — whatever the phase or file', () => {
+    for (const phase of phases) {
+      for (const file of [true, false]) {
+        expect(d(false, phase, file, true)).toBe('task');
+        expect(d(false, phase, file, false)).toBe('done');
+      }
+    }
+  });
+
+  test('pending triage / closing are handed out again, even with ready tasks or no file', () => {
+    for (const file of [true, false]) {
+      for (const ready of [true, false]) {
+        expect(d(true, 'triage', file, ready)).toBe('triage');
+        expect(d(true, 'closing', file, ready)).toBe('closing');
+      }
+    }
+  });
+
+  test('ready tasks run first for none / fixing / done / failed', () => {
+    for (const phase of ['none', 'fixing', 'done', 'failed'] as const) {
+      for (const file of [true, false]) expect(d(true, phase, file, true)).toBe('task');
+    }
+  });
+
+  test('none with no ready tasks: triage if the review file exists, else done', () => {
+    expect(d(true, 'none', true, false)).toBe('triage');
+    expect(d(true, 'none', false, false)).toBe('done');
+  });
+
+  test('fixing with no ready tasks: closing if the review file exists, else done', () => {
+    expect(d(true, 'fixing', true, false)).toBe('closing');
+    expect(d(true, 'fixing', false, false)).toBe('done');
+  });
+
+  test('done / failed → done', () => {
+    for (const file of [true, false]) {
+      expect(d(true, 'done', file, false)).toBe('done');
+      expect(d(true, 'failed', file, false)).toBe('done');
+    }
   });
 });

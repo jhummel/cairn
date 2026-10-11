@@ -195,3 +195,50 @@ export function bumpRound(dataDir: string): number {
     }
   }
 }
+
+/**
+ * Read one top-level value from <dataDir>/state.json. A pure read: it never
+ * creates or mutates the file. Returns `undefined` when the file is missing,
+ * is not a JSON object, or has no such key.
+ */
+export function readStateValue(dataDir: string, key: string): unknown {
+  const existing = readState(path.join(dataDir, 'state.json'));
+  return existing ? existing[key] : undefined;
+}
+
+/**
+ * Atomically replace one top-level value in <dataDir>/state.json. Under the
+ * same state.json.lock and temp-file-rename machinery as reserveTaskIds and
+ * bumpRound: read the state, call `fn` with the value currently stored under
+ * `key` (`undefined` when absent), store what it returns, and return that.
+ * Every other field (nextTaskId, round and any unknown keys) is preserved
+ * exactly; a missing state.json is created holding just `key`. If `fn` throws,
+ * nothing is written. `fn` runs inside the lock, so it must be short and must
+ * not itself take the state.json lock.
+ */
+export function updateStateValue<T>(
+  dataDir: string,
+  key: string,
+  fn: (current: unknown) => T,
+): T {
+  const statePath = path.join(dataDir, 'state.json');
+  const lockPath = `${statePath}.lock`;
+  const fd = acquireLock(lockPath);
+  try {
+    const existing = readState(statePath);
+    const next = fn(existing ? existing[key] : undefined);
+    writeStateAtomic(statePath, { ...(existing ?? {}), [key]: next });
+    return next;
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      // Already closed; ignore.
+    }
+    try {
+      fs.unlinkSync(lockPath);
+    } catch {
+      // Lock already removed (e.g. broken as stale by another writer); ignore.
+    }
+  }
+}

@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { reserveTaskIds, seedNextId, getRound, bumpRound } from '../src/task-counter';
+import {
+  reserveTaskIds,
+  seedNextId,
+  getRound,
+  bumpRound,
+  readStateValue,
+  updateStateValue,
+} from '../src/task-counter';
 
 let dataDir: string;
 
@@ -170,5 +177,77 @@ describe('bumpRound', () => {
   it('sets round: 1 when state.json is missing entirely', () => {
     bumpRound(dataDir);
     expect(readState().round).toBe(1);
+  });
+});
+
+describe('readStateValue / updateStateValue', () => {
+  const statePath = () => path.join(dataDir, 'state.json');
+  const rawState = (): Record<string, unknown> => JSON.parse(fs.readFileSync(statePath(), 'utf-8'));
+
+  it('readStateValue returns undefined for a missing file or key, and never creates the file', () => {
+    expect(readStateValue(dataDir, 'roundReview')).toBeUndefined();
+    expect(fs.existsSync(statePath())).toBe(false);
+    fs.writeFileSync(statePath(), JSON.stringify({ nextTaskId: 3 }));
+    expect(readStateValue(dataDir, 'roundReview')).toBeUndefined();
+    fs.writeFileSync(statePath(), 'not json');
+    expect(readStateValue(dataDir, 'roundReview')).toBeUndefined();
+  });
+
+  it('readStateValue returns the stored value', () => {
+    fs.writeFileSync(statePath(), JSON.stringify({ roundReview: { a: [1, 2] } }));
+    expect(readStateValue(dataDir, 'roundReview')).toEqual({ a: [1, 2] });
+  });
+
+  it('updateStateValue preserves nextTaskId, round and unknown keys', () => {
+    fs.writeFileSync(statePath(), JSON.stringify({ nextTaskId: 42, round: 7, other: { x: 1 } }));
+    const seen: unknown[] = [];
+    const out = updateStateValue(dataDir, 'roundReview', (cur) => {
+      seen.push(cur);
+      return { phase: 'triage' };
+    });
+    expect(out).toEqual({ phase: 'triage' });
+    expect(seen).toEqual([undefined]);
+    expect(rawState()).toEqual({
+      nextTaskId: 42,
+      round: 7,
+      other: { x: 1 },
+      roundReview: { phase: 'triage' },
+    });
+  });
+
+  it('updateStateValue passes the current value to fn and replaces it', () => {
+    fs.writeFileSync(statePath(), JSON.stringify({ counter: 1 }));
+    const out = updateStateValue(dataDir, 'counter', (cur) => (cur as number) + 1);
+    expect(out).toBe(2);
+    expect(readStateValue(dataDir, 'counter')).toBe(2);
+  });
+
+  it('updateStateValue creates a missing state.json holding just that key', () => {
+    updateStateValue(dataDir, 'roundReview', () => 'v');
+    expect(rawState()).toEqual({ roundReview: 'v' });
+  });
+
+  it('releases the lock, also when fn throws', () => {
+    expect(() =>
+      updateStateValue(dataDir, 'k', () => {
+        throw new Error('boom');
+      }),
+    ).toThrow('boom');
+    expect(fs.existsSync(`${statePath()}.lock`)).toBe(false);
+    expect(fs.existsSync(statePath())).toBe(false);
+    updateStateValue(dataDir, 'k', () => 1);
+    expect(fs.existsSync(`${statePath()}.lock`)).toBe(false);
+  });
+
+  it('reserveTaskIds and bumpRound afterwards still preserve the stored key', () => {
+    fs.writeFileSync(statePath(), JSON.stringify({ nextTaskId: 5, round: 2 }));
+    updateStateValue(dataDir, 'roundReview', () => ({ round: 2, phase: 'fixing' }));
+    expect(reserveTaskIds(dataDir, 2)).toEqual([5, 6]);
+    expect(bumpRound(dataDir)).toBe(3);
+    expect(rawState()).toEqual({
+      nextTaskId: 7,
+      round: 3,
+      roundReview: { round: 2, phase: 'fixing' },
+    });
   });
 });
