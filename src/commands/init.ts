@@ -35,6 +35,13 @@ const TEMP_IGNORE_SUFFIXES = [
   'hook_errors.log',
   // The `/teach` running log of the planning session.
   'planning_session.md',
+  // The post-round review's scratch files: `.cairn_round_review_prompt.md`,
+  // `.cairn_round_review_snapshot.md`, `.cairn_round_review_rejected.md` and
+  // `reviews/.cairn_round_review_fix_<n>.json`. The pattern has no slash, so git
+  // matches it at any depth below `.cairn/` (covering the JSON files inside
+  // `reviews/`) while `reviews/round-<N>.md` stays tracked. Cleaned up by
+  // `cleanupRoundReviewScratch`, not by temp-sweep.
+  'round_review_*',
 ] as const;
 
 const GITIGNORE_CURRENT_HEADER =

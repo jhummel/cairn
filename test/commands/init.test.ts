@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+import { spawnSync as nodeSpawnSyncForTest } from 'child_process';
 import { ROUND_VERDICTS } from '../../src/round-review';
 import {
   initCoreFiles,
@@ -92,6 +93,7 @@ describe('initCoreFiles', () => {
       '.cairn_run_state.json.lock',
       '.cairn_hook_errors.log',
       '.cairn_planning_session.md',
+      '.cairn_round_review_*',
       '.ralph_task_*_notes.md',
       'instructions.md',
       'concepts.md',
@@ -163,7 +165,7 @@ describe('initCoreFiles', () => {
     expect(content).toContain('.cairn_task_*_tests.log');
     expect(content).toContain('.cairn_hook_errors.log');
     const output = stdoutLines.join('\n');
-    expect(output).toMatch(/Updated: \.cairn\/\.gitignore \(added 14 entries\)/);
+    expect(output).toMatch(/Updated: \.cairn\/\.gitignore \(added 15 entries\)/);
   });
 
   test('a file that already has every entry mid-file is left unchanged with no output', () => {
@@ -176,6 +178,7 @@ describe('initCoreFiles', () => {
       '# my custom header\n' +
       '.cairn_hook_errors.log\n' +
       '.cairn_planning_session.md\n' +
+      '.cairn_round_review_*\n' +
       'concepts.md\n' +
       '.cairn_run_state.json.lock\n' +
       '.cairn_run_state.json\n' +
@@ -2330,5 +2333,76 @@ describe('runInit', () => {
     const spy: CheckIgnoreFn = () => { called = true; return { status: 1 }; };
     await runInit(tmpDir, dataDir, rl, noopSpawn, spy);
     expect(called).toBe(false);
+  });
+});
+
+// --- round-review scratch files gitignore entry ---
+
+describe('round-review scratch gitignore entry', () => {
+  const ENTRY = '.cairn_round_review_*';
+  const HEADER = '# Added by cairn init (missing entries)';
+  let tmpDir: string;
+  let consoleSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-round-review-ignore-'));
+    consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const lines = (p: string) => fs.readFileSync(p, 'utf8').split('\n').map((l) => l.trim());
+
+  test('a fresh init writes the entry', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    initCoreFiles(tmpDir, dataDir);
+    expect(lines(path.join(dataDir, '.gitignore'))).toContain(ENTRY);
+  });
+
+  test('re-init appends it under the header without reordering or removing lines', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    const gi = path.join(dataDir, '.gitignore');
+    const existing = '# mine\nzzz.txt\n.cairn_complete\naaa.txt\n';
+    fs.writeFileSync(gi, existing);
+    initCoreFiles(tmpDir, dataDir);
+    const content = fs.readFileSync(gi, 'utf8');
+    expect(content.startsWith(existing)).toBe(true);
+    const idxHeader = content.indexOf(HEADER);
+    expect(idxHeader).toBeGreaterThan(-1);
+    expect(content.indexOf(ENTRY)).toBeGreaterThan(idxHeader);
+  });
+
+  test('a file that already has the entry is left untouched', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    initCoreFiles(tmpDir, dataDir);
+    const gi = path.join(dataDir, '.gitignore');
+    const before = fs.readFileSync(gi, 'utf8');
+    initCoreFiles(tmpDir, dataDir);
+    expect(fs.readFileSync(gi, 'utf8')).toBe(before);
+  });
+
+  test('a file with the negated entry is not re-added', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    fs.mkdirSync(dataDir);
+    const gi = path.join(dataDir, '.gitignore');
+    fs.writeFileSync(gi, `# mine\n!${ENTRY}\n`);
+    initCoreFiles(tmpDir, dataDir);
+    const ls = lines(gi);
+    expect(ls).toContain(`!${ENTRY}`);
+    expect(ls).not.toContain(ENTRY);
+  });
+
+  test('git ignores the scratch files but not reviews/round-N.md', () => {
+    const dataDir = path.join(tmpDir, '.cairn');
+    initCoreFiles(tmpDir, dataDir);
+    const initRes = nodeSpawnSyncForTest('git', ['init', '-q'], { cwd: tmpDir });
+    if (initRes.error || initRes.status !== 0) return; // git unavailable
+    expect(isPathGitIgnored(tmpDir, '.cairn/reviews/.cairn_round_review_fix_1.json')).toBe(true);
+    expect(isPathGitIgnored(tmpDir, '.cairn/.cairn_round_review_prompt.md')).toBe(true);
+    expect(isPathGitIgnored(tmpDir, '.cairn/reviews/round-1.md')).toBe(false);
   });
 });
