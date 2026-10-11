@@ -3,6 +3,9 @@ import * as path from 'path';
 import { BRAND } from './brand';
 import { tempFilePath } from './utils';
 import { getRound, readStateValue, updateStateValue } from './task-counter';
+import { resolveReviewFilePath } from './post-task-reviewer';
+import { loadArchivedTask } from './task-archiver';
+import { findTaskCommits } from './settle';
 
 /**
  * Post-round review support, mode-neutral (no Commander, no process.exit).
@@ -239,4 +242,303 @@ export function decideRoundReview(input: {
   if (phase === 'none') return reviewFileExists ? 'triage' : 'done';
   if (phase === 'fixing') return reviewFileExists ? 'closing' : 'done';
   return 'done';
+}
+
+export const ROUND_VERDICTS = ['RESOLVED', 'UNRESOLVED', 'ACCEPTED'] as const;
+export type RoundVerdict = (typeof ROUND_VERDICTS)[number];
+
+const TASK_HEADING_RE = /^## Task #(\d+):/;
+const TRIAGE_HEADING = '### Round Triage';
+const OUTCOME_HEADING = '### Round Outcome';
+const VERDICT_HEADING = '### Round Verdict';
+
+/** Lines of a review file, tolerant of CRLF and trailing whitespace. */
+function reviewLines(text: string): string[] {
+  return text.split('\n').map((line) => line.trimEnd());
+}
+
+/** Ids of the tasks that have a `## Task #<id>:` section, in file order, de-duplicated. */
+export function reviewedTaskIds(reviewText: string): number[] {
+  const ids: number[] = [];
+  for (const line of reviewLines(reviewText)) {
+    const m = TASK_HEADING_RE.exec(line);
+    if (!m) continue;
+    const id = Number(m[1]);
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * How many task sections the round review left open: a `### Round Verdict` of
+ * `UNRESOLVED`, or a `### Round Triage` with no `### Round Verdict` at all (the
+ * round review did not finish for that section). Text before the first task
+ * heading belongs to no section and never counts.
+ */
+export function countUnresolved(reviewText: string): number {
+  const sections: string[][] = [];
+  for (const line of reviewLines(reviewText)) {
+    if (TASK_HEADING_RE.test(line)) sections.push([]);
+    else if (sections.length > 0) sections[sections.length - 1].push(line);
+  }
+  let count = 0;
+  for (const lines of sections) {
+    const hasTriage = lines.includes(TRIAGE_HEADING);
+    let hasVerdict = false;
+    let unresolved = false;
+    lines.forEach((line, i) => {
+      if (line !== VERDICT_HEADING) return;
+      hasVerdict = true;
+      const value = lines.slice(i + 1).find((l) => l.trim() !== '');
+      if (value === 'UNRESOLVED') unresolved = true;
+    });
+    if (unresolved || (hasTriage && !hasVerdict)) count++;
+  }
+  return count;
+}
+
+const BLOCK_FORMAT = [
+  '```',
+  TRIAGE_HEADING,
+  'Reviewed: <ISO 8601 timestamp>',
+  '1. <finding>: still applies. Planned fix (task #<id>): <what>.',
+  '2. <finding>: not fixing, <reason>.',
+  '',
+  OUTCOME_HEADING,
+  'Reviewed: <ISO 8601 timestamp>',
+  '1. Fixed by #<id> (<short sha>). Differs from plan: <difference, if any>.',
+  '',
+  VERDICT_HEADING,
+  'RESOLVED',
+  '```',
+  '',
+  'Round verdicts (the line after `### Round Verdict` is exactly one of these words, nothing else on it):',
+  '- `RESOLVED`: the fix landed, as planned or differently, with any difference stated.',
+  '- `UNRESOLVED`: the fix task is blocked, or its own review raised concerns. Left for the user.',
+  '- `ACCEPTED`: nothing needed fixing.',
+].join('\n');
+
+const APPEND_ONLY_RULE = [
+  'APPEND-ONLY RULE:',
+  '- The review file is a record. You add to it; you never change what is already there.',
+  '- Make every change with the Edit tool, and only insert new lines with the Edit tool: each edit keeps every line that was already in the file, character for character and in the same order, and puts your new lines between them.',
+  "- After you finish, a check run by the CLI compares the file against a copy taken before you started. If any existing line is changed, removed or reordered, the check restores the file and discards all of this pass's work.",
+  '- Your blocks go inside a task section: after the value line under its existing `### Verdict` heading (and after any round blocks already there), before the `---` line that ends the section.',
+].join('\n');
+
+export function buildTriagePrompt(opts: {
+  reviewFilePath: string;
+  dataDir: string;
+  tasks: Array<{ id: number; title: string; directory?: string; tests?: string[] }>;
+}): string {
+  const { reviewFilePath, dataDir, tasks } = opts;
+  const testCommands: string[] = [];
+  for (const t of tasks) {
+    for (const cmd of t.tests ?? []) {
+      if (!testCommands.includes(cmd)) testCommands.push(cmd);
+    }
+  }
+  const taskList = tasks.length
+    ? tasks.map((t) => `- #${t.id}: ${t.title}${t.directory ? ` (directory: ${t.directory})` : ''}`).join('\n')
+    : '- (the review file has no task sections)';
+  const testsBlock = testCommands.length
+    ? [
+        "TEST COMMANDS these tasks declared (distinct). Every fix task's `tests` array must be exactly these commands, in this order, so fixes are validated like the original tasks:",
+        ...testCommands.map((c) => `- \`${c}\``),
+        `As JSON: ${JSON.stringify(testCommands)}`,
+      ].join('\n')
+    : "TEST COMMANDS: these tasks declared no test commands. Use the project's standard checks as each fix task's `tests` array.";
+  const fixFile1 = fixTaskFilePath(dataDir, 1);
+  const fixFile2 = fixTaskFilePath(dataDir, 2);
+  const fixFilePattern = fixTaskFilePath(dataDir, 0).replace(/0\.json$/, '<n>.json');
+
+  return [
+    'You are the post-round reviewer, running the TRIAGE pass for this planning round.',
+    '',
+    `REVIEW FILE: ${reviewFilePath}`,
+    '',
+    'It holds one section per reviewed task, written by the per-task reviewer: `## Task #<id>: <title>`, `Reviewed: ...`, `### Coverage`, `### Files Changed`, `### Gaps`, `### Regression Risks`, `### Verdict` (`CLEAN | HAS_GAPS | HAS_RISKS`), then a `---` line.',
+    '',
+    'Your job: read every finding, decide for each whether to fix it or leave it, create a fix task for what needs fixing, and record your decisions in the review file. You do not fix anything yourself. The normal task loop runs the fix tasks after you, and a later CLOSING pass records what happened.',
+    '',
+    "THE ROUND'S TASKS:",
+    taskList,
+    '',
+    testsBlock,
+    '',
+    'STEP 1. READ',
+    '- Read the whole review file. Read EVERY finding in every section: Gaps, Regression Risks, [PARTIAL] and [GAP] coverage markers, and "minor notes" written under a CLEAN verdict. Do not filter on the verdict: a CLEAN section can still carry a finding.',
+    '- Verify each finding against the CURRENT tree (read the code, the tests, the docs it names). A later task may already have resolved it.',
+    '- De-duplicate: findings in different sections that share one underlying issue are one issue.',
+    `- If the file already has \`### Round Triage\` blocks, or \`tasks.json\` already holds fix tasks (open ${path.join(dataDir, 'tasks.json')} with the Read tool to check; reading it is fine), an earlier run of this pass was interrupted. Continue from there and do not create duplicates.`,
+    '',
+    'STEP 2. DECIDE, using this rubric',
+    'FIX:',
+    "- Behaviour that contradicts the task's spec.",
+    '- Docs that state something false.',
+    '- Anything touching safety or containment, even if minor.',
+    'LEAVE, with a stated reason:',
+    '- Theoretical or very unlikely cases.',
+    '- Test-quality nits.',
+    '- Process notes that can\'t be acted on (e.g. "TDD claim unverifiable").',
+    '- Findings already resolved by a later task.',
+    '',
+    'STEP 3. CREATE FIX TASKS',
+    '- One fix task per underlying issue. Group small related fixes in the same area into one task: each fix task costs a task-agent run plus a per-task review.',
+    `- For fix task n (n = 1, 2, ...), write one JSON object with the Write tool to ${fixFilePattern} — that is ${fixFile1}, then ${fixFile2}, and so on. These are new scratch files; the Write tool is for them only.`,
+    '- Fields:',
+    '  - `"priority"`: integer.',
+    '  - `"title"`: short.',
+    '  - `"description"`: self-contained. The agent that runs it has not seen the review file: say what the finding was, which review section(s) raised it, what to change, and how to test it.',
+    '  - `"directory"`: relative to the project root, `""` for the root.',
+    '  - `"status": "pending"`.',
+    '  - `"files"`: array of the files to change.',
+    `  - \`"tests"\`: ${testCommands.length ? `exactly ${JSON.stringify(testCommands)}` : 'array of test commands'}.`,
+    '  - `"dependencies": []`.',
+    '  - `"model"`: `"opus"` or `"sonnet"`.',
+    '  - NO `id` field. The CLI assigns it.',
+    `- Then run exactly this, as a single command on its own: \`cairn task add --file ${fixFile1}\` (with the path of the file you just wrote). No \`&&\`, pipes, redirection, \`$\`, or backticks in the command: a hook denies anything else.`,
+    '- Read the new task id from its `assigned id: <n>` output. You need it for the triage block.',
+    '- Never edit `tasks.json` directly.',
+    '- Do not try to unblock blocked tasks, and do not review work that did not complete.',
+    '',
+    'STEP 4. WRITE YOUR DECISIONS',
+    'Block format:',
+    '',
+    BLOCK_FORMAT,
+    '',
+    'In this pass:',
+    `- Under each task section that has findings, add a \`${TRIAGE_HEADING}\` block after that section's \`### Verdict\` value: one numbered line per finding, either "still applies. Planned fix (task #<id>): <what>." or "not fixing, <reason>.". For a de-duplicated issue, name the same fix task in each section that raised it.`,
+    `- When nothing in a section needs a fix, also write \`${VERDICT_HEADING}\` with \`ACCEPTED\` right after the triage block (no outcome block).`,
+    `- When a section has a planned fix, write only the triage block. \`${OUTCOME_HEADING}\` and \`${VERDICT_HEADING}\` for it belong to the closing pass.`,
+    '- A section with no findings at all gets no blocks.',
+    '',
+    APPEND_ONLY_RULE,
+    '',
+    'FINAL RESPONSE: a single line, nothing else:',
+    `TRIAGED: <n> fix task(s), see ${reviewFilePath}`,
+    '',
+  ].join('\n');
+}
+
+export interface FixTaskInfo {
+  id: number;
+  title: string;
+  status: string;
+  notes?: string;
+  commits: string[];
+}
+
+function describeFixTask(t: FixTaskInfo): string {
+  const notes = t.notes && t.notes.trim() ? t.notes.trim().split('\n').map((l) => `    ${l}`).join('\n') : '    (none)';
+  const commits = t.commits.length
+    ? `  Commits (inspect each): ${t.commits.map((sha) => `\`git show ${sha}\``).join(', ')}`
+    : '  Commits: no commits were found for this task. Rely on the notes and the review section.';
+  return [`- #${t.id}: ${t.title}`, `  Status: ${t.status}`, '  Completion notes:', notes, commits].join('\n');
+}
+
+export function buildClosingPrompt(opts: { reviewFilePath: string; fixTasks: FixTaskInfo[] }): string {
+  const { reviewFilePath, fixTasks } = opts;
+  const fixList = fixTasks.length
+    ? fixTasks.map(describeFixTask).join('\n\n')
+    : '- No fix tasks were recorded for this round. Every planned fix named in a triage block therefore did not land.';
+
+  return [
+    'You are the post-round reviewer, running the CLOSING pass for this planning round.',
+    '',
+    `REVIEW FILE: ${reviewFilePath}`,
+    '',
+    `An earlier TRIAGE pass added \`${TRIAGE_HEADING}\` blocks to task sections in that file and created fix tasks. The normal task loop has since run them. Your job: record, in the review file, what actually happened to each planned fix. You do not fix anything and you create no tasks.`,
+    '',
+    'FIX TASKS (status `complete` = finished and archived; `blocked` or any other status = did not finish; `missing` = not found anywhere):',
+    fixList,
+    '',
+    'STEP 1. GATHER EVIDENCE',
+    "- Learn what happened from each fix task's diff (`git show <sha>`), its completion notes above, and its own review section — NOT from the triage plan. The plan says what was intended; only the evidence says what was done.",
+    "- The fix tasks' own `## Task #<id>` sections in the review file are EVIDENCE to read. They get no triage blocks and are not triaged: there is one fix pass per round, so concerns raised there are reported, not fixed.",
+    '',
+    'STEP 2. WRITE THE OUTCOMES',
+    'Block format:',
+    '',
+    BLOCK_FORMAT,
+    '',
+    'In this pass:',
+    `- For every task section that has a \`${TRIAGE_HEADING}\` and no \`${VERDICT_HEADING}\`, add \`${OUTCOME_HEADING}\` and then \`${VERDICT_HEADING}\`, after the triage block.`,
+    `- \`${OUTCOME_HEADING}\`: a \`Reviewed:\` timestamp, then one numbered line per planned fix: "Fixed by #<id> (<short sha>). Differs from plan: <difference, if any>." When the fix differs from the plan, say how. When it did not land, say so and why (blocked, missing, incomplete). Never edit the triage block.`,
+    `- \`${VERDICT_HEADING}\`: \`RESOLVED\` when the fix landed; \`UNRESOLVED\` when the fix task is blocked, missing or incomplete, or its own review raised concerns. A section with several planned fixes is \`RESOLVED\` only when all of them landed cleanly.`,
+    `- Sections that already have a \`${VERDICT_HEADING}\` (for example \`ACCEPTED\`), and sections with no round blocks, stay as they are.`,
+    '',
+    APPEND_ONLY_RULE,
+    '',
+    'FINAL RESPONSE: a single line, nothing else:',
+    `CLOSED: <resolved> resolved, <unresolved> unresolved, see ${reviewFilePath}`,
+    '',
+  ].join('\n');
+}
+
+/** A task from a plain read of `<dataDir>/tasks.json`; never repairs or writes. */
+function readLiveTask(dataDir: string, taskId: number): { title?: unknown; status?: unknown; notes?: unknown } | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(dataDir, 'tasks.json'), 'utf8'));
+    const tasks: unknown = Array.isArray(parsed) ? parsed : parsed?.tasks;
+    if (!Array.isArray(tasks)) return undefined;
+    return tasks.find((t) => t && typeof t === 'object' && t.id === taskId);
+  } catch {
+    return undefined;
+  }
+}
+
+function fixTaskInfo(dataDir: string, id: number, commits: string[]): FixTaskInfo {
+  const archived = loadArchivedTask(dataDir, id);
+  if (archived) {
+    return { id, title: archived.title, status: 'complete', notes: archived.notes, commits };
+  }
+  const live = readLiveTask(dataDir, id);
+  if (live) {
+    return {
+      id,
+      title: typeof live.title === 'string' ? live.title : '(untitled)',
+      status: typeof live.status === 'string' ? live.status : 'unknown',
+      notes: typeof live.notes === 'string' ? live.notes : undefined,
+      commits,
+    };
+  }
+  return { id, title: '(not found)', status: 'missing', commits };
+}
+
+/**
+ * Write the post-round reviewer's prompt for `pass` to
+ * roundReviewPromptFilePath and return that path. Triage takes the round's
+ * task ids from the review file's headings because archived tasks carry no
+ * round number.
+ */
+export function writeRoundReviewPromptFile(
+  opts: { pass: 'triage' | 'closing'; projectRoot: string; dataDir: string; record: RoundReviewRecord },
+  deps: { findTaskCommits?: typeof findTaskCommits } = {},
+): string {
+  const { pass, projectRoot, dataDir, record } = opts;
+  const { reviewFilePath } = resolveReviewFilePath(projectRoot, dataDir);
+  let prompt: string;
+  if (pass === 'triage') {
+    let reviewText = '';
+    try {
+      reviewText = fs.readFileSync(reviewFilePath, 'utf8');
+    } catch {
+      // No review file: the prompt lists no tasks.
+    }
+    const tasks = reviewedTaskIds(reviewText).map((id) => {
+      const task = loadArchivedTask(dataDir, id);
+      return task
+        ? { id, title: task.title, directory: task.directory, tests: task.tests }
+        : { id, title: '(not in archive)' };
+    });
+    prompt = buildTriagePrompt({ reviewFilePath, dataDir, tasks });
+  } else {
+    const commitsOf = deps.findTaskCommits ?? findTaskCommits;
+    const fixTasks = record.fixTaskIds.map((id) => fixTaskInfo(dataDir, id, commitsOf(projectRoot, id)));
+    prompt = buildClosingPrompt({ reviewFilePath, fixTasks });
+  }
+  const file = roundReviewPromptFilePath(dataDir);
+  fs.writeFileSync(file, prompt);
+  return file;
 }

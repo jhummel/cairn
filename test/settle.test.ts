@@ -13,6 +13,7 @@ import {
   summarizeFailure,
   SettleError,
   findTaskBaseSha,
+  findTaskCommits,
   writeReviewPromptFile,
   type SettleTaskInput,
   type SettleTaskDeps,
@@ -1029,6 +1030,40 @@ describe('findTaskBaseSha', () => {
 
   test('returns null outside a git repository', () => {
     expect(findTaskBaseSha(path.join(repo, 'missing'), 7)).toBeNull();
+  });
+});
+
+describe('findTaskCommits', () => {
+  let repo: string;
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: repo }).toString().trim();
+
+  beforeEach(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-settle-commits-'));
+    git('init', '-q');
+  });
+
+  afterEach(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  test("lists the commits whose message contains 'Task #<id>:', oldest first", () => {
+    git('commit', '-q', '--allow-empty', '-m', 'initial');
+    git('commit', '-q', '--allow-empty', '-m', '[proj] Task #7: first attempt');
+    const first = git('rev-parse', 'HEAD');
+    git('commit', '-q', '--allow-empty', '-m', '[proj] Task #70: a different task');
+    git('commit', '-q', '--allow-empty', '-m', '[proj] Task #7: follow-up');
+    const second = git('rev-parse', 'HEAD');
+    expect(findTaskCommits(repo, 7)).toEqual([first, second]);
+  });
+
+  test('returns [] when no commit matches', () => {
+    git('commit', '-q', '--allow-empty', '-m', '[proj] Task #70: other');
+    expect(findTaskCommits(repo, 7)).toEqual([]);
+  });
+
+  test('returns [] outside a git repository', () => {
+    expect(findTaskCommits(path.join(repo, 'missing'), 7)).toEqual([]);
   });
 });
 

@@ -223,6 +223,22 @@ export function findTaskBaseSha(projectRoot: string, taskId: number): string | n
   }
 }
 
+/**
+ * The shas of every commit whose message contains `Task #<id>:`, oldest first
+ * (the trailing colon keeps #7 from matching #70). Empty when nothing matches
+ * or git fails.
+ */
+export function findTaskCommits(projectRoot: string, taskId: number): string[] {
+  try {
+    return execGit(['log', '--reverse', '--format=%H', '--fixed-strings', `--grep=Task #${taskId}:`], projectRoot)
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export const defaultGitAccess: GitAccess = { headSha: captureGitSha, taskBaseSha: findTaskBaseSha };
 
 export interface WriteReviewPromptFileOpts {

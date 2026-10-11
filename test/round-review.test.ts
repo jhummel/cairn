@@ -15,6 +15,12 @@ import {
   readRoundReview,
   advanceRoundReview,
   decideRoundReview,
+  ROUND_VERDICTS,
+  reviewedTaskIds,
+  countUnresolved,
+  buildTriagePrompt,
+  buildClosingPrompt,
+  writeRoundReviewPromptFile,
   type RoundReviewPhase,
   type RoundReviewRecord,
 } from '../src/round-review';
@@ -358,5 +364,305 @@ describe('decideRoundReview', () => {
       expect(d(true, 'done', file, false)).toBe('done');
       expect(d(true, 'failed', file, false)).toBe('done');
     }
+  });
+});
+
+const section = (id: number, title: string, verdict: string, extra = '') =>
+  `## Task #${id}: ${title}\nReviewed: 2026-10-01T00:00:00Z\n\n### Coverage\n- [COVERED] thing\n\n### Files Changed\n- src/a.ts\n\n### Gaps\n- a gap\n\n### Regression Risks\nNone\n\n### Verdict\n${verdict}\n${extra}\n---\n\n`;
+
+const REALISTIC_REVIEW =
+  '# Round 4 reviews\n\n' +
+  section(
+    10,
+    'Unresolved one',
+    'HAS_GAPS',
+    '\n### Round Triage\nReviewed: 2026-10-02T00:00:00Z\n1. a gap: still applies. Planned fix (task #20): fix it.\n\n### Round Outcome\nReviewed: 2026-10-03T00:00:00Z\n1. Not fixed: #20 blocked.\n\n### Round Verdict\n\nUNRESOLVED\n',
+  ) +
+  section(
+    11,
+    'Resolved one',
+    'HAS_RISKS',
+    '\n### Round Triage\nReviewed: 2026-10-02T00:00:00Z\n1. a gap: still applies. Planned fix (task #21): fix it.\n\n### Round Outcome\nReviewed: 2026-10-03T00:00:00Z\n1. Fixed by #21 (abc1234). Differs from plan: no.\n\n### Round Verdict\nRESOLVED\n',
+  ) +
+  section(
+    12,
+    'Accepted one',
+    'CLEAN',
+    '\n### Round Triage\nReviewed: 2026-10-02T00:00:00Z\n1. a gap: not fixing, UNRESOLVED is only a word here.\n\n### Round Verdict\nACCEPTED\n',
+  ) +
+  section(
+    13,
+    'Triage only',
+    'HAS_GAPS',
+    '\n### Round Triage\nReviewed: 2026-10-02T00:00:00Z\n1. a gap: still applies. Planned fix (task #22): fix it.\n',
+  ) +
+  section(14, 'No round blocks', 'CLEAN') +
+  section(11, 'Resolved one (re-review)', 'CLEAN');
+
+describe('review file parsers', () => {
+  test('ROUND_VERDICTS', () => {
+    expect([...ROUND_VERDICTS]).toEqual(['RESOLVED', 'UNRESOLVED', 'ACCEPTED']);
+  });
+  test('reviewedTaskIds: file order, de-duplicated', () => {
+    expect(reviewedTaskIds(REALISTIC_REVIEW)).toEqual([10, 11, 12, 13, 14]);
+    expect(reviewedTaskIds('')).toEqual([]);
+    expect(reviewedTaskIds('### Task #5: nested\n text ## Task #6: inline\n')).toEqual([]);
+  });
+  test('countUnresolved on a realistic file: UNRESOLVED + triage-without-verdict', () => {
+    expect(countUnresolved(REALISTIC_REVIEW)).toBe(2);
+  });
+  test('countUnresolved: no sections → 0', () => {
+    expect(countUnresolved('')).toBe(0);
+    expect(countUnresolved('# Round\n\n### Round Triage\n\n### Round Verdict\nUNRESOLVED\n')).toBe(0);
+  });
+  test('countUnresolved: each kind alone', () => {
+    const v = (verdict: string) =>
+      section(1, 't', 'HAS_GAPS', `\n### Round Triage\nx\n\n### Round Verdict\n${verdict}\n`);
+    expect(countUnresolved(v('UNRESOLVED'))).toBe(1);
+    expect(countUnresolved(v('RESOLVED'))).toBe(0);
+    expect(countUnresolved(v('ACCEPTED'))).toBe(0);
+    expect(countUnresolved(v('UNRESOLVED, sort of'))).toBe(0);
+    expect(countUnresolved(section(1, 't', 'CLEAN'))).toBe(0);
+    expect(countUnresolved(section(1, 't', 'HAS_GAPS', '\n### Round Triage\nx\n'))).toBe(1);
+    expect(countUnresolved(v('UNRESOLVED') + v('UNRESOLVED').replace('#1:', '#2:'))).toBe(2);
+  });
+  test('countUnresolved tolerates CRLF', () => {
+    const text = section(1, 't', 'HAS_GAPS', '\n### Round Triage\nx\n\n### Round Verdict\nUNRESOLVED\n');
+    expect(countUnresolved(text.replace(/\n/g, '\r\n'))).toBe(1);
+  });
+});
+
+// Wording that would tell the agent to change what is already in the file.
+const FORBIDDEN_INSTRUCTIONS = [
+  /\b(rewrite|replace|overwrite|delete|remove|modify|update) (the |an? |any |that |its |each |every )?(existing|verdict|section|finding|triage block|review file|line)/i,
+  /\buse the Write tool\b/i,
+];
+const expectAppendOnly = (prompt: string) => {
+  expect(prompt).toContain('APPEND-ONLY');
+  expect(prompt).toContain('only insert new lines with the Edit tool');
+  expect(prompt).toMatch(/restores the file and discards all of this pass's work/);
+  expect(prompt).toMatch(/changed, removed or reordered/);
+  for (const re of FORBIDDEN_INSTRUCTIONS) expect(prompt).not.toMatch(re);
+};
+
+describe('buildTriagePrompt', () => {
+  const dataDir = '/abs/proj/.cairn';
+  const reviewFilePath = '/abs/proj/.cairn/reviews/round-4.md';
+  const prompt = buildTriagePrompt({
+    reviewFilePath,
+    dataDir,
+    tasks: [
+      { id: 10, title: 'First', directory: '', tests: ['bun run typecheck', 'bun test'] },
+      { id: 11, title: 'Second', directory: 'src', tests: ['bun test', 'bun run lint'] },
+      { id: 12, title: '(not in archive)' },
+    ],
+  });
+
+  test('names the review path and each task', () => {
+    expect(prompt).toContain(reviewFilePath);
+    expect(prompt).toContain('#10: First');
+    expect(prompt).toContain('#11: Second');
+    expect(prompt).toContain('#12: (not in archive)');
+  });
+  test('carries the de-duplicated test commands and the exactly-these rule', () => {
+    expect(prompt).toContain('["bun run typecheck","bun test","bun run lint"]');
+    expect(prompt.split('- `bun test`').length - 1).toBe(1);
+    expect(prompt).toMatch(/`tests` array must be exactly/);
+  });
+  test('no declared tests → says so instead of an empty list', () => {
+    const p = buildTriagePrompt({ reviewFilePath, dataDir, tasks: [{ id: 1, title: 'x' }] });
+    expect(p).toMatch(/declared no test commands/);
+  });
+  test('reading instructions', () => {
+    expect(prompt).toMatch(/EVERY finding/);
+    expect(prompt).toContain('[PARTIAL]');
+    expect(prompt).toContain('[GAP]');
+    expect(prompt).toMatch(/CLEAN/);
+    expect(prompt).toMatch(/do not filter on the verdict/i);
+    expect(prompt).toMatch(/CURRENT tree/);
+    expect(prompt).toMatch(/de-duplicate/i);
+  });
+  test('rubric rows', () => {
+    for (const row of [
+      "contradicts the task's spec",
+      'state something false',
+      'safety or containment, even if minor',
+      'Theoretical or very unlikely cases',
+      'Test-quality nits',
+      'TDD claim unverifiable',
+      'already resolved by a later task',
+    ]) {
+      expect(prompt).toContain(row);
+    }
+    expect(prompt).toMatch(/^FIX/m);
+    expect(prompt).toMatch(/^LEAVE, with a stated reason/m);
+  });
+  test('block headings and verdicts', () => {
+    for (const h of ['### Round Triage', '### Round Outcome', '### Round Verdict']) expect(prompt).toContain(h);
+    for (const v of ROUND_VERDICTS) expect(prompt).toContain(v);
+    expect(prompt).toContain('Reviewed: <ISO 8601 timestamp>');
+  });
+  test('fix-task creation: file path pattern, fields, exact command', () => {
+    expect(prompt).toContain(fixTaskFilePath(dataDir, 1));
+    expect(prompt).toContain(fixTaskFilePath(dataDir, 2));
+    expect(prompt).toContain(`cairn task add --file ${fixTaskFilePath(dataDir, 1)}`);
+    for (const f of ['priority', 'title', 'description', 'directory', '"status": "pending"', 'files', 'tests', '"dependencies": []', 'model']) {
+      expect(prompt).toContain(f);
+    }
+    expect(prompt).toMatch(/NO `id`/);
+    expect(prompt).toContain('assigned id: <n>');
+    expect(prompt).toMatch(/hook denies/);
+    expect(prompt).toMatch(/never edit `tasks\.json` directly/i);
+    expect(prompt).toMatch(/do not create duplicates/i);
+    expect(prompt).toMatch(/unblock/);
+  });
+  test('final response line and append-only rule', () => {
+    expect(prompt).toContain(`TRIAGED: <n> fix task(s), see ${reviewFilePath}`);
+    expectAppendOnly(prompt);
+  });
+});
+
+describe('buildClosingPrompt', () => {
+  const reviewFilePath = '/abs/proj/.cairn/reviews/round-4.md';
+  const prompt = buildClosingPrompt({
+    reviewFilePath,
+    fixTasks: [
+      { id: 20, title: 'Fix A', status: 'complete', notes: 'did the thing\nsecond line', commits: ['aaa111', 'bbb222'] },
+      { id: 21, title: 'Fix B', status: 'blocked', notes: 'validation failed', commits: [] },
+      { id: 22, title: '(not found)', status: 'missing', commits: [] },
+    ],
+  });
+
+  test('lists each fix task with status, notes and commits', () => {
+    expect(prompt).toContain(reviewFilePath);
+    expect(prompt).toContain('#20: Fix A');
+    expect(prompt).toMatch(/Status: complete/);
+    expect(prompt).toContain('did the thing');
+    expect(prompt).toContain('second line');
+    expect(prompt).toContain('`git show aaa111`');
+    expect(prompt).toContain('`git show bbb222`');
+    expect(prompt).toContain('#21: Fix B');
+    expect(prompt).toMatch(/Status: blocked/);
+    expect(prompt).toContain('validation failed');
+    expect(prompt).toMatch(/Status: missing/);
+  });
+  test('handles an empty commit list', () => {
+    expect(prompt.split('no commits were found').length - 1).toBe(2);
+    expect(prompt).toMatch(/rely on the notes and the review section/i);
+  });
+  test('handles no fix tasks at all', () => {
+    const p = buildClosingPrompt({ reviewFilePath, fixTasks: [] });
+    expect(p).toMatch(/No fix tasks were recorded/);
+    expectAppendOnly(p);
+  });
+  test('evidence, outcome and verdict instructions', () => {
+    expect(prompt).toMatch(/EVIDENCE/);
+    expect(prompt).toMatch(/one fix pass per round/);
+    expect(prompt).toMatch(/NOT from the triage plan/);
+    expect(prompt).toContain('### Round Triage');
+    expect(prompt).toContain('### Round Outcome');
+    expect(prompt).toContain('### Round Verdict');
+    expect(prompt).toContain('RESOLVED');
+    expect(prompt).toContain('UNRESOLVED');
+    expect(prompt).toContain('Differs from plan:');
+  });
+  test('final response line and append-only rule', () => {
+    expect(prompt).toContain(`CLOSED: <resolved> resolved, <unresolved> unresolved, see ${reviewFilePath}`);
+    expectAppendOnly(prompt);
+  });
+});
+
+describe('writeRoundReviewPromptFile', () => {
+  let projectRoot: string;
+  let dataDir: string;
+  let reviewFile: string;
+  const record = (fixTaskIds: number[]): RoundReviewRecord => ({
+    round: 4,
+    phase: 'triage',
+    baselineTaskIds: [],
+    fixTaskIds,
+  });
+
+  beforeEach(() => {
+    projectRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-rr-prompt-')));
+    dataDir = path.join(projectRoot, '.cairn');
+    fs.mkdirSync(path.join(dataDir, 'reviews'), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 30, round: 4 }));
+    reviewFile = path.join(dataDir, 'reviews', 'round-4.md');
+    fs.writeFileSync(reviewFile, REALISTIC_REVIEW);
+    fs.writeFileSync(
+      path.join(dataDir, 'tasks.completed.json'),
+      JSON.stringify({
+        tasks: [
+          { id: 10, priority: 1, title: 'Unresolved one', status: 'complete', tests: ['bun run typecheck', 'bun test'] },
+          { id: 11, priority: 1, title: 'Resolved one', status: 'complete', tests: ['bun test'] },
+          { id: 99, priority: 1, title: 'Older round task', status: 'complete', tests: ['make old'] },
+          { id: 20, priority: 1, title: 'Fix A', status: 'complete', notes: 'fixed A' },
+        ],
+      }),
+    );
+    fs.writeFileSync(
+      path.join(dataDir, 'tasks.json'),
+      JSON.stringify({
+        tasks: [{ id: 21, priority: 1, title: 'Fix B', status: 'blocked', notes: 'blocked: validation failed twice' }],
+      }),
+    );
+  });
+  afterEach(() => fs.rmSync(projectRoot, { recursive: true, force: true }));
+
+  test('triage: writes to the prompt path, ids from the review headings', () => {
+    const file = writeRoundReviewPromptFile({ pass: 'triage', projectRoot, dataDir, record: record([]) });
+    expect(file).toBe(roundReviewPromptFilePath(dataDir));
+    const prompt = fs.readFileSync(file, 'utf8');
+    expect(prompt).toContain(reviewFile);
+    expect(prompt).toContain('#10: Unresolved one');
+    expect(prompt).toContain('#11: Resolved one');
+    for (const id of [12, 13, 14]) expect(prompt).toContain(`#${id}: (not in archive)`);
+    expect(prompt).not.toContain('Older round task');
+    expect(prompt).not.toContain('make old');
+    expect(prompt).toContain('["bun run typecheck","bun test"]');
+    expect(prompt).toContain(fixTaskFilePath(dataDir, 1));
+    expect(prompt).toContain('TRIAGED:');
+  });
+
+  test('triage: missing review file still writes a prompt with no tasks', () => {
+    fs.rmSync(reviewFile);
+    const file = writeRoundReviewPromptFile({ pass: 'triage', projectRoot, dataDir, record: record([]) });
+    expect(fs.readFileSync(file, 'utf8')).toContain(reviewFile);
+  });
+
+  test('closing: archived, blocked-from-tasks.json and missing fix tasks, with commits', () => {
+    const asked: Array<[string, number]> = [];
+    const file = writeRoundReviewPromptFile(
+      { pass: 'closing', projectRoot, dataDir, record: record([20, 21, 22]) },
+      {
+        findTaskCommits: (root, id) => {
+          asked.push([root, id]);
+          return id === 20 ? ['c0ffee1'] : [];
+        },
+      },
+    );
+    expect(file).toBe(roundReviewPromptFilePath(dataDir));
+    expect(asked).toEqual([[projectRoot, 20], [projectRoot, 21], [projectRoot, 22]]);
+    const prompt = fs.readFileSync(file, 'utf8');
+    expect(prompt).toContain(reviewFile);
+    expect(prompt).toContain('#20: Fix A');
+    expect(prompt).toMatch(/Status: complete/);
+    expect(prompt).toContain('fixed A');
+    expect(prompt).toContain('`git show c0ffee1`');
+    expect(prompt).toContain('#21: Fix B');
+    expect(prompt).toMatch(/Status: blocked/);
+    expect(prompt).toContain('blocked: validation failed twice');
+    expect(prompt).toContain('#22: ');
+    expect(prompt).toMatch(/Status: missing/);
+    expect(prompt).toContain('CLOSED:');
+  });
+
+  test('closing: unparseable tasks.json → missing, no throw; default findTaskCommits outside git → no commits', () => {
+    fs.writeFileSync(path.join(dataDir, 'tasks.json'), '{ nope');
+    const file = writeRoundReviewPromptFile({ pass: 'closing', projectRoot, dataDir, record: record([21]) });
+    const prompt = fs.readFileSync(file, 'utf8');
+    expect(prompt).toMatch(/Status: missing/);
+    expect(prompt).toContain('no commits were found');
   });
 });
