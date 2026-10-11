@@ -6,7 +6,7 @@ export interface CairnConfig {
   implementationFile: string;
   truncateText: boolean;
   summarize: { claudeMdPattern: string };
-  review?: { postTask: boolean };
+  review?: { postTask: boolean; postRound?: boolean };
 }
 
 export interface Task {
@@ -53,6 +53,7 @@ export function isValidConfig(data: unknown): data is CairnConfig {
     if (typeof d.review !== 'object' || d.review === null) return false;
     const review = d.review as Record<string, unknown>;
     if (typeof review.postTask !== 'boolean') return false;
+    if (review.postRound !== undefined && typeof review.postRound !== 'boolean') return false;
     // review.maxIterations is a dead legacy key (no longer read anywhere); if present it's
     // ignored, not validated, so existing configs that still have it keep loading cleanly.
   }

@@ -76,6 +76,17 @@ describe('isValidConfig', () => {
     expect(isValidConfig({ ...validConfig, review: { maxIterations: 3 } })).toBe(false);
   });
 
+  it('accepts review.postRound absent, true, or false', () => {
+    expect(isValidConfig({ ...validConfig, review: { postTask: false } })).toBe(true);
+    expect(isValidConfig({ ...validConfig, review: { postTask: false, postRound: true } })).toBe(true);
+    expect(isValidConfig({ ...validConfig, review: { postTask: false, postRound: false } })).toBe(true);
+  });
+
+  it('rejects review.postRound that is not a boolean', () => {
+    expect(isValidConfig({ ...validConfig, review: { postTask: false, postRound: 'yes' } })).toBe(false);
+    expect(isValidConfig({ ...validConfig, review: { postTask: false, postRound: 1 } })).toBe(false);
+  });
+
   it('rejects review.postTask that is not a boolean', () => {
     expect(isValidConfig({ ...validConfig, review: { postTask: 'yes' } })).toBe(false);
     expect(isValidConfig({ ...validConfig, review: { postTask: 1 } })).toBe(false);

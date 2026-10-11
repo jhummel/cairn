@@ -47,8 +47,17 @@ export function loadConfig(projectRoot: string): CairnConfig {
     // present in cairn.json — nothing consumes it anymore.
     review: {
       postTask: typeof reviewRaw.postTask === 'boolean' ? reviewRaw.postTask : false,
+      postRound: typeof reviewRaw.postRound === 'boolean' ? reviewRaw.postRound : true,
     },
   };
+}
+
+/**
+ * Whether the post-round review is enabled. Absent means ON: a missing `review`
+ * block, a missing `postRound`, and `true` are all on; only an explicit `false` is off.
+ */
+export function isPostRoundReviewEnabled(config: Pick<CairnConfig, 'review'>): boolean {
+  return config.review?.postRound !== false;
 }
 
 /**

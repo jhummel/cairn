@@ -783,6 +783,7 @@ describe('promptForConfig', () => {
     truncateText: true,
     claudeMdPattern: '',
     reviewPostTask: false,
+    reviewPostRound: true,
   };
 
   test('all empty answers use defaults', async () => {
@@ -910,6 +911,56 @@ describe('promptForConfig', () => {
     const rl = createMockPrompt(['', '', '', '', '', '', '', 'y']);
     const config = await promptForConfig(rl, { ...baseDefaults, reviewPostTask: false });
     expect(config.review?.postTask).toBe(true);
+  });
+
+  test('promptForConfig asks the post-round question right after the post-task one', async () => {
+    const questions: string[] = [];
+    const rl: PromptInterface = {
+      question: async (query: string) => { questions.push(query); return ''; },
+      close: () => {},
+    };
+    await promptForConfig(rl, baseDefaults);
+    const taskIdx = questions.findIndex(q => q.includes('Enable post-task review?'));
+    expect(taskIdx).toBeGreaterThanOrEqual(0);
+    expect(questions[taskIdx + 1]).toContain('Enable post-round review?');
+    expect(questions[taskIdx + 1]).toContain('[Y/n]');
+  });
+
+  test('reviewPostRound defaults to the passed default on empty input', async () => {
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '']);
+    expect((await promptForConfig(rl, { ...baseDefaults, reviewPostRound: true })).review?.postRound).toBe(true);
+    const rl2 = createMockPrompt(['', '', '', '', '', '', '', '', '']);
+    expect((await promptForConfig(rl2, { ...baseDefaults, reviewPostRound: false })).review?.postRound).toBe(false);
+  });
+
+  test('reviewPostRound answer n sets false and postTask stays independent', async () => {
+    const rl = createMockPrompt(['', '', '', '', '', '', '', 'y', 'n']);
+    const config = await promptForConfig(rl, baseDefaults);
+    expect(config.review).toEqual({ postTask: true, postRound: false });
+  });
+
+  test('cairn.json written from promptForConfig contains review.postRound', async () => {
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'n']);
+    const config = await promptForConfig(rl, baseDefaults);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-postround-'));
+    try {
+      writeCairnJson(dir, config);
+      const written = JSON.parse(fs.readFileSync(path.join(dir, 'cairn.json'), 'utf8'));
+      expect(written.review.postRound).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true });
+    }
+  });
+
+  test('getConfigDefaults reviewPostRound is true when absent and honors explicit false', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-postround-d-'));
+    try {
+      expect(getConfigDefaults(dir).reviewPostRound).toBe(true);
+      fs.writeFileSync(path.join(dir, 'cairn.json'), JSON.stringify({ review: { postTask: true, postRound: false } }));
+      expect(getConfigDefaults(dir).reviewPostRound).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true });
+    }
   });
 
   test('reviewPostTask shows [y/N] when default is false', async () => {
@@ -2098,10 +2149,10 @@ describe('runInit', () => {
 
   const noopSpawn: SpawnSyncFn = () => ({ status: 0 });
 
-  // 7 base config prompts + reviewPostTask; remaining prompts (create CLAUDE.local.md,
+  // 7 base config prompts + reviewPostTask + reviewPostRound; remaining prompts (create CLAUDE.local.md,
   // install settings) fall back to their defaults once the mock's answers run out.
   function allDefaultAnswers(): string[] {
-    return ['', '', '', '', '', '', '', 'n'];
+    return ['', '', '', '', '', '', '', 'n', ''];
   }
 
   test('creates .cairn/ dir, tasks.json, and cairn.json', async () => {
@@ -2187,9 +2238,9 @@ describe('runInit', () => {
 
   test('skips the settings file when the user declines', async () => {
     const dataDir = path.join(tmpDir, '.cairn');
-    // 8 config prompts (7 base + reviewPostTask),
+    // 9 config prompts (7 base + reviewPostTask + reviewPostRound),
     // create CLAUDE.local.md='n', then settings='n'.
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'n', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'n', 'n']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(path.join(tmpDir, '.claude', 'settings.local.json'))).toBe(false);
   });
@@ -2206,9 +2257,9 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    // 8 config prompts (7 base + reviewPostTask, all default) +
+    // 9 config prompts (7 base + reviewPostTask + reviewPostRound, all default) +
     // migrate='y' + create/open CLAUDE.local.md='n'.
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'y', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'y', 'n']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(path.join(tmpDir, 'CLAUDE.local.md'))).toBe(true);
     expect(fs.readFileSync(path.join(tmpDir, 'CLAUDE.local.md'), 'utf8')).toBe('* Always use TDD\n');
@@ -2219,7 +2270,7 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'n', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'n', 'n']);
     await runInit(tmpDir, dataDir, rl, noopSpawn);
     expect(fs.existsSync(path.join(tmpDir, 'CLAUDE.local.md'))).toBe(false);
     expect(fs.existsSync(path.join(dataDir, 'instructions.md'))).toBe(true);
@@ -2229,7 +2280,7 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'y', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'y', 'n']);
     const notIgnored: CheckIgnoreFn = () => ({ status: 1 });
     await runInit(tmpDir, dataDir, rl, noopSpawn, notIgnored);
     const output = stdoutLines.join('\n');
@@ -2240,7 +2291,7 @@ describe('runInit', () => {
     const dataDir = path.join(tmpDir, '.cairn');
     fs.mkdirSync(dataDir);
     fs.writeFileSync(path.join(dataDir, 'instructions.md'), '* Always use TDD\n');
-    const rl = createMockPrompt(['', '', '', '', '', '', '', '', 'y', 'n']);
+    const rl = createMockPrompt(['', '', '', '', '', '', '', '', '', 'y', 'n']);
     const ignored: CheckIgnoreFn = () => ({ status: 0 });
     await runInit(tmpDir, dataDir, rl, noopSpawn, ignored);
     expect(stdoutLines.join('\n')).not.toContain('add CLAUDE.local.md');

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { loadConfig, findConfigFile, autoDetectHealthCheck, discoverAgents, setConfigEnvVars } from '../src/config';
+import { loadConfig, isPostRoundReviewEnabled, findConfigFile, autoDetectHealthCheck, discoverAgents, setConfigEnvVars } from '../src/config';
 import { isValidConfig } from '../src/types';
 import type { CairnConfig } from '../src/types';
 
@@ -648,5 +648,36 @@ describe('findConfigFile', () => {
 
   it('defaults to cairn.json when neither exists, so new config is created there', () => {
     expect(findConfigFile(tmpDir)).toBe(path.join(tmpDir, 'cairn.json'));
+  });
+});
+
+describe('review.postRound', () => {
+  let tmp: string;
+  beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-postround-cfg-')); });
+  afterEach(() => { fs.rmSync(tmp, { recursive: true }); });
+
+  function load(raw: Record<string, unknown> | null): CairnConfig {
+    if (raw) fs.writeFileSync(path.join(tmp, 'cairn.json'), JSON.stringify(raw));
+    return loadConfig(tmp);
+  }
+
+  it('defaults to true when postRound is absent', () => {
+    expect(load({ review: { postTask: true } }).review?.postRound).toBe(true);
+  });
+
+  it('defaults to true when review is absent', () => {
+    expect(load({ projectName: 'x' }).review?.postRound).toBe(true);
+  });
+
+  it('keeps an explicit false and true', () => {
+    expect(load({ review: { postTask: false, postRound: false } }).review?.postRound).toBe(false);
+    expect(load({ review: { postTask: false, postRound: true } }).review?.postRound).toBe(true);
+  });
+
+  it('isPostRoundReviewEnabled: only an explicit false is off', () => {
+    expect(isPostRoundReviewEnabled({})).toBe(true);
+    expect(isPostRoundReviewEnabled({ review: { postTask: true } })).toBe(true);
+    expect(isPostRoundReviewEnabled({ review: { postTask: true, postRound: true } })).toBe(true);
+    expect(isPostRoundReviewEnabled({ review: { postTask: true, postRound: false } })).toBe(false);
   });
 });

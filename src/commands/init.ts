@@ -71,6 +71,7 @@ export interface ConfigDefaults {
   truncateText: boolean;
   claudeMdPattern: string;
   reviewPostTask: boolean;
+  reviewPostRound: boolean;
 }
 
 /** Non-comment, non-blank lines of `GITIGNORE_CONTENT`, trimmed. */
@@ -208,6 +209,7 @@ export function getConfigDefaults(projectRoot: string): ConfigDefaults {
     truncateText: config.truncateText,
     claudeMdPattern: config.summarize.claudeMdPattern,
     reviewPostTask: config.review?.postTask ?? false,
+    reviewPostRound: config.review?.postRound ?? true,
   };
 }
 
@@ -253,6 +255,7 @@ export async function promptForConfig(
   const truncateText = await promptBoolean(rl, 'Truncate agent text output?', defaults.truncateText);
   const claudeMdPattern = await promptValue(rl, 'CLAUDE.md glob pattern for summarize', defaults.claudeMdPattern);
   const reviewPostTask = await promptBoolean(rl, 'Enable post-task review?', defaults.reviewPostTask);
+  const reviewPostRound = await promptBoolean(rl, 'Enable post-round review?', defaults.reviewPostRound);
 
   return {
     projectName,
@@ -264,6 +267,7 @@ export async function promptForConfig(
     summarize: { claudeMdPattern },
     review: {
       postTask: reviewPostTask,
+      postRound: reviewPostRound,
     },
   };
 }
