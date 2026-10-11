@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+import { ROUND_VERDICTS } from '../../src/round-review';
 import {
   initCoreFiles,
   mergeGitignoreEntries,
@@ -1642,6 +1643,31 @@ describe('installAgents', () => {
     const content = fs.readFileSync(destPath, 'utf8');
     expect(content).toContain('name: cairn-task-agent');
     expect(content).toContain('internal: true');
+  });
+
+  test('installs post-round-reviewer.md byte-identical and its definition names the formats and verdicts', () => {
+    const repoRoot = path.join(__dirname, '..', '..');
+    installAgents(tmpDir, repoRoot);
+    const srcPath = path.join(repoRoot, 'agents', 'post-round-reviewer.md');
+    const destPath = path.join(tmpDir, '.claude', 'agents', 'post-round-reviewer.md');
+    expect(fs.existsSync(destPath)).toBe(true);
+    const source = fs.readFileSync(srcPath, 'utf8');
+    expect(fs.readFileSync(destPath, 'utf8')).toBe(source);
+
+    const frontmatter = source.split('---')[1];
+    expect(frontmatter).toContain('name: post-round-reviewer');
+    expect(frontmatter).toContain('internal: true');
+    expect(frontmatter).toContain('model: opus');
+    expect(frontmatter).toContain('tools: Read, Grep, Glob, Bash, Edit, Write');
+    expect(frontmatter).toContain('maxTurns: 100');
+
+    for (const heading of ['### Round Triage', '### Round Outcome', '### Round Verdict']) {
+      expect(source).toContain(heading);
+    }
+    for (const verdict of ROUND_VERDICTS) expect(source).toContain(verdict);
+    expect(source).toContain('cairn task add --file');
+    expect(source).toContain('TRIAGED:');
+    expect(source).toContain('CLOSED:');
   });
 
   test('copies audit-planner.md from mock cairnRoot to .claude/agents/ with correct content', () => {

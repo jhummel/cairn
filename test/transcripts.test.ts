@@ -121,6 +121,6 @@ describe("listAgentTranscripts", () => {
     expect(all.map((t) => t.id)).toEqual(["a", "d", "e", "c", "b"]);
     expect(all[1].agentType).toBeUndefined();
     expect(all[2].agentType).toBeUndefined();
-    expect(DEFAULT_AGENT_TYPES).toEqual(["cairn-task-agent", "post-task-reviewer"]);
+    expect(DEFAULT_AGENT_TYPES).toEqual(["cairn-task-agent", "post-task-reviewer", "post-round-reviewer"]);
   });
 });

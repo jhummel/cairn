@@ -3,7 +3,7 @@ import * as os from "os";
 import * as path from "path";
 
 /** Subagent types `cairn watch` follows by default. */
-export const DEFAULT_AGENT_TYPES: readonly string[] = ["cairn-task-agent", "post-task-reviewer"];
+export const DEFAULT_AGENT_TYPES: readonly string[] = ["cairn-task-agent", "post-task-reviewer", "post-round-reviewer"];
 
 export interface AgentTranscript {
   id: string;
