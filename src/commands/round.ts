@@ -30,6 +30,7 @@ import {
   decideRoundReview,
   snapshotReviewFile,
   roundReviewSnapshotPath,
+  startNewRound,
   writeRoundReviewPromptFile,
   countUnresolvedInFile,
   cleanupRoundReviewScratch,
@@ -40,7 +41,6 @@ import { buildSystemPrompt } from './run';
 import { hookErrorLogPath } from './hook';
 import { sweepRoundTempFiles, defaultSweepDeps } from '../temp-sweep';
 import { BRAND } from '../brand';
-import { bumpRound as defaultBumpRound } from '../task-counter';
 import { defaultStdout, defaultStderr, type Writer } from '../cli-io';
 
 /**
@@ -401,8 +401,10 @@ export async function roundSettleCommand(opts: RoundSettleCommandOpts, deps: Par
  * after the user approves the generated tasks (after `cairn task next-id`,
  * before tasks.json is written), not by `cairn plan`, so a planning session
  * that is quit and re-run never skips a round number. Bumps state.json's
- * round (absent -> 1), best-effort deletes the /teach learning-mode log
- * (`<dataDir>/.cairn_planning_session.md`), and prints one JSON verdict.
+ * round (absent -> 1) and, in the same locked write, removes the previous
+ * round's `roundReview` record (`startNewRound`); then best-effort deletes
+ * the /teach learning-mode log (`<dataDir>/.cairn_planning_session.md`) and
+ * prints one JSON verdict.
  * Exit 1 with one stderr line only when state.json cannot be updated (e.g. a
  * lock timeout). Each run bumps the round, so re-running it in the same
  * session double-bumps — an accepted, documented limitation.
@@ -430,7 +432,7 @@ export function roundNewCommand(opts: RoundNewCommandOpts, deps: RoundNewDeps = 
   const stderr = opts.stderr ?? defaultStderr();
   let round: number;
   try {
-    round = (deps.bumpRound ?? defaultBumpRound)(opts.dataDir);
+    round = (deps.bumpRound ?? startNewRound)(opts.dataDir);
   } catch (err) {
     stderr.write(`cairn round new: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;

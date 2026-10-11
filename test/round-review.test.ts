@@ -22,11 +22,13 @@ import {
   buildClosingPrompt,
   writeRoundReviewPromptFile,
   settleRoundReview,
+  startNewRound,
   type RoundReviewPhase,
   type RoundReviewRecord,
 } from '../src/round-review';
-import { bumpRound } from '../src/task-counter';
+import { bumpRound, getRound } from '../src/task-counter';
 import { TasksFileError } from '../src/tasks-file';
+import { FileLockError } from '../src/file-lock';
 
 describe('isAppendOnly', () => {
   const snap = '# R\n\n---\n\nblock A\n\n---\n';
@@ -874,5 +876,163 @@ describe('settleRoundReview', () => {
     ).toThrow(TasksFileError);
     expect(readRoundReview(dataDir).phase).toBe('triage');
     expect(fs.existsSync(snapshot())).toBe(true);
+  });
+  for (const pass of ['triage', 'closing'] as const) {
+    test(`a violation in ${pass} whose state update throws is still reported as failed by the repeat call`, () => {
+      const bad = '## Task #1: A\nline TWO\nline three\n---\n### Round Triage\n';
+      handOut(pass, { fix: [11] });
+      fs.writeFileSync(reviewFile(), bad);
+      writeTasks([{ id: 11 }]);
+
+      let calls = 0;
+      expect(() =>
+        settleRoundReview(
+          { projectRoot, dataDir },
+          {
+            advanceRoundReview: () => {
+              calls++;
+              throw new FileLockError('lock timeout');
+            },
+          },
+        ),
+      ).toThrow(FileLockError);
+      expect(calls).toBe(1);
+      expect(readRoundReview(dataDir).phase).toBe(pass);
+      // The violating file is left as it is, so the repeat can detect it again.
+      expect(fs.readFileSync(reviewFile(), 'utf8')).toBe(bad);
+      expect(fs.existsSync(snapshot())).toBe(true);
+      expect(fs.existsSync(logFile())).toBe(false);
+
+      expect(settle()).toEqual({ verdict: 'round-review-failed', pass, reason: 'append-only-violated', next: NEXT });
+      expect(readRoundReview(dataDir).phase).toBe('failed');
+      expect(fs.readFileSync(reviewFile(), 'utf8')).toBe(ORIGINAL);
+      expect(fs.readFileSync(reviewFile(), 'utf8')).toBe(fs.readFileSync(snapshot(), 'utf8'));
+      expect(fs.readFileSync(rejected(), 'utf8')).toBe(bad);
+      expect(fs.readFileSync(logFile(), 'utf8')).toBe(`Round review ${pass}: round-review-failed (append-only-violated)\n`);
+    });
+  }
+
+  test('a violation records phase failed before the review file is restored', () => {
+    const bad = 'rewritten\n';
+    handOut('triage');
+    fs.writeFileSync(reviewFile(), bad);
+    let fileAtAdvance: string | undefined;
+    settleRoundReview(
+      { projectRoot, dataDir },
+      {
+        advanceRoundReview: (dir, to, patch) => {
+          fileAtAdvance = fs.readFileSync(reviewFile(), 'utf8');
+          return advanceRoundReview(dir, to, patch);
+        },
+      },
+    );
+    expect(fileAtAdvance).toBe(bad);
+    expect(fs.readFileSync(reviewFile(), 'utf8')).toBe(ORIGINAL);
+  });
+
+  test('an interruption after failed is recorded and before the restore: still failed, restore not retried', () => {
+    const bad = 'rewritten\n';
+    handOut('triage');
+    fs.writeFileSync(reviewFile(), bad);
+    expect(() =>
+      settleRoundReview(
+        { projectRoot, dataDir },
+        {
+          advanceRoundReview: (dir, to, patch) => {
+            advanceRoundReview(dir, to, patch);
+            throw new Error('killed');
+          },
+        },
+      ),
+    ).toThrow('killed');
+    expect(readRoundReview(dataDir).phase).toBe('failed');
+
+    expect(settle()).toEqual({ verdict: 'no-round-review', phase: 'failed', next: NEXT });
+    expect(fs.readFileSync(reviewFile(), 'utf8')).toBe(bad);
+    expect(fs.existsSync(rejected())).toBe(false);
+    expect(fs.readFileSync(snapshot(), 'utf8')).toBe(ORIGINAL);
+  });
+
+  test('a missing review file whose state update throws is still reported as failed by the repeat call', () => {
+    handOut('closing', { fix: [11] });
+    fs.unlinkSync(reviewFile());
+    expect(() =>
+      settleRoundReview({ projectRoot, dataDir }, { advanceRoundReview: () => { throw new FileLockError('lock timeout'); } }),
+    ).toThrow(FileLockError);
+    expect(fs.existsSync(reviewFile())).toBe(false);
+
+    expect(settle()).toEqual({ verdict: 'round-review-failed', pass: 'closing', reason: 'append-only-violated', next: NEXT });
+    expect(readRoundReview(dataDir).phase).toBe('failed');
+    expect(fs.readFileSync(reviewFile(), 'utf8')).toBe(ORIGINAL);
+  });
+
+  test('a clean pass whose state update throws stays pending and settles on the repeat call', () => {
+    handOut('triage');
+    writeTasks([{ id: 11 }]);
+    expect(() =>
+      settleRoundReview({ projectRoot, dataDir }, { advanceRoundReview: () => { throw new FileLockError('lock timeout'); } }),
+    ).toThrow(FileLockError);
+    expect(readRoundReview(dataDir).phase).toBe('triage');
+    expect(fs.existsSync(snapshot())).toBe(true);
+    expect(settle()).toMatchObject({ verdict: 'round-review-settled', phase: 'fixing', fixTasks: [11] });
+  });
+});
+
+describe('startNewRound', () => {
+  let dataDir: string;
+  const statePath = () => path.join(dataDir, 'state.json');
+  const rawState = () => JSON.parse(fs.readFileSync(statePath(), 'utf8'));
+
+  beforeEach(() => {
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-rr-newround-'));
+  });
+  afterEach(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+
+  test('absent round: a stored round-1 record no longer matches the new round 1', () => {
+    fs.writeFileSync(
+      statePath(),
+      JSON.stringify({
+        nextTaskId: 7,
+        extra: { keep: true },
+        [ROUND_REVIEW_STATE_KEY]: { round: 1, phase: 'done', baselineTaskIds: [], fixTaskIds: [] },
+      }),
+    );
+    // The bug's precondition: with no round key, the stored record reads as the current round's.
+    expect(readRoundReview(dataDir).phase).toBe('done');
+
+    expect(startNewRound(dataDir)).toBe(1);
+
+    expect(getRound(dataDir)).toBe(1);
+    expect(readRoundReview(dataDir)).toEqual({ round: 1, phase: 'none', baselineTaskIds: [], fixTaskIds: [] });
+    expect(rawState()).toEqual({ nextTaskId: 7, extra: { keep: true }, round: 1 });
+  });
+
+  test('existing round: the round is bumped and the record is cleared', () => {
+    fs.writeFileSync(
+      statePath(),
+      JSON.stringify({
+        nextTaskId: 7,
+        round: 3,
+        [ROUND_REVIEW_STATE_KEY]: { round: 3, phase: 'failed', baselineTaskIds: [1], fixTaskIds: [2] },
+      }),
+    );
+    expect(startNewRound(dataDir)).toBe(4);
+    expect(getRound(dataDir)).toBe(4);
+    expect(readRoundReview(dataDir).phase).toBe('none');
+    expect(rawState()).toEqual({ nextTaskId: 7, round: 4 });
+  });
+
+  test('a record stored for the round about to start is cleared too', () => {
+    fs.writeFileSync(
+      statePath(),
+      JSON.stringify({ round: 3, [ROUND_REVIEW_STATE_KEY]: { round: 4, phase: 'done', baselineTaskIds: [], fixTaskIds: [] } }),
+    );
+    expect(startNewRound(dataDir)).toBe(4);
+    expect(readRoundReview(dataDir).phase).toBe('none');
+  });
+
+  test('no state.json: round 1, nothing else written', () => {
+    expect(startNewRound(dataDir)).toBe(1);
+    expect(rawState()).toEqual({ round: 1 });
   });
 });

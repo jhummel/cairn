@@ -13,6 +13,7 @@ import { FileLockError } from '../../src/file-lock';
 import type { ValidationResult } from '../../src/test-validator';
 import type { AgentInfo, CairnConfig, Task } from '../../src/types';
 import { advanceRoundReview, readRoundReview, snapshotReviewFile } from '../../src/round-review';
+import { getRound } from '../../src/task-counter';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -1504,6 +1505,41 @@ describe('roundNewCommand', () => {
     roundNewCommand({ dataDir, stdout: makeWriter(), stderr: makeWriter() });
 
     expect(readState()).toEqual({ nextTaskId: 99, round: 5, extra: 'keep' });
+  });
+
+  test('clears a stale roundReview record when the round key is absent (new round 1 == stored round 1)', () => {
+    fs.writeFileSync(
+      statePath(),
+      JSON.stringify({
+        nextTaskId: 3,
+        extra: 'keep',
+        roundReview: { round: 1, phase: 'done', baselineTaskIds: [], fixTaskIds: [] },
+      }),
+    );
+    expect(readRoundReview(dataDir).phase).toBe('done');
+    const stdout = makeWriter();
+
+    const code = roundNewCommand({ dataDir, stdout, stderr: makeWriter() });
+
+    expect(code).toBe(0);
+    expect(Object.keys(JSON.parse(stdout.lines[0])).sort()).toEqual(['next', 'round', 'verdict']);
+    expect(JSON.parse(stdout.lines[0])).toMatchObject({ verdict: 'round-started', round: 1 });
+    expect(getRound(dataDir)).toBe(1);
+    expect(readRoundReview(dataDir).phase).toBe('none');
+    expect(readState()).toEqual({ nextTaskId: 3, extra: 'keep', round: 1 });
+  });
+
+  test('clears the previous round\'s roundReview record when bumping an existing round', () => {
+    fs.writeFileSync(
+      statePath(),
+      JSON.stringify({ nextTaskId: 3, round: 3, roundReview: { round: 3, phase: 'fixing', baselineTaskIds: [1], fixTaskIds: [2] } }),
+    );
+
+    expect(roundNewCommand({ dataDir, stdout: makeWriter(), stderr: makeWriter() })).toBe(0);
+
+    expect(getRound(dataDir)).toBe(4);
+    expect(readRoundReview(dataDir).phase).toBe('none');
+    expect(readState()).toEqual({ nextTaskId: 3, round: 4 });
   });
 
   test('deletes the planning-session log when present', () => {

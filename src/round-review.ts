@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BRAND } from './brand';
 import { tempFilePath } from './utils';
-import { getRound, readStateValue, updateStateValue } from './task-counter';
+import { bumpRound, getRound, readStateValue, updateStateValue } from './task-counter';
 import { resolveReviewFilePath } from './post-task-reviewer';
 import { loadArchivedTask } from './task-archiver';
 import { findTaskCommits } from './settle';
@@ -58,7 +58,18 @@ export type AppendOnlyResult =
   | { status: 'violated'; restored: boolean }
   | { status: 'snapshot-missing' };
 
-export function verifyAppendOnly(dataDir: string, reviewFilePath: string): AppendOnlyResult {
+/** What `checkAppendOnly` found; a violation carries the contents needed to act on it. */
+export type AppendOnlyCheck =
+  | { status: 'ok' }
+  | { status: 'violated'; snapshot: string; current: string | null }
+  | { status: 'snapshot-missing' };
+
+/**
+ * The append-only check alone: compare the review file with its snapshot and
+ * write nothing. `current` is `null` when the review file cannot be read,
+ * which counts as a violation.
+ */
+export function checkAppendOnly(dataDir: string, reviewFilePath: string): AppendOnlyCheck {
   let snapshot: string;
   try {
     snapshot = fs.readFileSync(roundReviewSnapshotPath(dataDir), 'utf8');
@@ -72,20 +83,42 @@ export function verifyAppendOnly(dataDir: string, reviewFilePath: string): Appen
     current = null;
   }
   if (current !== null && isAppendOnly(snapshot, current)) return { status: 'ok' };
+  return { status: 'violated', snapshot, current };
+}
 
-  if (current) {
+/**
+ * Undo a violation `checkAppendOnly` found: keep the rejected content (when
+ * there was any) in the rejected file, then write the snapshot back over the
+ * review file. Returns whether the restore succeeded; never throws.
+ */
+export function restoreReviewFile(
+  dataDir: string,
+  reviewFilePath: string,
+  violation: { snapshot: string; current: string | null },
+): boolean {
+  if (violation.current) {
     try {
-      fs.writeFileSync(roundReviewRejectedPath(dataDir), current);
+      fs.writeFileSync(roundReviewRejectedPath(dataDir), violation.current);
     } catch {
       // best-effort diagnostic
     }
   }
   try {
-    fs.writeFileSync(reviewFilePath, snapshot);
-    return { status: 'violated', restored: true };
+    fs.writeFileSync(reviewFilePath, violation.snapshot);
+    return true;
   } catch {
-    return { status: 'violated', restored: false };
+    return false;
   }
+}
+
+/**
+ * Check and, on a violation, restore in one step. `settleRoundReview` does not
+ * use this: it records the failed phase between the two steps.
+ */
+export function verifyAppendOnly(dataDir: string, reviewFilePath: string): AppendOnlyResult {
+  const check = checkAppendOnly(dataDir, reviewFilePath);
+  if (check.status !== 'violated') return check;
+  return { status: 'violated', restored: restoreReviewFile(dataDir, reviewFilePath, check) };
 }
 
 function escapeRegExp(s: string): string {
@@ -219,6 +252,21 @@ export function advanceRoundReview(
     return result;
   });
   return result;
+}
+
+/**
+ * Start a new planning round (`cairn round new`): bump the round and remove
+ * the stored review record, in one write under the state.json lock. Returns
+ * the new round.
+ *
+ * The record is cleared unconditionally because a new round always makes it
+ * obsolete, and its round number alone does not guarantee that it stops
+ * matching: with no `round` key in state.json the current round reads as 1 and
+ * the bump also yields 1, so a finished `{ round: 1, phase: 'done' }` record
+ * would read as the new round's and its post-round review would be skipped.
+ */
+export function startNewRound(dataDir: string): number {
+  return bumpRound(dataDir, { clear: [ROUND_REVIEW_STATE_KEY] });
 }
 
 export type RoundReviewAction = 'task' | 'triage' | 'closing' | 'done';
@@ -561,6 +609,8 @@ export type RoundReviewSettleVerdict =
 export interface RoundReviewSettleDeps {
   readTasksFile?: typeof readTasksFile;
   appendFileSync?: (p: string, c: string) => void;
+  /** The state.json phase update; injectable so a lock timeout can be simulated. */
+  advanceRoundReview?: typeof advanceRoundReview;
 }
 
 /**
@@ -573,8 +623,22 @@ export interface RoundReviewSettleDeps {
  * created fix tasks, so handing triage out again would duplicate them. Those
  * tasks stay in tasks.json and run as ordinary tasks, with no closing pass.
  *
+ * On a violation the order is: detect (no writes), record phase `failed`, and
+ * only then save the rejected content and restore the review file from the
+ * snapshot. The restore must come last because it erases the evidence: a
+ * restored file passes the check against its own snapshot.
+ *
  * Throws TasksFileError (unreadable tasks.json) or FileLockError (state.json
- * lock timeout); the phase is then still pending and the call can be repeated.
+ * lock timeout). The phase is then still pending, nothing has been written,
+ * and the call can be repeated: a repeat sees the same review file and reaches
+ * the same verdict, a violation included.
+ *
+ * The opposite window is a crash after `failed` is recorded and before the
+ * restore. The failure is still reported (a repeat returns `no-round-review`
+ * with phase `failed`, and round-done carries `roundReviewFailed: true`), but
+ * the restore is not retried: the review file keeps the violating content and
+ * no rejected copy is written. The snapshot holding the original content stays
+ * in place until round-done removes it.
  */
 export function settleRoundReview(
   input: { projectRoot: string; dataDir: string },
@@ -587,12 +651,16 @@ export function settleRoundReview(
     return { verdict: 'no-round-review', phase: rec.phase, next };
   }
   const pass = rec.phase;
+  const advance = deps.advanceRoundReview ?? advanceRoundReview;
   const { reviewFilePath } = resolveReviewFilePath(projectRoot, dataDir);
-  const check = verifyAppendOnly(dataDir, reviewFilePath);
+  const check = checkAppendOnly(dataDir, reviewFilePath);
 
   let verdict: RoundReviewSettleVerdict;
   if (check.status !== 'ok') {
-    advanceRoundReview(dataDir, 'failed');
+    // Record the failure before restoring: if this throws, the violating file
+    // is untouched and a repeat call detects the violation again.
+    advance(dataDir, 'failed');
+    if (check.status === 'violated') restoreReviewFile(dataDir, reviewFilePath, check);
     verdict = {
       verdict: 'round-review-failed',
       pass,
@@ -609,14 +677,14 @@ export function settleRoundReview(
         .filter((id) => !baseline.has(id))
         .sort((a, b) => a - b);
       if (fixTaskIds.length > 0) {
-        advanceRoundReview(dataDir, 'fixing', { fixTaskIds });
+        advance(dataDir, 'fixing', { fixTaskIds });
         verdict = { verdict: 'round-review-settled', pass, phase: 'fixing', fixTasks: fixTaskIds, next };
       } else {
-        advanceRoundReview(dataDir, 'done');
+        advance(dataDir, 'done');
         verdict = { verdict: 'round-review-settled', pass, phase: 'done', fixTasks: [], next };
       }
     } else {
-      advanceRoundReview(dataDir, 'done');
+      advance(dataDir, 'done');
       verdict = { verdict: 'round-review-settled', pass, phase: 'done', fixTasks: [...rec.fixTaskIds], next };
     }
     // Only after the phase has advanced: a crash in between leaves a stale

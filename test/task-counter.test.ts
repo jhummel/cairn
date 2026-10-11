@@ -178,6 +178,27 @@ describe('bumpRound', () => {
     bumpRound(dataDir);
     expect(readState().round).toBe(1);
   });
+
+  it('preserves unknown keys by default', () => {
+    fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 9, round: 1, other: { a: 1 } }));
+    bumpRound(dataDir);
+    expect(readState() as unknown).toEqual({ nextTaskId: 9, round: 2, other: { a: 1 } });
+  });
+
+  it('removes only the keys named in `clear`, in the same write as the bump', () => {
+    fs.writeFileSync(
+      path.join(dataDir, 'state.json'),
+      JSON.stringify({ nextTaskId: 9, stale: { round: 1 }, other: 'keep' }),
+    );
+    expect(bumpRound(dataDir, { clear: ['stale', 'not-there'] })).toBe(1);
+    expect(readState() as unknown).toEqual({ nextTaskId: 9, other: 'keep', round: 1 });
+  });
+
+  it('`clear` never removes round or nextTaskId', () => {
+    fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 9, round: 3 }));
+    expect(bumpRound(dataDir, { clear: ['round', 'nextTaskId'] })).toBe(4);
+    expect(readState() as unknown).toEqual({ nextTaskId: 9, round: 4 });
+  });
 });
 
 describe('readStateValue / updateStateValue', () => {

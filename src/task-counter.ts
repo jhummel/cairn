@@ -167,9 +167,13 @@ export function getRound(dataDir: string): number {
  * non-finite round is set to 1, so the first `cairn round new` (run by
  * /generate-tasks) in a fresh project starts round 1. (getRound still *reads*
  * an absent round as 1.) Every other field (nextTaskId and any unknown keys) is
- * preserved exactly.
+ * preserved exactly, except the top-level keys named in `opts.clear`, which are
+ * removed in the same write as the bump. That is for round-scoped state that a
+ * new round makes obsolete: because an absent round both reads as 1 and bumps
+ * to 1, such state cannot rely on its stored round number no longer matching.
+ * `round` and `nextTaskId` are never removed.
  */
-export function bumpRound(dataDir: string): number {
+export function bumpRound(dataDir: string, opts: { clear?: readonly string[] } = {}): number {
   const statePath = path.join(dataDir, 'state.json');
   const lockPath = `${statePath}.lock`;
   const fd = acquireLock(lockPath);
@@ -180,7 +184,11 @@ export function bumpRound(dataDir: string): number {
         ? existing.round + 1
         : 1;
 
-    writeStateAtomic(statePath, { ...(existing ?? {}), round: next });
+    const state: CounterState = { ...(existing ?? {}) };
+    for (const key of opts.clear ?? []) {
+      if (key !== 'round' && key !== 'nextTaskId') delete state[key];
+    }
+    writeStateAtomic(statePath, { ...state, round: next });
     return next;
   } finally {
     try {
