@@ -1,49 +1,35 @@
 ## Context
 
-**Round 20 planning session (2026-09-30).**
+**Round 21 planning session (2026-10-10).**
 
-**Round 19 is done.** Tasks #138–#142 shipped the following, and the user's "fixups and removing narration code" commit (e74f8f6) is in:
-- the sweep keeps blocked tasks' `_tests.log`
-- narration and ntfy are removed
-- the doc fixes and the unpin step
+**Round 20 is done.** Tasks #143–#149 shipped `cairn watch`, `cairn round new` (the round bump moved from `cairn plan` to `/generate-tasks`), the `/teach` learning mode and their docs. `tasks.json` is empty, `nextTaskId` is 150, and `state.json` round is 20. The binary is **unpinned** (`~/.local/bin/cairn` is a symlink to `dist/cairn`, and `cairn.json` `healthCheck` is `bun run build`). The next `/generate-tasks` runs `cairn round new`, so this round becomes **21** automatically.
 
-`tasks.json` is empty and `nextTaskId` is 143. The binary is **unpinned** (`cairn.json` `healthCheck` is `bun run build`).
+**What prompted this round.** After round 20 the user fixed the review concerns by hand in commit `ae95f0a` ("Fix round-20 review concerns"). Comparing that commit with `.cairn/reviews/round-20.md` shows what a round-level pass has to do that a per-task reviewer cannot:
 
-**`state.json` round is wrong.** It was committed at 19 and now reads **21**. `cairn plan` bumps the round on *every* launch (`bumpRound()` in `runPlan`, `src/commands/plan.ts`), so a planning session that was quit and re-run skipped round 20. No `reviews/round-20.md` exists. This round should be **20**, which is a manual reset; see the pre-round steps. Fixing the cause is goal 2.
+- **Deduplicate.** The `cairn watch --session` exit-1 problem appears in three task reviews (#144, #145, #149) as one underlying issue.
+- **Drop what later tasks resolved.** #147's review noted the CLAUDE.md layout tree was missing two files; the docs task later in the round covered it.
+- **Read past the verdicts.** The `--session` path-escape the user fixed was a "minor note" under a CLEAN verdict on #144. Filtering on `HAS_GAPS` / `HAS_RISKS` would miss it.
+- **Decline some findings.** The user left the loose `toContain` assertion, the mtime tie ordering and the drain window alone.
 
-**Things the user raised this session:**
-1. **No visibility into `/cairn-run` task agents.** Under `cairn run`, the `claude -p` stream-json output was rendered live by `src/stream-filter.ts`. Under `/cairn-run`, the user only sees "handed to a background agent" and later the result.
-   - **Probe:** Claude Code writes each subagent's transcript live to `~/.claude/projects/<slug>/<sessionId>/subagents/agent-<id>.jsonl`, plus `agent-<id>.meta.json`, e.g. `{"agentType":"post-task-reviewer","description":"Review #139",...}`.
-   - The slug is the project root with non-alphanumerics replaced by `-`, e.g. `-Users-jhummel-Documents--Repos-cairn`.
-   - Transcript lines have the same shape as stream-json: `{"type":"assistant","message":{"content":[{"type":"tool_use",...}]}}` and `{"type":"user",...tool_result...}`. So `fmtTool` / `fmtResult` can render them.
-2. **Planning sessions go over the user's head.** Too many details, too much assumed knowledge, not enough learning about how concepts fit together. The user brought a draft slash command from another session (`~/Downloads/plan.md`, "Planning Session Mode"). It covers:
-   - a re-entry briefing
-   - defining terms and explaining the why before the how
-   - one concept per message
-   - a breadcrumb line, and one question at the end of each reply
-   - understanding checks before locking a decision
-   - steelmanning and challenging design decisions
-   - a written trail and a "Concepts I've learned" glossary
+A per-task reviewer only sees its own commit range. A round reviewer sees the final state of the tree.
 
-   It wasn't written with Cairn in mind: it writes `docs/PLANNING_STATE.md` continuously. The user wants it integrated into Cairn without forcing it on other Cairn users. This session was run in that style from the midpoint as a trial, and the user responded well to it.
+**Relevant code as it stands:**
 
-**Where instructions can live, and who reads them.** This is the key concept behind the `/teach` design:
+- `cairn round next` (`pickNext()` in `src/commands/round.ts`) returns `review`, `task` or `round-done`. The `round-done` branch prunes orphans, runs `sweepRoundTempFiles()` and returns the `blocked` count.
+- The per-task reviewer (`agents/post-task-reviewer.md`) appends a `## Task #<id>: <title>` section ending in `### Verdict` (`CLEAN | HAS_GAPS | HAS_RISKS`) and `---` to `.cairn/reviews/round-<N>.md`. The path comes from `resolveReviewFilePath()` (`src/post-task-reviewer.ts`).
+- The hook (`src/commands/hook.ts`) scopes `agent_type: post-task-reviewer` to writes inside `<dataDir>/reviews/` and read-only git commands with no `$`, backticks or redirection.
+- `cairn task add` takes `--file <path>` pointing at a JSON task file, and assigns the id itself (`taskAdd()` in `src/commands/task.ts`). CLAUDE.md's Agent workflow block shows a stale `--title/--description` form.
+- `review.postTask` is the existing config flag (`src/types.ts`); an absent value means per-task review is off.
+- Headless `cairn run` ends its round by breaking out of a `for` loop when no task is ready, then sweeping (`src/commands/run.ts`).
 
-| Location | Read by |
-|---|---|
-| `CLAUDE.local.md` | **every** session in the repo (planner, task agents, reviewer, normal sessions) |
-| `.claude/agents/planner.md` | only `cairn plan`, but `cairn init`'s `installMdDir` overwrites it by filename |
-| `buildDynamicContext()` (`--append-system-prompt`) | only `cairn plan`, built fresh per launch |
-| slash command | only the session where it's typed |
-
-The system prompt is fixed at launch. A slash command is a saved message that can be injected mid-session.
+**Also raised this session, settled without work:** Claude Code's prompt suggestions pre-fill answers to `/teach` understanding checks. A slash command cannot switch them off mid-session; the documented controls are the `/config` "Prompt suggestions" toggle, the `promptSuggestionEnabled` setting, and the `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` env var. The user will use `/config`.
 
 ## Goals
 
-1. **`cairn watch`:** a live, full-detail view of the running `/cairn-run` subagent in a second local terminal, close to the old `-p` experience.
-2. **Move the round bump from `cairn plan` launch to task generation,** so quitting and re-running a planning session no longer skips round numbers.
-3. **`/teach` learning mode:** an opt-in, toggleable planning style shipped with Cairn, adapted from the user's draft to fit Cairn's planner.
-4. Docs for all of the above.
+1. **A post-round review** that runs at round end under `/cairn-run`: it triages every finding in the round's review file, turns the ones that still apply into fix tasks, lets the normal loop run them, then records the outcome.
+2. **The review file stays append-only.** The original per-task sections are never changed; the round reviewer only adds blocks beneath them. This is enforced by the CLI, not only by the prompt.
+3. **A config flag,** `review.postRound`, on by default.
+4. Docs for the above.
 
 ## Approach
 
@@ -51,121 +37,112 @@ The system prompt is fixed at launch. A slash command is a saved message that ca
 
 | # | Decision | Why | Alternative rejected |
 |---|---|---|---|
-| 1 | Live view is a new `cairn watch` command | clearly a live view, distinct from the iteration log | `cairn logs -f` |
-| 2 | On startup, replay the current agent's transcript, then follow | joining mid-task still shows what happened | tail-only; last-N lines |
-| 3 | Learning mode is **off by default**, toggled **on** mid-session | user wants speed by default, depth on demand | on by default; a startup-only file layer |
-| 4 | `/teach` ships with Cairn (`commands/teach.md`, installed by `cairn init`) | it must know about `planning-notes.md` and the planner's rules | personal `~/.claude/commands/teach.md` |
-| 5 | Learning mode writes a **separate running log** as it goes. `planning-notes.md` is still written only at the end, with the user's OK. | keeps re-entry across breaks *and* keeps `/generate-tasks` from consuming a half-finished plan | end-only writes (trail lost on quit); continuously written `planning-notes.md` (quit → re-run → generate-tasks treats a draft as final) |
-| 6 | The round-bump fix goes into this round | user has hit it before; quality of life, and `/teach` makes re-entry more common | open question for later |
-| 7 | The round bump is a dedicated command, `cairn round new`, run by `/generate-tasks` | `cairn task next-id` is also called mid-round by task agents and review sessions, so piggybacking would bump mid-round and split reviews | bumping inside `next-id` |
-| 8 | The glossary is **personal and gitignored** | it's the user's learning record, like `CLAUDE.local.md` | committed glossary |
-| 9 | `cairn round new` deletes the running log | CLI code is tested and deterministic; a Markdown instruction to "remember to delete" can be skipped or lost to compaction | the planner deletes it after writing `planning-notes.md` |
+| 1 | Still-applicable findings become **fix tasks** run by the normal loop | fixes get test validation and their own per-task review | triage-only report; the reviewer fixing code directly |
+| 2 | **One fix pass per round** | fix tasks' own review concerns must not start another triage | repeating until clean |
+| 3 | The round reviewer **only adds** to the review file | the per-task record stays as written | rewriting or annotating original sections in place |
+| 4 | **Two passes:** triage at round end, closing after the fix tasks settle | "explains the fix" and a final verdict are only true once the fix has run | a single pass |
+| 5 | The triage pass **writes its dispositions immediately** | if the round dies between passes, the file still shows what was decided | writing everything in the closing pass |
+| 6 | A changed fix is **appended as an outcome**, never edited into the plan | the file shows both what was intended and what was done | updating the planned-fix text |
+| 7 | **`/cairn-run` only** for now, with mode-neutral logic in a shared module | headless needs loop-control changes, a second spawner and a second containment story | building both modes now |
+| 8 | Config flag `review.postRound`, **on by default** | the user wants it as standard behaviour | off by default; no flag |
+| 9 | Start with the fix/leave rubric below, held in the agent prompt | it mirrors the user's round-20 choices and is cheap to adjust | deciding the rubric later |
 
-**Principle the user endorsed, worth applying elsewhere: "the CLI owns state."** Markdown instructions (slash commands, agent prompts) decide *when* to act. A tested `cairn` command performs the state change. `/cairn-run` with settle already follows this, and `cairn round new` extends it.
+### What gets written to the review file
 
-### `cairn watch`
+Under each task section that has findings, the round reviewer adds blocks after that section's existing `### Verdict`. The triage pass writes the first block; the closing pass writes the other two.
 
-**Discovery:**
-- Config dir is `$CLAUDE_CONFIG_DIR`, defaulting to `~/.claude`. Then `projects/<slug>/`, where the slug is derived from the project root (every non-alphanumeric character becomes `-`).
-- Pick the session whose `subagents/` dir changed most recently. `--session <id>` overrides.
+```markdown
+### Verdict
+HAS_RISKS
 
-**Filtering and labels:**
-- By default, only `cairn-task-agent` and `post-task-reviewer` transcripts, read from `.meta.json` `agentType`. This skips planning and Explore subagents.
-- `--all` shows every subagent.
-- On each switch, print a header from `meta.description` plus the agent type, e.g. `── Task #143 · cairn-task-agent ──`.
+### Round Triage
+Reviewed: <timestamp>
+1. `--session` exits 1 before the first subagent: still applies. Planned fix (task #150): wait when `<session>.jsonl` exists.
+2. Drain window on switch: not fixing, subagents run one after another.
 
-**Following:**
-- Poll every ~500ms for new lines and new agent files. Don't use `fs.watch`, which is unreliable on macOS.
-- On startup, replay the current, newest matching agent's transcript from the beginning, then follow.
-- When a newer matching transcript appears, finish draining the current one, then switch.
-- If no session has subagents yet, wait. Run until Ctrl-C.
+### Round Outcome
+Reviewed: <timestamp>
+1. Fixed by #150 (abc1234). Differs from plan: also rejects session ids that aren't plain names.
 
-**Rendering:**
-- Refactor `src/stream-filter.ts` so a per-event renderer is shared by `processStream` (stdin, `cairn run`) and the file tail.
-- Full stream: assistant text blocks, tool calls and results.
-- `cairn run`'s output must stay identical.
+### Round Verdict
+RESOLVED
+```
 
-**Failure mode:**
-- This depends on Claude Code's undocumented transcript layout.
-- If the projects dir or slug dir is missing, fail **loudly**, naming the path it looked for. Never sit silently.
-- Skip unparseable lines; don't crash on them.
+- **Round verdicts:** `RESOLVED` (fix landed, as planned or differently, with any difference stated), `UNRESOLVED` (fix task blocked, or its own review raised concerns; left for the user), `ACCEPTED` (nothing needed fixing).
+- When nothing in a task section needs a fix, the **triage pass writes the `### Round Verdict` itself** and that task gets no outcome block.
+- A task section with no findings at all gets no blocks.
+- A `### Round Triage` with no `### Round Verdict` after it means the round review did not finish. That is visible in the file without extra state.
+- The closing pass learns what happened from the fix task's diff, its completion notes and its own `## Task #<id>` review section, not from the triage plan.
 
-**Read-only.** It never touches run state, the hook, settle or `/cairn-run`, and adds nothing to the run agent's context.
+### Triage rubric (lives in the agent prompt)
 
-### Round bump moves to task generation
+| Fix | Leave, with a stated reason |
+|---|---|
+| Behaviour that contradicts the task's spec | Theoretical or very unlikely cases |
+| Docs that state something false | Test-quality nits |
+| Anything touching safety or containment, even if minor | Process notes that can't be acted on (e.g. "TDD claim unverifiable") |
+| | Findings already resolved by a later task |
 
-- Remove `bumpRound()` from `runPlan()`.
-- Add `cairn round new`:
-  - calls `bumpRound(dataDir)`
-  - deletes the running session log, best-effort
-  - prints one JSON object like the other `round` commands, e.g. `{ "verdict": "round-started", "round": N, "next": "..." }`
-  - exits 0
-- It lives under `round`, not `task`, for the same reason as `round next`/`settle`: task agents only know `cairn task`, so they can't bump the round.
-- `commands/generate-tasks.md`: after the user approves and `cairn task next-id --count <n>` runs, run `cairn round new`.
-- Add `Bash(cairn round new:*)` to the planner's `--allowedTools` in `plan.ts`. Without it, the planning session can't run the command headlessly-scoped.
-- **Semantics change:** during a planning discussion, `state.json` now shows the *previous* round, and the bump happens when the plan becomes tasks. Anything that reads `getRound()` during planning should be checked. As far as found, only the reviewer reads it, at execution time.
+The triage pass reads every finding, including "minor notes" under a CLEAN verdict, and deduplicates findings that share one underlying issue across task sections.
 
-### `/teach` learning mode (`commands/teach.md`)
+### Phases and the one-pass cap
 
-Adapt `~/Downloads/plan.md` as follows.
+The CLI records a forward-only phase for the round review:
 
-**Keep:**
-- defining terms on first use and explaining mechanism before naming it
-- asking "have you worked with X?" before assuming
-- why → mechanism → recommendation
-- one concept per message, concrete traces over abstractions, no walls of text
-- the `📍 Phase · Working on · Decided so far` breadcrumb
-- ending each reply with exactly one question or action
-- naming tangents and offering the way back
-- understanding checks before locking decisions: one at a time, never self-answered, a plain correction if wrong
-- steelmanning, naming trade-offs, asking the failure question, separating requirement from preference, holding position without a new argument, flagging scope creep
-- not challenging trivia
+1. **Triage.** No ready tasks remain, the flag is on, the round's review file exists and no round review has run: `cairn round next` hands out the triage prompt instead of `round-done`.
+2. **Fixing.** Fix tasks are ordinary tasks. The existing loop runs, settles and reviews them.
+3. **Closing.** No ready tasks remain again and triage already happened: `cairn round next` hands out the closing prompt.
+4. **Done.** `round-done` as today, plus a count of `UNRESOLVED` items for the notification.
 
-**Drop:**
-- "nothing gets implemented until 'let's build'". The planner never implements.
+The phase never moves backwards, so concerns raised against a fix task cannot start a second triage. If triage creates no fix tasks, the round goes straight to done with no closing pass.
 
-**Change:**
-- **Running log.** Instead of `docs/PLANNING_STATE.md`, write a gitignored scratch log in the data dir, e.g. `.cairn/.cairn_planning_session.md`. Its template:
-  - Goal
-  - Current phase / focus
-  - Decision log (#, decision, why, alternative rejected, open concerns)
-  - Open questions
-  - Parked ideas
-  - Next step
+The round review is skipped when the flag is off or the round has no review file (which is also the case when `review.postTask` is off).
 
-  Update it as decisions land, with a one-line "Logged decision #N" mention. `/generate-tasks` never reads it.
-- **Re-entry briefing.**
-  - If the running log exists, give the four-line briefing ("Where we are / Last decided / Open question / Suggested next step") from it.
-  - Otherwise, give it from `planning-notes.md`.
-  - Then ask "Does this match what you remember?"
-- **Glossary.** A gitignored `.cairn/concepts.md`, cumulative across rounds:
-  - **Read it at the start** so known terms aren't re-explained.
-  - Append terms as they're covered.
-  - When the user re-asks something covered, point them to where it lives.
-- **`planning-notes.md` rules are unchanged:**
-  - written only when the user says yes
-  - same format, with Rejected Alternatives carried forward
-  - The decision log may feed its Approach and Rejected Alternatives.
-- **"Stopping" handoff.** Update the running log and give a three-line handoff.
-- **Turning it off.** `/teach off`, or "back to normal mode," returns to the standard planner style. The command text should say that a later instruction overrides the earlier one.
-- **Compaction.** If the style seems lost after compaction, re-run `/teach`.
-- **Scope.** Meant for `cairn plan` sessions, but harmless elsewhere.
+### CLI surface (`/cairn-run` only)
 
-**Gitignore.** Add both filenames to `GITIGNORE_CONTENT` in `src/commands/init.ts`:
-- `planning_session.md` via `TEMP_IGNORE_SUFFIXES`, which yields `.cairn_planning_session.md`
-- `concepts.md`
+- **`cairn round next`** gains a verdict, e.g. `{ verdict: 'round-review', pass: 'triage'|'closing', promptFile, next }`, checked before the `round-done` branch. `round-done` gains an `unresolved` count.
+- **A settle step for the round review** (name to be fixed at task generation, e.g. `cairn round review-settle`): runs the append-only check, advances the phase and prints one JSON verdict with a `next` hint. Like the other `round` commands it exits 0 for every verdict.
+- **Append-only check.** `cairn round next` snapshots the review file when it hands out a round-review pass. The settle step verifies every snapshot line is still present, in order, and restores the snapshot if not. Inserting blocks mid-file passes; changing or deleting an original line fails.
+- **Shared module.** The phase logic, both prompt builders and the append-only check go in a new module (the way `settleTask()` is shared), so headless can be added later with only loop and spawner work.
+- **Scratch files.** The round-review prompt file and the snapshot are not matched by `sweepRoundTempFiles()` (its regexes require `task_<id>_`), so they need their own cleanup on the done phase and their own `.gitignore` entries.
 
-Re-init merges them into existing projects append-only. Note that `temp-sweep` never touches either file, by construction: its regexes require `task_<id>_`. That's correct, because the running log must survive quitting.
+### The new agent: `post-round-reviewer`
+
+- A new agent file `agents/post-round-reviewer.md`, installed by `cairn init` like the others, separate from `post-task-reviewer`.
+- **Hook scope** for `agent_type: post-round-reviewer`: writes only inside `<dataDir>/reviews/`, the same read-only git commands as the per-task reviewer, plus `cairn task add --file <path>`. The existing ban on `$`, backticks and redirection in its Bash commands stays; task text goes in the JSON file, so it never appears on the command line.
+- **Creating fix tasks.** The agent writes each fix task as a JSON file and runs `cairn task add --file`. One task per underlying issue, with small related fixes in the same area grouped, since each fix task costs a task agent run plus a per-task review.
+- **Fix task tests.** The triage prompt carries the test commands the round's original tasks declared, so fix tasks are validated the same way.
+- **Blocked tasks.** The round review still runs on whatever completed and does not try to unblock anything.
+- Its final response is one line, like the per-task reviewer's.
+
+### `/cairn-run` and headless
+
+- `commands/cairn-run.md` gets the new verdict: launch `post-round-reviewer` with `Read <promptFile> and follow it`, run the settle step, follow `next`. The `round-done` notification mentions `unresolved` when non-zero.
+- Headless `cairn run` is unchanged: round end behaves as it does today.
 
 ### Run mode for this round
 
-**Pinned, under `/cairn-run`.** The round edits `plan.ts`, `round.ts`, `stream-filter.ts`, `init.ts` and `index.ts`, so the CLAUDE.md pin procedure applies.
+**Pinned, under `/cairn-run`.** The round edits `round.ts`, `hook.ts`, `init.ts`, `types.ts` and the run-state code, and the hook is live in the session, so the CLAUDE.md pin procedure applies.
 
-`cairn watch` can't be tried during this round, because the pinned binary predates it. Try it on round 21.
+The pinned binary predates the feature, so the round review will not run at this round's own end. After unpinning, the documented `cairn round next` step will return the triage verdict for `reviews/round-21.md`. That is the first live test, and it must be run **from inside a `/cairn-run` session** so something can launch the agent.
 
 ## Rejected Alternatives
 
-**This session (round 20):**
+**This session (round 21):**
+
+- **Triage-only round review** (a report the user then fixes or delegates). Rejected: the user wants the fixes carried out, with the normal validation and review.
+- **The round reviewer fixing code directly.** Rejected: the fixes would skip settle, test validation and per-task review, and the hook deliberately limits reviewer writes to `reviews/`.
+- **More than one fix pass per round.** Rejected: fix tasks can raise their own concerns, and an unattended round must end. Leftovers are marked `UNRESOLVED` for the user.
+- **Editing or annotating the original per-task review sections.** Rejected: the round reviewer only adds.
+- **Rewriting the planned-fix text when the fix turns out differently.** Rejected: the outcome block states the difference; the triage block stays as the record of intent.
+- **Writing everything in the closing pass.** Rejected: a round that dies between passes would leave no trace of the triage.
+- **Enforcing append-only by prompt alone.** Rejected: the hook cannot tell an insert from a rewrite, so the CLI checks against a snapshot.
+- **Filtering triage on `HAS_GAPS` / `HAS_RISKS` verdicts.** Rejected: round 20's path-escape fix came from a minor note under CLEAN.
+- **Building the round review for headless `cairn run` too.** Rejected for now: not trivial, and the user runs rounds through `/cairn-run`. The shared module keeps it possible.
+- **`cairn plan` setting `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false`, or a `cairn plan --teach` flag.** Rejected: the user will use the `/config` toggle.
+- **`/teach` editing `.claude/settings.local.json` to turn suggestions off.** Rejected: mid-session effect is undocumented, it outlives the session, and it breaks "the CLI owns state".
+
+**Round 20:**
 
 - **`cairn logs -f` as the live view.** Rejected for `cairn watch`: a live agent stream is different from the iteration/settle log.
 - **Hook-written activity log** (widen the PreToolUse matcher or add a PostToolUse hook that appends one-line summaries). Rejected:
@@ -288,101 +265,96 @@ Re-init merges them into existing projects append-only. Note that `temp-sweep` n
 
 **MANUAL pre-round (user), in this order:**
 
-1. **Set `.cairn/state.json` `round` to 20** by hand. It currently reads 21 because of the double bump. This round's `/generate-tasks` runs the *old* command file, which doesn't call `cairn round new`, so 20 stays put for the round.
-2. **Commit** `state.json` along with this `planning-notes.md`.
-3. **Pin** (CLAUDE.md procedure):
+1. **Commit** this `planning-notes.md`.
+2. **Pin** (CLAUDE.md procedure):
    - `bun run build`
    - copy `dist/cairn` over `~/.local/bin/cairn`, and verify it's a regular file
    - set `healthCheck` to `bun build --compile src/index.ts --outfile /tmp/cairn-healthcheck`
-4. **Generate tasks** (`/generate-tasks`), then launch a fresh `claude --permission-mode bypassPermissions` and run `/cairn-run`.
+3. **Generate tasks** (`/generate-tasks`, which now runs `cairn round new` and makes this round 21), then launch a fresh `claude --permission-mode bypassPermissions` and run `/cairn-run`.
 
-**Round tasks** (IDs from #143). Every task is TDD, with tests = `bun run typecheck` + `bun test`. No specialist agents apply. Every task says: *don't modify `cairn.json`, `install.sh` or `package.json`'s `build` script (the binary is pinned); never run `cairn round`/`cairn hook`/`cairn init`/`cairn watch` against the project root; temp dirs only.*
+**Round tasks** (IDs from #150). Every task is TDD, with tests = `bun run typecheck` + `bun test`. No specialist agents apply. Every task says: *don't modify `cairn.json`, `install.sh` or `package.json`'s `build` script (the binary is pinned); never run `cairn round`/`cairn hook`/`cairn init`/`cairn watch` against the project root; temp dirs only.*
 
-1. **Stream filter: extract a shared per-event renderer** (`src/`, `test/`)
-   - In `src/stream-filter.ts`, split `processStream`'s per-line handling into an exported function that takes one parsed event and returns the rendered line(s). `processStream` already renders `tool_use`, `tool_result` and assistant `text` blocks (checked at planning time), so this is a pure extraction: `processStream`'s output must be **unchanged**.
-   - Tests: the existing stream-filter tests stay green; add per-event tests for `tool_use`, `tool_result` and text events in transcript shape (`{"type":"assistant","message":{...}}`).
+1. **Config flag `review.postRound`** (`src/`, `test/`)
+   - Add the optional boolean to the `review` config type and its validation in `src/types.ts`; absent means on. Add a small helper that answers "is the round review enabled".
+   - `cairn init` (`src/commands/init.ts`) writes it alongside `postTask`.
+   - Tests: absent, `true` and `false` values; a non-boolean value fails validation; init output.
    - *No deps.*
-2. **Transcript discovery module** (`src/`, `test/`)
-   - New `src/transcripts.ts`:
-     - slug derivation from the project root
-     - config dir (`CLAUDE_CONFIG_DIR` ?? `~/.claude`)
-     - newest session with a `subagents/` dir, or an explicit `--session`
-     - list agent transcripts with parsed `.meta.json` (`agentType`, `description`), sorted by mtime
-     - filter to `cairn-task-agent` / `post-task-reviewer` unless `all`
-   - Missing dirs return a descriptive error result that names the path.
-   - All fs is injectable or temp-dir based. Fixture `.jsonl` and `.meta.json` files go in tests.
+2. **Append-only check** (`src/`, `test/`)
+   - In a new shared round-review module: snapshot a review file, verify that every snapshot line is still present in order, and restore the snapshot on failure.
+   - Tests: blocks inserted mid-file pass; a changed line, a deleted line and reordered lines fail and restore; a missing snapshot is reported, not thrown.
    - *No deps.*
-3. **`cairn watch` command** (`src/commands/`, `src/index.ts`, `test/commands/`)
-   - New `src/commands/watch.ts`, registered in `index.ts`, with `--session <id>` and `--all`.
-   - Behavior:
-     - poll at ~500ms with an injectable clock and sleep
-     - replay the current agent's transcript, then follow appended lines (track the byte offset)
-     - drain and switch when a newer matching transcript appears, printing a `── <description> · <agentType> ──` header
-     - wait quietly while no subagents exist; fail loudly if the projects or slug dir is missing
-     - skip unparseable lines
-   - Tests drive the loop with fake time and temp dirs:
-     - replay, then follow
-     - switching agents
-     - the filter
-     - the missing-dir error
-   - *Deps: 1, 2.*
-4. **Move the round bump to `cairn round new`** (`src/commands/`, `commands/`, `test/`)
-   - Remove `bumpRound()` from `runPlan()`.
-   - Add a `cairn round new` subcommand in `src/commands/round.ts`:
-     - `bumpRound` + best-effort delete of `.cairn/.cairn_planning_session.md`
-     - one JSON verdict on stdout, exit 0
-   - Add `Bash(cairn round new:*)` to `plan.ts`'s `--allowedTools`.
-   - In `commands/generate-tasks.md`, after approval and `next-id`, run `cairn round new` (both places that describe the approval step: around lines 149 and 159).
-   - Tests:
-     - `runPlan` no longer changes `state.json`'s round
-     - `round new` increments it, deletes the log if present, succeeds if absent, and prints valid JSON
-     - the planner's allowed tools include the new rule
+3. **Round-review phase tracking** (`src/`, `test/`)
+   - Forward-only phase for the current round (triage, fixing, closing, done), with read and advance functions and a decision function: given the flag, the phase, whether the review file exists and whether ready tasks remain, what happens next.
+   - Where it is stored is an open question below; resolve it before this task is written.
+   - Tests: every transition; the phase never moves back; flag off and missing review file both skip; no fix tasks created goes straight to done.
+   - *Deps: 1.*
+4. **Prompt builders for the two passes** (`src/`, `test/`)
+   - Triage prompt: the review file path, the round's task ids and declared test commands (from `tasks.completed.json`), the rubric, the block format, and how to create fix tasks with `cairn task add --file`.
+   - Closing prompt: the review file path, the fix task ids with their commit ranges, the outcome and verdict format.
+   - Both written to a prompt file in the data dir.
+   - Tests: the prompts name the resolved review path, carry the test commands and never tell the agent to edit existing lines.
+   - *Deps: 3.*
+5. **`post-round-reviewer` agent definition** (`agents/`, `test/`)
+   - New `agents/post-round-reviewer.md`: role, the append-only rule, the block formats and verdict vocabulary, the one-line final response.
+   - Test: `cairn init` into a temp dir installs it (`installMdDir` copies all of `agents/*.md`, so this is a guard).
+   - *Deps: 4* (formats must match the prompts).
+6. **Hook scope for `post-round-reviewer`** (`src/commands/`, `test/commands/`)
+   - In `src/commands/hook.ts`: writes only inside `<dataDir>/reviews/`; Bash limited to the `GIT_INSPECTION_RULES` prefixes plus `cairn task add --file <path>`, with the existing bans on `$`, backticks, redirection and `--output` kept.
+   - Share the scope code with the per-task reviewer where it is the same.
+   - Tests: allowed and denied cases for each rule; `cairn task add` with other subcommands or flags is denied; `post-task-reviewer` behaviour is unchanged.
    - *No deps.*
-5. **Gitignore entries for learning mode** (`src/commands/`, `test/commands/`)
-   - Add `planning_session.md` to `TEMP_IGNORE_SUFFIXES` and `concepts.md` to `GITIGNORE_CONTENT` in `src/commands/init.ts`.
-   - Tests: a fresh init writes both, and re-init on an existing `.gitignore` appends both without reordering.
-   - *No deps.*
-6. **`/teach` slash command** (`commands/`, `test/`)
-   - Write `commands/teach.md` per the Approach section, adapting the user's draft at `/Users/jhummel/Downloads/plan.md`. Read it; if it's unavailable, the Approach section is the spec.
-   - Write it in the draft's voice (second person, short sections).
-   - It must reference the real paths: `.cairn/.cairn_planning_session.md`, `.cairn/concepts.md`, `.cairn/planning-notes.md`.
-   - It must state that `planning-notes.md` is still written only on the user's OK, and how to turn it off.
-   - Test: `cairn init` into a temp dir installs `.claude/commands/teach.md`, and it contains those three paths. `installMdDir` copies all of `commands/*.md`, so this is a guard, not new code.
-   - Optional: `cairn plan`'s preflight prints a one-line tip that `/teach` exists, which helps discoverability for other users.
-   - *Deps: 4, 5* (the filenames must match).
-7. **Docs** (repo root: `CLAUDE.md`, `README.md`)
-   - CLAUDE.md:
-     - add `watch` and `round new` to the command list
-     - `cairn round` section: a `new` verdict, and why it lives under `round`
-     - the `state.json` description: the round is bumped by `/generate-tasks` via `cairn round new`, not by `cairn plan`
-     - the data layout: `concepts.md` and `.cairn_planning_session.md`
-     - a short note that `cairn watch` depends on Claude Code's undocumented subagent transcript layout
-   - README: `cairn watch` usage, and `/teach`.
-   - Verify every claim against the shipped code.
-   - *Deps: 1–6. Last.*
+7. **`cairn round next`: the round-review verdict** (`src/commands/`, `test/commands/`)
+   - Before the `round-done` branch in `pickNext()`: when the decision function says triage or closing, take the snapshot, write the prompt file and return the `round-review` verdict with a `next` hint.
+   - `round-done` gains an `unresolved` count read from the review file, and cleans up the round-review prompt file and snapshot.
+   - Tests: triage handed out once; fixing phase returns ordinary `task` verdicts; closing handed out after the fix tasks; flag off returns `round-done` as before; a crash between verdict and settle hands the same pass out again.
+   - *Deps: 2, 3, 4.*
+8. **Round-review settle command** (`src/commands/`, `src/index.ts`, `test/commands/`)
+   - New `cairn round` subcommand: runs the append-only check, advances the phase, prints one JSON verdict with a `next` hint, exits 0 for every verdict.
+   - Tests: a clean pass advances; a violated check restores the file and returns the verdict agreed in the open question below; idempotent on a repeat call.
+   - *Deps: 2, 3, 7.*
+9. **Gitignore entries for the round-review scratch files** (`src/commands/`, `test/commands/`)
+   - Add the prompt-file and snapshot suffixes to `TEMP_IGNORE_SUFFIXES` in `src/commands/init.ts`.
+   - Tests: fresh init writes them; re-init appends them without reordering.
+   - *Deps: 7* (filenames must match).
+10. **`/cairn-run` instructions** (`commands/`, `test/`)
+    - `commands/cairn-run.md`: the `round-review` verdict (launch `post-round-reviewer`, run the settle step, follow `next`) and `unresolved` in the round-done notification.
+    - Test: the installed command file names the agent type and the settle command.
+    - *Deps: 7, 8.*
+11. **Docs** (repo root: `CLAUDE.md`, `README.md`)
+    - CLAUDE.md: the new verdict and settle command, the phases and one-pass cap, the append-only check, the `post-round-reviewer` hook scope, `review.postRound`, the new scratch files in the data layout, and that headless `cairn run` has no round review.
+    - Fix the stale `cairn task add --title/--description` line in the Agent workflow block; the command takes `--file <path>`.
+    - Unpin procedure: the post-unpin `cairn round next` can now return a round-review verdict, so run it from a `/cairn-run` session.
+    - README: a short section on the post-round review and the flag.
+    - Verify every claim against the shipped code.
+    - *Deps: 1–10. Last.*
 
-Directories: `src/`, `src/commands/`, `test/`, `test/commands/`, `commands/`, plus the repo-root `CLAUDE.md` and `README.md`. No cross-service work.
+Directories: `src/`, `src/commands/`, `test/`, `test/commands/`, `agents/`, `commands/`, plus the repo-root `CLAUDE.md` and `README.md`. No cross-service work.
 
 **MANUAL post-round:**
 
 1. **Unpin** (`./install.sh`) and set `healthCheck` back to `bun run build`.
-2. **Run `cairn round next` once from the repo root** (round-end sweep with the fresh binary).
-3. **Re-run `cairn init`** in this repo to install `teach.md`, the updated `generate-tasks.md`, and the new gitignore entries.
-4. **Try it:** start the next `cairn plan` and type `/teach`. During round 21, run `cairn watch` in a second terminal.
+2. **Re-run `cairn init`** in this repo to install `post-round-reviewer.md`, the updated `cairn-run.md` and the new gitignore entries.
+3. **First live test:** start a `/cairn-run` session in this repo. `cairn round next` should return the triage verdict for `reviews/round-21.md`; let it run through fix tasks and the closing pass.
+4. Check `reviews/round-21.md`: original sections unchanged, triage, outcome and round verdict blocks present.
 5. `cairn summarize`, then commit the round bookkeeping.
 
 ## Open Questions
 
-- **Double `/generate-tasks` in one session.** If tasks are regenerated or edited after approval, `cairn round new` would bump twice. Possible guards:
-  - only bump if the current round has had activity, e.g. archived tasks or a `reviews/round-<N>.md`
-  - record `generatedForRound` in `state.json`
+**New this round (resolve at task generation):**
 
-  Decide at task generation, or accept and document it.
-- **First round in a fresh project.** `state.json` has no round (round 1 by default). The first `/generate-tasks` would bump to 2, so round 1 never has tasks. Consider having `cairn round new` set an *absent* round to 1 rather than 2.
-- **Should headless `cairn run` be removed or demoted?** The user chose to leave this open in round 20. Arguments:
-  - `/cairn-run` has run rounds 17–19 successfully
-  - the user misses `cairn run`'s live view, which `cairn watch` aims to replace
-  - revisit after using `cairn watch` for a round
+- **Where the round-review phase is stored.** Options:
+  - `.cairn_run_state.json`: fits "round runtime state", but an unparseable file reads as empty, which would re-run triage on a file that already has triage blocks.
+  - `state.json`: committed and keyed by round number, so it survives, but it adds round bookkeeping to a file that so far holds only counters.
+  - Derive it from the review file itself (triage blocks present, verdicts present), with no stored phase.
+- **What the settle step does when the append-only check fails.** Restore and hand the same pass out once more, or restore, mark the round review as failed and report it in `round-done`.
+- **How `round-done` counts `UNRESOLVED`.** Parsing `### Round Verdict` lines from the review file is deterministic; the alternative is trusting the closing agent's final line.
+- **Model for `post-round-reviewer`.** The headless per-task reviewer uses Sonnet; triage is a judgement call across the whole round and may warrant a stronger model.
+- **How the closing pass learns each fix task's commit range.** The attempt record is cleared on `done`, so the fallback is the `Task #<id>:` commit-message search that settle already uses.
+- **Review files from before this feature.** After upgrading, `cairn round next` in a project whose current round already has a review file would start a triage. That is wanted for round 21 here; decide whether other projects need a guard.
+
+**Carried forward:**
+
+- **Should headless `cairn run` be removed or demoted?** Left open in round 20. `/cairn-run` has run rounds 17–20, and this round adds a feature only `/cairn-run` has. `cairn watch` exists now; revisit after using it for a round.
 - **Round-17 validation results were never recorded.** Answerable from experience:
   - Does `auto` mode wrongly deny routine actions?
   - Does Remote Control approve prompts?
@@ -393,3 +365,4 @@ Directories: `src/`, `src/commands/`, `test/`, `test/commands/`, `commands/`, pl
 - **Should `cairn round next` refuse when another loop is running?** (carried from round 15)
 - **`--before-sha` on a repeat call:** save the override, or reject a value that differs? Revisit only if it causes confusion.
 - **Should `cairn run` stamp `promptFile` / `model` into its log?** Moot if `cairn run` is removed.
+- **The per-task reviewer reported that the hook blocked `grep` and `git grep`** in round 20, so it could not search for stale doc claims. It has the Grep tool; check whether its prompt should point it there, or whether `git grep` belongs in `GIT_INSPECTION_RULES`.
