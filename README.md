@@ -58,8 +58,9 @@ cairn summarize     # Update architecture docs
 | `cairn plan`           | Interactive planning discussion + task generation                 |
 | `cairn run [max]`      | Execute pending tasks headlessly (default: 30 iterations)         |
 | `/cairn-run`           | Slash command: run a round from an interactive Claude Code session (see [Execute](#3-execute)) |
-| `cairn round next`     | Used by `/cairn-run`: pick the next step (review, task, or round-done) as JSON |
+| `cairn round next`     | Used by `/cairn-run`: pick the next step (`review`, `round-review`, `task`, or `round-done`) as JSON |
 | `cairn round settle <id> [--reviewed] [--before-sha <sha>] [--test-timeout <seconds>]` | Used by `/cairn-run`: validate, guard, archive, and gate a task attempt for review; prints a JSON verdict |
+| `cairn round review-settle` | Used by `/cairn-run`: settle a post-round review pass (append-only check, advance the phase); prints a JSON verdict |
 | `cairn round new`      | Used by `/generate-tasks`: start a new planning round (bumps `state.json`'s round); prints JSON |
 | `cairn watch [--session <id>] [--all]` | Follow the running `/cairn-run` subagent live, read-only; run it in a second terminal (see [Watching a round](#watching-a-round-cairn-watch)) |
 | `/teach`, `/teach off` | Slash command: turn learning-mode planning on or off (see [Plan](#2-plan)) |
@@ -96,7 +97,7 @@ The allow rules exist because the post-task reviewer inspects git history while 
 
 Existing settings are **merged, not replaced**: `permissions.allow` is unioned with whatever is already there, the hook is appended only if a hook with the same command isn't already registered, and every other key in the file is left untouched. If you already have settings from plain `claude` usage, you won't lose them.
 
-`cairn init` also installs Cairn's slash commands (including `cairn-run.md`) into `.claude/commands/` and its agents (including `cairn-task-agent.md` and `post-task-reviewer.md`) into `.claude/agents/`.
+`cairn init` also installs Cairn's slash commands (including `cairn-run.md`) into `.claude/commands/` and its agents (including `cairn-task-agent.md`, `post-task-reviewer.md` and `post-round-reviewer.md`) into `.claude/agents/`.
 
 **One exception, and it is a repair.** An older `cairn init` seeded `deny` rules for the five mutating `cairn task` subcommands (`start`, `complete`, `set-status`, `add`, `note`). That was a bug: a project-wide deny binds *every* Claude session in the project, including `cairn run`'s own execution agents — it is not bypassed by `--dangerously-skip-permissions` — so agents were silently blocked from recording their own task state, and the loop re-ran a single task indefinitely while reporting success. Since `.claude/settings.local.json` is gitignored, nothing in `git status` reveals it. Re-running `cairn init` now strips exactly those five rules (and drops the `deny` key if that empties it). Any other deny rule you wrote yourself is kept.
 
@@ -136,6 +137,8 @@ Each iteration:
    - A completed task is archived to `tasks.completed.json`
    - If `review.postTask` is enabled and the task made commits, the post-task reviewer runs
 
+`cairn run` has no [post-round review](#post-round-review); its round ends when the loop exits.
+
 #### Interactive: `/cairn-run`
 
 Start an interactive Claude Code session in the project (for example one you reach from your phone via Remote Control) and run:
@@ -146,12 +149,13 @@ Start an interactive Claude Code session in the project (for example one you rea
 
 The session becomes the *run agent*. It loops over two CLI commands and acts on the JSON each prints:
 
-1. `cairn round next` → `task` (health check, then a prompt file at `.cairn/.cairn_task_<id>_prompt.md`), `review` (a review left open, picked up first), or `round-done`.
+1. `cairn round next` → `task` (health check, then a prompt file at `.cairn/.cairn_task_<id>_prompt.md`), `review` (a review left open, picked up first), `round-review` (a post-round review pass, once no ready task remains), or `round-done` (with counts of `blocked` tasks and `unresolved` round-review items).
 2. For `task`, it launches a `cairn-task-agent` subagent on the prompt file, then runs `cairn round settle <id>`.
 3. Settle prints `retry` (resume the same agent, or launch a fresh one), `blocked` (push notification, move on), `review`, `done`, or `already-settled`.
 4. For `review`, it launches the `post-task-reviewer` subagent on `.cairn/.cairn_task_<id>_review_prompt.md`, then runs `cairn round settle <id> --reviewed`.
+5. For `round-review`, it launches the `post-round-reviewer` subagent on `.cairn/.cairn_round_review_prompt.md`, then runs `cairn round review-settle`, which prints `round-review-settled`, `round-review-failed` (push notification, no relaunch), or `no-round-review`. See [Post-round review](#post-round-review).
 
-Agents run one at a time and are never nested — the run agent launches the reviewer, a task agent never does. A `retry` verdict carries the task agent's `promptFile` and `model` (and its `next` names them), so a relaunch never depends on remembered values. Every verdict includes a `next` hint, so a resumed or compacted session carries on exactly where it left off. Both `cairn round` commands exit `0` for every verdict (including `blocked`); a non-zero exit means the command couldn't run at all (unreadable `tasks.json`, lock timeout, unknown task id), and the run agent stops. `settle` accepts `--before-sha <sha>` to override the recorded pre-task commit and `--test-timeout <seconds>` to change the validation timeout.
+Agents run one at a time and are never nested — the run agent launches both reviewers, a task agent never does. A `retry` verdict carries the task agent's `promptFile` and `model` (and its `next` names them), so a relaunch never depends on remembered values. Every verdict includes a `next` hint, so a resumed or compacted session carries on exactly where it left off. The `cairn round` commands exit `0` for every verdict (including `blocked` and `round-review-failed`); a non-zero exit means the command couldn't run at all (unreadable `tasks.json`, lock timeout, unknown task id), and the run agent stops. `settle` accepts `--before-sha <sha>` to override the recorded pre-task commit and `--test-timeout <seconds>` to change the validation timeout.
 
 The `round` commands are deliberately not under `cairn task`: task agents use `cairn task`, and a task agent that settled its own task would archive it and skip its own review.
 
@@ -161,13 +165,29 @@ The `round` commands are deliberately not under `cairn task`: task agents use `c
 - **`auto`** — may work, but its classifier can deny routine actions (`git commit`, running tests, `cairn task ...`), which show up as stalled or blocked tasks.
 - **`default` / `acceptEdits`** — the round stalls on the first permission prompt nobody is there to answer.
 
+#### Post-round review
+
+Under `/cairn-run`, a round ends with a review of the whole round. The per-task reviewer sees one task's diff; the `post-round-reviewer` agent reads every finding in `.cairn/reviews/round-<N>.md` against the final tree. It runs in two passes, with the fix tasks in between:
+
+1. **Triage.** For each finding it decides fix or leave, de-duplicating findings that share a cause and dropping ones a later task already resolved. It creates a fix task for each issue worth fixing (`cairn task add --file <path>`) and writes a `### Round Triage` block under the task's section — plus `### Round Verdict` / `ACCEPTED` where nothing needs fixing.
+2. The normal loop runs the fix tasks, settled and reviewed like any other task.
+3. **Closing.** It records what actually happened to each planned fix, from the fix tasks' commits and notes: a `### Round Outcome` block and a `### Round Verdict` of `RESOLVED` or `UNRESOLVED`.
+
+There is one fix pass per round: concerns raised against a fix task are reported as `UNRESOLVED`, not triaged again. If triage creates no fix tasks, there is no closing pass.
+
+- **Unresolved items are reported at round end.** `round-done` carries `unresolved`, the number of task sections left `UNRESOLVED` (or triaged but never given a verdict), and the run agent includes it in its closing notification. They are yours to look at in the review file.
+- **The review file is append-only.** Cairn snapshots it before each pass and checks afterwards that every existing line is still there, in order. If the reviewer changed or removed a line, Cairn restores the file, keeps the rejected version in `.cairn/.cairn_round_review_rejected.md`, and marks the round review failed (`roundReviewFailed` on `round-done`). The pass is not retried; fix tasks it already created still run as ordinary tasks.
+- **`/cairn-run` only.** Headless `cairn run` has no post-round review.
+- **Turning it off.** It is on by default. Set `"review": { "postRound": false }` in `cairn.json` (or answer no to `cairn init`'s "Enable post-round review?"). It is also skipped when the round has no review file — which is always the case when `review.postTask` is off, since the per-task reviewer is what writes it.
+- Progress is stored in `.cairn/state.json` (`roundReview`), so an interrupted pass is handed out again rather than started over. If you upgrade Cairn mid-round and the current round already has a review file, that round gets a triage at its end; set `review.postRound` to `false` if you don't want it.
+
 #### Watching a round: `cairn watch`
 
 `/cairn-run` subagents run inside the session, so their tool calls aren't streamed to your terminal the way `cairn run`'s are. To follow one live, run this in a second terminal in the project during `/cairn-run`:
 
 ```bash
-cairn watch                 # follow the newest cairn-task-agent / post-task-reviewer
-cairn watch --all           # include every subagent, not just those two
+cairn watch                 # follow the newest cairn-task-agent / post-task-reviewer / post-round-reviewer
+cairn watch --all           # include every subagent, not just those three
 cairn watch --session <id>  # pin a specific Claude Code session instead of the newest
 ```
 
@@ -179,6 +199,7 @@ Headless `cairn run` agents are constrained by their prompts and (for the review
 
 - denies any subagent `Edit`/`Write` to `.cairn/tasks.json` (agents must use `cairn task`)
 - limits `post-task-reviewer` to writing inside `.cairn/reviews/` and to read-only git commands (`git diff`, `log`, `show`, `status`, `rev-parse`), denying redirection, backticks, or a `$` anywhere in the command (which subsumes command substitution, `${VAR}` expansion, bare `$VAR`, and `$'...'` quoting) plus git's file-writing `--output` option as a second, exact-token check
+- limits `post-round-reviewer` the same way, with one addition: it may also run exactly `cairn task add --file <path>` (one path argument, nothing else on the command) to create fix tasks. Its writes are likewise confined to `.cairn/reviews/`, and the bans on redirection, backticks, `$` and `--output` still apply
 - does nothing for main sessions or headless `cairn run` agents (they have no subagent id)
 
 Hook denies apply even under `bypassPermissions`. The hook is **fail-open**: if it errors (or `cairn` isn't on PATH), the call goes through. Errors are logged to `.cairn/.cairn_hook_errors.log`, and `cairn round next` shows a warning while that log is non-empty.
@@ -187,7 +208,7 @@ Hook denies apply even under `bypassPermissions`. The hook is **fail-open**: if 
 
 Guard counters and per-task attempt records (pre-task commit sha, revert/stall/incomplete counts, whether a review is pending) live in `.cairn/.cairn_run_state.json`, not in memory. They survive restarts of `cairn run`, separate `cairn round settle` calls, and `/cairn-run` session compaction or resume. The file is gitignored. Picking a task records its pre-task sha (a re-pick keeps the first attempt's), and `cairn round next` prunes `executing` records whose task has left `tasks.json` (never ones awaiting review). `cairn task set-status <id> <status>` resets that task's record — so unblocking a task by hand gives it a fresh set of attempts.
 
-At round end — `cairn round next`'s `round-done` verdict, and `cairn run`'s loop exit — Cairn sweeps the round's scratch files with a shared helper: the flat `.cairn_complete` / `.cairn_prev_notes` / `.cairn_completed_ids` files, plus every per-task `..._notes.md`, `..._prompt.md`, `..._review_prompt.md`, and `..._tests.log`. It never removes `tasks.json`, `tasks.completed.json`, `state.json`, `.gitignore`, `planning-notes.md`, `reviews/`, or the still-live `.cairn_run_state.json`, `.cairn_iterations.log`, and `.cairn_hook_errors.log`, and it only ever runs at round end, never mid-round — a `retry` relaunch re-reads a task's prompt file verbatim, and the reviewer's prompt names its test log.
+At round end — `cairn round next`'s `round-done` verdict, and `cairn run`'s loop exit — Cairn sweeps the round's scratch files with a shared helper: the flat `.cairn_complete` / `.cairn_prev_notes` / `.cairn_completed_ids` files, plus every per-task `..._notes.md`, `..._prompt.md`, `..._review_prompt.md`, and `..._tests.log`. It never removes `tasks.json`, `tasks.completed.json`, `state.json`, `.gitignore`, `planning-notes.md`, `reviews/`, or the still-live `.cairn_run_state.json`, `.cairn_iterations.log`, and `.cairn_hook_errors.log`, and it only ever runs at round end, never mid-round — a `retry` relaunch re-reads a task's prompt file verbatim, and the reviewer's prompt names its test log. The post-round review's scratch files (`.cairn_round_review_*`) are removed separately at `round-done`, except the rejected copy, which is kept.
 
 ### 4. Summarize
 
@@ -236,6 +257,10 @@ touch CLAUDE.local.md
   "truncateText": true,
   "summarize": {
     "claudeMdPattern": "src/services/*/CLAUDE.md"
+  },
+  "review": {
+    "postTask": true,
+    "postRound": true
   }
 }
 ```
@@ -249,6 +274,8 @@ touch CLAUDE.local.md
 | `implementationFile`        | `IMPLEMENTATION.md` | Path to architecture summary document                  |
 | `truncateText`              | `true`              | Truncate verbose agent text output in the terminal     |
 | `summarize.claudeMdPattern` | (empty)             | Glob for CLAUDE.md files to prune during summarization |
+| `review.postTask`           | `false`             | Review each completed task's diff; findings go to `.cairn/reviews/round-<N>.md` |
+| `review.postRound`          | `true`              | Under `/cairn-run`, triage the round's review findings at round end and run fix tasks (see [Post-round review](#post-round-review)); needs `review.postTask` to have anything to triage |
 
 `healthCheck` and `defaultTestCommand` also feed the permission rules `cairn init` can seed into `.claude/settings.local.json` — see [Initialize](#1-initialize).
 
@@ -281,7 +308,7 @@ cairn/
 │   ├── commands/
 │   │   ├── plan.ts              # Planning discussion + task generation
 │   │   ├── run.ts               # Headless execution loop + system prompt builder
-│   │   ├── round.ts             # `cairn round new` (used by /generate-tasks) / `next` / `settle` (used by /cairn-run)
+│   │   ├── round.ts             # `cairn round new` (used by /generate-tasks) / `next` / `settle` / `review-settle` (used by /cairn-run)
 │   │   ├── hook.ts              # `cairn hook pre-tool-use` containment hook
 │   │   ├── task.ts              # `cairn task` subcommands
 │   │   ├── watch.ts             # `cairn watch` live read-only subagent view
@@ -296,10 +323,11 @@ cairn/
 │   ├── test-validator.ts        # Post-iteration test validation
 │   ├── settle.ts                # Settle an attempt: validate, guards, archive, review gate
 │   ├── run-state.ts             # Locked .cairn_run_state.json store
+│   ├── round-review.ts          # Post-round review: phases, append-only check, prompts, settle
 │   ├── transcripts.ts           # Claude Code subagent transcript discovery (for cairn watch)
 │   ├── post-task-reviewer.ts    # Headless reviewer + reviewer prompt builder
 │   └── stream-filter.ts         # Stream-json formatter
-├── agents/                      # Agent definitions installed into .claude/agents/ (cairn-task-agent, post-task-reviewer, ...)
+├── agents/                      # Agent definitions installed into .claude/agents/ (cairn-task-agent, post-task-reviewer, post-round-reviewer, ...)
 ├── commands/                    # Slash commands installed into .claude/commands/ (cairn-run, generate-tasks, teach, ...)
 ├── dist/cairn                   # Compiled binary (generated by bun build)
 └── install.sh                   # Builds and installs cairn
@@ -312,9 +340,10 @@ your-project/
 ├── .cairn/
 │   ├── tasks.json              # Active task list
 │   ├── tasks.completed.json    # Archive of completed tasks
-│   ├── state.json              # Monotonic task-ID counter + planning round (bumped by `cairn round new`) — never reuses IDs (committed to git)
+│   ├── state.json              # Monotonic task-ID counter + planning round (bumped by `cairn round new`) — never reuses IDs (committed to git); also the post-round review's progress (`roundReview`)
 │   ├── reviews/
-│   │   └── round-<N>.md        # Per-planning-round post-task review logs
+│   │   ├── round-<N>.md        # Per-planning-round post-task review logs + post-round triage/outcome blocks (append-only)
+│   │   └── .cairn_round_review_fix_<n>.json  # Fix-task JSON written by the post-round reviewer (temp)
 │   ├── planning-notes.md       # Output from planning discussions
 │   ├── concepts.md             # Personal /teach glossary, cumulative across rounds (gitignored)
 │   ├── .cairn_planning_session.md  # /teach running log (temp; deleted by `cairn round new`)
@@ -323,10 +352,13 @@ your-project/
 │   ├── .cairn_task_<id>_tests.log         # Test validation output (temp)
 │   ├── .cairn_task_<id>_prompt.md         # Task agent prompt from `cairn round next` (temp)
 │   ├── .cairn_task_<id>_review_prompt.md  # Reviewer prompt from `cairn round settle` (temp)
+│   ├── .cairn_round_review_prompt.md      # Post-round reviewer prompt from `cairn round next` (temp)
+│   ├── .cairn_round_review_snapshot.md    # Review-file copy for the append-only check (temp)
+│   ├── .cairn_round_review_rejected.md    # Review-file content the append-only check rejected (kept for you; gitignored)
 │   └── .cairn_hook_errors.log  # Containment hook errors (temp)
 ├── .claude/
 │   ├── settings.local.json     # Permission rules + containment hook seeded by cairn init
-│   ├── agents/                 # Installed by cairn init
+│   ├── agents/                 # Installed by cairn init (cairn-task-agent, post-task-reviewer, post-round-reviewer, ...)
 │   └── commands/               # Installed by cairn init
 ├── cairn.json                  # Project configuration (optional)
 ├── CLAUDE.local.md             # Personal agent preferences (add to .gitignore yourself — `cairn init` only warns; see Personal Agent Instructions)
