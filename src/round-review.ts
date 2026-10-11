@@ -6,6 +6,7 @@ import { getRound, readStateValue, updateStateValue } from './task-counter';
 import { resolveReviewFilePath } from './post-task-reviewer';
 import { loadArchivedTask } from './task-archiver';
 import { findTaskCommits } from './settle';
+import { readTasksFile } from './tasks-file';
 
 /**
  * Post-round review support, mode-neutral (no Commander, no process.exit).
@@ -550,4 +551,91 @@ export function writeRoundReviewPromptFile(
   const file = roundReviewPromptFilePath(dataDir);
   fs.writeFileSync(file, prompt);
   return file;
+}
+
+export type RoundReviewSettleVerdict =
+  | { verdict: 'round-review-settled'; pass: 'triage' | 'closing'; phase: 'fixing' | 'done'; fixTasks: number[]; next: string }
+  | { verdict: 'round-review-failed'; pass: 'triage' | 'closing'; reason: 'append-only-violated' | 'snapshot-missing'; next: string }
+  | { verdict: 'no-round-review'; phase: RoundReviewPhase; next: string };
+
+export interface RoundReviewSettleDeps {
+  readTasksFile?: typeof readTasksFile;
+  appendFileSync?: (p: string, c: string) => void;
+}
+
+/**
+ * Settle a post-round review pass that `cairn round next` handed out: run the
+ * append-only check and advance the phase. Only a pending `triage` or
+ * `closing` phase is settled; any other phase returns `no-round-review` and
+ * changes nothing, which is what makes a repeat call idempotent.
+ *
+ * A failed check is terminal, never retried: a triage pass may already have
+ * created fix tasks, so handing triage out again would duplicate them. Those
+ * tasks stay in tasks.json and run as ordinary tasks, with no closing pass.
+ *
+ * Throws TasksFileError (unreadable tasks.json) or FileLockError (state.json
+ * lock timeout); the phase is then still pending and the call can be repeated.
+ */
+export function settleRoundReview(
+  input: { projectRoot: string; dataDir: string },
+  deps: RoundReviewSettleDeps = {},
+): RoundReviewSettleVerdict {
+  const { projectRoot, dataDir } = input;
+  const next = `Run: ${BRAND.name} round next`;
+  const rec = readRoundReview(dataDir);
+  if (rec.phase !== 'triage' && rec.phase !== 'closing') {
+    return { verdict: 'no-round-review', phase: rec.phase, next };
+  }
+  const pass = rec.phase;
+  const { reviewFilePath } = resolveReviewFilePath(projectRoot, dataDir);
+  const check = verifyAppendOnly(dataDir, reviewFilePath);
+
+  let verdict: RoundReviewSettleVerdict;
+  if (check.status !== 'ok') {
+    advanceRoundReview(dataDir, 'failed');
+    verdict = {
+      verdict: 'round-review-failed',
+      pass,
+      reason: check.status === 'violated' ? 'append-only-violated' : 'snapshot-missing',
+      next,
+    };
+  } else {
+    if (pass === 'triage') {
+      // tasks.json is read before the state.json lock is taken, never inside it.
+      const tasks = (deps.readTasksFile ?? readTasksFile)(path.join(dataDir, 'tasks.json'), { dataDir }).data.tasks ?? [];
+      const baseline = new Set(rec.baselineTaskIds);
+      const fixTaskIds = tasks
+        .map((t) => t.id)
+        .filter((id) => !baseline.has(id))
+        .sort((a, b) => a - b);
+      if (fixTaskIds.length > 0) {
+        advanceRoundReview(dataDir, 'fixing', { fixTaskIds });
+        verdict = { verdict: 'round-review-settled', pass, phase: 'fixing', fixTasks: fixTaskIds, next };
+      } else {
+        advanceRoundReview(dataDir, 'done');
+        verdict = { verdict: 'round-review-settled', pass, phase: 'done', fixTasks: [], next };
+      }
+    } else {
+      advanceRoundReview(dataDir, 'done');
+      verdict = { verdict: 'round-review-settled', pass, phase: 'done', fixTasks: [...rec.fixTaskIds], next };
+    }
+    // Only after the phase has advanced: a crash in between leaves a stale
+    // snapshot, which the next pass overwrites, never a pending pass without one.
+    try {
+      fs.unlinkSync(roundReviewSnapshotPath(dataDir));
+    } catch {
+      // best-effort
+    }
+  }
+
+  try {
+    const reason = verdict.verdict === 'round-review-failed' ? ` (${verdict.reason})` : '';
+    (deps.appendFileSync ?? fs.appendFileSync)(
+      tempFilePath(dataDir, 'iterations.log'),
+      `Round review ${pass}: ${verdict.verdict}${reason}\n`,
+    );
+  } catch {
+    // best-effort
+  }
+  return verdict;
 }

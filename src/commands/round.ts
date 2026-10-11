@@ -33,6 +33,8 @@ import {
   writeRoundReviewPromptFile,
   countUnresolvedInFile,
   cleanupRoundReviewScratch,
+  settleRoundReview,
+  type RoundReviewSettleDeps,
 } from '../round-review';
 import { buildSystemPrompt } from './run';
 import { hookErrorLogPath } from './hook';
@@ -447,6 +449,33 @@ export function roundNewCommand(opts: RoundNewCommandOpts, deps: RoundNewDeps = 
   return 0;
 }
 
+/**
+ * `cairn round review-settle` as a CLI handler: settles the post-round review
+ * pass that `cairn round next` handed out with a `round-review` verdict, and
+ * prints the verdict as one JSON line on stdout. Exit 1 (one stderr line) only
+ * when settle itself could not run: an unreadable tasks.json (TasksFileError)
+ * or a state.json lock timeout (FileLockError). Every verdict is 0.
+ */
+export interface RoundReviewSettleCommandOpts {
+  projectRoot: string;
+  dataDir: string;
+  stdout?: Writer;
+  stderr?: Writer;
+}
+
+export function roundReviewSettleCommand(opts: RoundReviewSettleCommandOpts, deps: RoundReviewSettleDeps = {}): number {
+  const stdout = opts.stdout ?? defaultStdout();
+  const stderr = opts.stderr ?? defaultStderr();
+  try {
+    const verdict = settleRoundReview({ projectRoot: opts.projectRoot, dataDir: opts.dataDir }, deps);
+    stdout.write(JSON.stringify(verdict) + '\n');
+    return 0;
+  } catch (err) {
+    stderr.write(`cairn round review-settle: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+}
+
 /** Shared project context for the `round` subcommands, resolved from the env vars `setupProjectContext` sets. */
 function loadRoundContext(): { projectRoot: string; dataDir: string; config: CairnConfig; agents: AgentInfo[] } {
   const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
@@ -464,16 +493,16 @@ function loadRoundContext(): { projectRoot: string; dataDir: string; config: Cai
 
 /**
  * Wire the `round` subcommand group onto a Commander program: `new` (run by
- * /generate-tasks to start a planning round) and `next` / `settle` (driven by
- * /cairn-run). These commands deliberately live under `round`, not `task`:
- * task execution agents use `cairn task`, so they can neither bump the round
- * mid-round nor settle their own task (which would archive it and skip its
- * own review).
+ * /generate-tasks to start a planning round) and `next` / `settle` /
+ * `review-settle` (driven by /cairn-run). These commands deliberately live
+ * under `round`, not `task`: task execution agents use `cairn task`, so they
+ * can neither bump the round mid-round, nor settle their own task (which
+ * would archive it and skip its own review), nor settle a round-review pass.
  */
 export function registerRoundCommands(program: Command): void {
   const round = program
     .command('round')
-    .description(`Round commands: 'new' starts a planning round (used by /generate-tasks); 'next' and 'settle' drive /${BRAND.name}-run`);
+    .description(`Round commands: 'new' starts a planning round (used by /generate-tasks); 'next', 'settle' and 'review-settle' drive /${BRAND.name}-run`);
 
   round
     .command('new')
@@ -511,5 +540,13 @@ export function registerRoundCommands(program: Command): void {
         agents,
       });
       process.exit(code);
+    });
+
+  round
+    .command('review-settle')
+    .description('Settle the last post-round review pass: run the append-only check and advance the round-review phase')
+    .action(() => {
+      const { projectRoot, dataDir } = loadRoundContext();
+      process.exit(roundReviewSettleCommand({ projectRoot, dataDir }));
     });
 }

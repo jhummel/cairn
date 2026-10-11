@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { Command } from 'commander';
-import { roundNext, roundNextCommand, roundNewCommand, roundSettleCommand, registerRoundCommands, type RoundNextDeps } from '../../src/commands/round';
+import { roundNext, roundNextCommand, roundNewCommand, roundSettleCommand, roundReviewSettleCommand, registerRoundCommands, type RoundNextDeps } from '../../src/commands/round';
 import { buildSystemPrompt, resolveTaskModel } from '../../src/commands/run';
 import { newAttemptRecord, readRunState, updateRunState, type RunState, type RunStateStore } from '../../src/run-state';
 import type { HealthCheckOpts, HealthCheckResult } from '../../src/health-check';
@@ -12,7 +12,7 @@ import { TasksFileError } from '../../src/tasks-file';
 import { FileLockError } from '../../src/file-lock';
 import type { ValidationResult } from '../../src/test-validator';
 import type { AgentInfo, CairnConfig, Task } from '../../src/types';
-import { advanceRoundReview } from '../../src/round-review';
+import { advanceRoundReview, readRoundReview, snapshotReviewFile } from '../../src/round-review';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -1316,6 +1316,115 @@ describe('roundSettleCommand', () => {
   });
 });
 
+describe('roundReviewSettleCommand', () => {
+  const reviewFile = () => path.join(dataDir, 'reviews', 'round-1.md');
+  const ORIGINAL = '## Task #1: Title 1\nReviewed: x\n### Verdict\nHAS_GAPS\n---\n';
+  const NEXT = 'Run: cairn round next';
+  const run = (deps?: Parameters<typeof roundReviewSettleCommand>[1]) => {
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+    const code = roundReviewSettleCommand({ projectRoot, dataDir, stdout, stderr }, deps);
+    return { code, stdout, stderr };
+  };
+
+  beforeEach(() => {
+    fs.mkdirSync(path.join(dataDir, 'reviews'), { recursive: true });
+    fs.writeFileSync(reviewFile(), ORIGINAL);
+    writeTasks([]);
+  });
+
+  test('round-review-settled: one JSON line on stdout, exit 0', () => {
+    snapshotReviewFile(dataDir, reviewFile());
+    advanceRoundReview(dataDir, 'triage', { baselineTaskIds: [] });
+    writeTasks([makeTask({ id: 9 })]);
+
+    const { code, stdout, stderr } = run();
+
+    expect(code).toBe(0);
+    expect(stderr.lines).toHaveLength(0);
+    expect(stdout.lines).toHaveLength(1);
+    expect(stdout.lines[0].endsWith('\n')).toBe(true);
+    expect(stdout.lines[0].trimEnd()).not.toContain('\n');
+    expect(JSON.parse(stdout.lines[0])).toEqual({
+      verdict: 'round-review-settled',
+      pass: 'triage',
+      phase: 'fixing',
+      fixTasks: [9],
+      next: NEXT,
+    });
+  });
+
+  test('round-review-failed: one JSON line on stdout, exit 0', () => {
+    snapshotReviewFile(dataDir, reviewFile());
+    advanceRoundReview(dataDir, 'triage', { baselineTaskIds: [] });
+    fs.writeFileSync(reviewFile(), 'rewritten\n');
+
+    const { code, stdout, stderr } = run();
+
+    expect(code).toBe(0);
+    expect(stderr.lines).toHaveLength(0);
+    expect(stdout.lines).toHaveLength(1);
+    expect(JSON.parse(stdout.lines[0])).toEqual({
+      verdict: 'round-review-failed',
+      pass: 'triage',
+      reason: 'append-only-violated',
+      next: NEXT,
+    });
+    expect(fs.readFileSync(reviewFile(), 'utf8')).toBe(ORIGINAL);
+  });
+
+  test('no-round-review: one JSON line on stdout, exit 0', () => {
+    const { code, stdout, stderr } = run();
+
+    expect(code).toBe(0);
+    expect(stderr.lines).toHaveLength(0);
+    expect(stdout.lines).toHaveLength(1);
+    expect(JSON.parse(stdout.lines[0])).toEqual({ verdict: 'no-round-review', phase: 'none', next: NEXT });
+  });
+
+  for (const [label, err] of [
+    ['TasksFileError', new TasksFileError('tasks.json unreadable')],
+    ['FileLockError', new FileLockError('lock timeout')],
+  ] as const) {
+    test(`a thrown ${label} exits 1 with one stderr line and no stdout`, () => {
+      snapshotReviewFile(dataDir, reviewFile());
+      advanceRoundReview(dataDir, 'triage', { baselineTaskIds: [] });
+
+      const { code, stdout, stderr } = run({ readTasksFile: () => { throw err; } });
+
+      expect(code).toBe(1);
+      expect(stdout.lines).toHaveLength(0);
+      expect(stderr.lines).toEqual([`cairn round review-settle: ${err.message}\n`]);
+    });
+  }
+
+  test('end to end: next hands out triage, review-settle moves to fixing, next hands out the fix task', async () => {
+    const h = makeHarness();
+
+    const first = await roundNext(input(), h.deps);
+    expect(first).toMatchObject({ verdict: 'round-review', pass: 'triage' });
+    expect((first as { next: string }).next).toContain('cairn round review-settle');
+
+    // The triage agent appends a block and creates a fix task.
+    fs.appendFileSync(reviewFile(), '### Round Triage\n');
+    writeTasks([makeTask({ id: 31, title: 'Fix it' })]);
+
+    const { code, stdout } = run();
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout.lines[0])).toEqual({
+      verdict: 'round-review-settled',
+      pass: 'triage',
+      phase: 'fixing',
+      fixTasks: [31],
+      next: NEXT,
+    });
+    expect(readRoundReview(dataDir)).toMatchObject({ phase: 'fixing', fixTaskIds: [31] });
+
+    const second = await roundNext(input(), h.deps);
+    expect(second).toMatchObject({ verdict: 'task', taskId: 31 });
+  });
+});
+
 describe('registerRoundCommands', () => {
   test('registers the round command group with next and settle subcommands', () => {
     const program = new Command();
@@ -1326,6 +1435,17 @@ describe('registerRoundCommands', () => {
     expect(subNames).toContain('next');
     expect(subNames).toContain('settle');
     expect(subNames).toContain('new');
+  });
+
+  test('registers review-settle, with no arguments, and the group description names it', () => {
+    const program = new Command();
+    registerRoundCommands(program);
+    const round = program.commands.find((c) => c.name() === 'round')!;
+    const reviewSettle = round.commands.find((c) => c.name() === 'review-settle');
+    expect(reviewSettle).toBeDefined();
+    expect(reviewSettle!.registeredArguments).toHaveLength(0);
+    expect(reviewSettle!.description()).not.toBe('');
+    expect(round.description()).toContain('review-settle');
   });
 
   test('settle has the documented options', () => {

@@ -21,10 +21,12 @@ import {
   buildTriagePrompt,
   buildClosingPrompt,
   writeRoundReviewPromptFile,
+  settleRoundReview,
   type RoundReviewPhase,
   type RoundReviewRecord,
 } from '../src/round-review';
 import { bumpRound } from '../src/task-counter';
+import { TasksFileError } from '../src/tasks-file';
 
 describe('isAppendOnly', () => {
   const snap = '# R\n\n---\n\nblock A\n\n---\n';
@@ -664,5 +666,213 @@ describe('writeRoundReviewPromptFile', () => {
     const prompt = fs.readFileSync(file, 'utf8');
     expect(prompt).toMatch(/Status: missing/);
     expect(prompt).toContain('no commits were found');
+  });
+});
+
+describe('settleRoundReview', () => {
+  let projectRoot: string;
+  let dataDir: string;
+  const NEXT = 'Run: cairn round next';
+  const ORIGINAL = '## Task #1: A\nline two\nline three\n---\n';
+  const reviewFile = () => path.join(dataDir, 'reviews', 'round-4.md');
+  const snapshot = () => roundReviewSnapshotPath(dataDir);
+  const rejected = () => roundReviewRejectedPath(dataDir);
+  const logFile = () => path.join(dataDir, '.cairn_iterations.log');
+  const rawState = (): string => fs.readFileSync(path.join(dataDir, 'state.json'), 'utf8');
+  const writeTasks = (tasks: Array<{ id: number; status?: string }>) =>
+    fs.writeFileSync(
+      path.join(dataDir, 'tasks.json'),
+      JSON.stringify({
+        tasks: tasks.map((t) => ({
+          priority: 1,
+          title: `T${t.id}`,
+          description: 'd',
+          status: 'pending',
+          files: [],
+          dependencies: [],
+          tests: [],
+          ...t,
+        })),
+      }),
+    );
+  const settle = () => settleRoundReview({ projectRoot, dataDir });
+  /** Review file + snapshot in place, phase advanced to `pass`. */
+  const handOut = (pass: 'triage' | 'closing', ids: { baseline?: number[]; fix?: number[] } = {}) => {
+    snapshotReviewFile(dataDir, reviewFile());
+    advanceRoundReview(dataDir, 'triage', { baselineTaskIds: ids.baseline ?? [] });
+    if (pass === 'closing') {
+      advanceRoundReview(dataDir, 'fixing', { fixTaskIds: ids.fix ?? [] });
+      advanceRoundReview(dataDir, 'closing');
+    }
+  };
+
+  beforeEach(() => {
+    projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-rr-settle-'));
+    dataDir = path.join(projectRoot, '.cairn');
+    fs.mkdirSync(path.join(dataDir, 'reviews'), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 50, round: 4 }));
+    fs.writeFileSync(reviewFile(), ORIGINAL);
+    writeTasks([]);
+  });
+  afterEach(() => fs.rmSync(projectRoot, { recursive: true, force: true }));
+
+  test('clean triage with new tasks: fixing, fixTasks are exactly the non-baseline ids, ascending', () => {
+    writeTasks([{ id: 3, status: 'blocked' }]);
+    handOut('triage', { baseline: [3] });
+    fs.appendFileSync(reviewFile(), '### Round Triage\n');
+    writeTasks([{ id: 12 }, { id: 3, status: 'blocked' }, { id: 11 }]);
+
+    expect(settle()).toEqual({
+      verdict: 'round-review-settled',
+      pass: 'triage',
+      phase: 'fixing',
+      fixTasks: [11, 12],
+      next: NEXT,
+    });
+    expect(readRoundReview(dataDir)).toEqual({ round: 4, phase: 'fixing', baselineTaskIds: [3], fixTaskIds: [11, 12] });
+    expect(fs.existsSync(snapshot())).toBe(false);
+    expect(fs.readFileSync(reviewFile(), 'utf8')).toBe(ORIGINAL + '### Round Triage\n');
+    expect(fs.readFileSync(logFile(), 'utf8')).toBe('Round review triage: round-review-settled\n');
+  });
+
+  test('clean triage with no new tasks goes straight to done', () => {
+    handOut('triage');
+    expect(settle()).toEqual({ verdict: 'round-review-settled', pass: 'triage', phase: 'done', fixTasks: [], next: NEXT });
+    expect(readRoundReview(dataDir).phase).toBe('done');
+    expect(fs.existsSync(snapshot())).toBe(false);
+  });
+
+  test('baseline tasks are never counted as fix tasks', () => {
+    writeTasks([{ id: 3, status: 'blocked' }, { id: 4, status: 'blocked' }]);
+    handOut('triage', { baseline: [3, 4] });
+    expect(settle()).toMatchObject({ verdict: 'round-review-settled', phase: 'done', fixTasks: [] });
+    expect(readRoundReview(dataDir).fixTaskIds).toEqual([]);
+  });
+
+  test('clean closing: done with the recorded fixTaskIds', () => {
+    handOut('closing', { baseline: [3], fix: [11, 12] });
+    fs.appendFileSync(reviewFile(), '### Round Outcome\n');
+    writeTasks([{ id: 99 }]);
+    expect(settle()).toEqual({ verdict: 'round-review-settled', pass: 'closing', phase: 'done', fixTasks: [11, 12], next: NEXT });
+    expect(readRoundReview(dataDir)).toEqual({ round: 4, phase: 'done', baselineTaskIds: [3], fixTaskIds: [11, 12] });
+    expect(fs.existsSync(snapshot())).toBe(false);
+    expect(fs.readFileSync(logFile(), 'utf8')).toBe('Round review closing: round-review-settled\n');
+  });
+
+  for (const [label, bad] of [
+    ['changed', '## Task #1: A\nline TWO\nline three\n---\nnew\n'],
+    ['deleted', '## Task #1: A\nline three\n---\nnew\n'],
+    ['reordered', '## Task #1: A\nline three\nline two\n---\n'],
+  ] as const) {
+    for (const pass of ['triage', 'closing'] as const) {
+      test(`a ${label} original line in ${pass}: failed, file restored, rejected content saved`, () => {
+        handOut(pass, { fix: [11] });
+        fs.writeFileSync(reviewFile(), bad);
+        writeTasks([{ id: 11 }]);
+
+        expect(settle()).toEqual({ verdict: 'round-review-failed', pass, reason: 'append-only-violated', next: NEXT });
+        expect(fs.readFileSync(reviewFile(), 'utf8')).toBe(ORIGINAL);
+        expect(fs.readFileSync(rejected(), 'utf8')).toBe(bad);
+        expect(readRoundReview(dataDir).phase).toBe('failed');
+        expect(fs.readFileSync(logFile(), 'utf8')).toBe(`Round review ${pass}: round-review-failed (append-only-violated)\n`);
+        // Fix tasks a failed triage created stay in tasks.json.
+        expect(JSON.parse(fs.readFileSync(path.join(dataDir, 'tasks.json'), 'utf8')).tasks.map((t: { id: number }) => t.id)).toEqual([11]);
+      });
+    }
+  }
+
+  test('missing snapshot: failed with snapshot-missing, review file untouched', () => {
+    handOut('triage');
+    fs.unlinkSync(snapshot());
+    const edited = 'completely different\n';
+    fs.writeFileSync(reviewFile(), edited);
+
+    expect(settle()).toEqual({ verdict: 'round-review-failed', pass: 'triage', reason: 'snapshot-missing', next: NEXT });
+    expect(fs.readFileSync(reviewFile(), 'utf8')).toBe(edited);
+    expect(fs.existsSync(rejected())).toBe(false);
+    expect(readRoundReview(dataDir).phase).toBe('failed');
+  });
+
+  test('a repeat call after each kind of settle is no-round-review and changes nothing', () => {
+    const scenarios: Array<[() => void, RoundReviewPhase]> = [
+      [() => { handOut('triage'); writeTasks([{ id: 11 }]); }, 'fixing'],
+      [() => handOut('triage'), 'done'],
+      [() => handOut('closing', { fix: [11] }), 'done'],
+      [() => { handOut('triage'); fs.writeFileSync(reviewFile(), 'x\n'); }, 'failed'],
+      [() => { handOut('triage'); fs.unlinkSync(snapshot()); }, 'failed'],
+    ];
+    for (const [setup, phase] of scenarios) {
+      fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({ nextTaskId: 50, round: 4 }));
+      fs.writeFileSync(reviewFile(), ORIGINAL);
+      fs.rmSync(logFile(), { force: true });
+      writeTasks([]);
+      setup();
+      expect(settle().verdict).not.toBe('no-round-review');
+      const stateBefore = rawState();
+      const reviewBefore = fs.readFileSync(reviewFile(), 'utf8');
+      const logBefore = fs.readFileSync(logFile(), 'utf8');
+
+      expect(settle()).toEqual({ verdict: 'no-round-review', phase, next: NEXT });
+      expect(rawState()).toBe(stateBefore);
+      expect(fs.readFileSync(reviewFile(), 'utf8')).toBe(reviewBefore);
+      expect(fs.readFileSync(logFile(), 'utf8')).toBe(logBefore);
+    }
+  });
+
+  for (const phase of ['none', 'fixing', 'done', 'failed'] as const) {
+    test(`phase ${phase}: no-round-review, nothing changed`, () => {
+      snapshotReviewFile(dataDir, reviewFile());
+      if (phase !== 'none') advanceRoundReview(dataDir, phase, { fixTaskIds: [11] });
+      fs.writeFileSync(reviewFile(), 'violating content\n');
+      writeTasks([{ id: 11 }, { id: 12 }]);
+      const stateBefore = rawState();
+
+      expect(settle()).toEqual({ verdict: 'no-round-review', phase, next: NEXT });
+      expect(rawState()).toBe(stateBefore);
+      expect(fs.readFileSync(reviewFile(), 'utf8')).toBe('violating content\n');
+      expect(fs.existsSync(snapshot())).toBe(true);
+      expect(fs.existsSync(rejected())).toBe(false);
+      expect(fs.existsSync(logFile())).toBe(false);
+    });
+  }
+
+  test('tasks.json is read outside the state lock, and the phase is advanced before the log line', () => {
+    handOut('triage');
+    const lock = path.join(dataDir, 'state.json.lock');
+    let lockHeldDuringRead = false;
+    let phaseAtAppend: string | undefined;
+    const verdict = settleRoundReview(
+      { projectRoot, dataDir },
+      {
+        readTasksFile: () => {
+          if (fs.existsSync(lock)) lockHeldDuringRead = true;
+          return { data: { tasks: [{ id: 21 }] } as never, repaired: false, restored: false };
+        },
+        appendFileSync: () => {
+          phaseAtAppend = readRoundReview(dataDir).phase;
+        },
+      },
+    );
+    expect(verdict).toMatchObject({ phase: 'fixing', fixTasks: [21] });
+    expect(lockHeldDuringRead).toBe(false);
+    expect(phaseAtAppend).toBe('fixing');
+  });
+
+  test('a failing iteration-log append never changes the verdict', () => {
+    handOut('triage');
+    const verdict = settleRoundReview(
+      { projectRoot, dataDir },
+      { appendFileSync: () => { throw new Error('disk full'); } },
+    );
+    expect(verdict.verdict).toBe('round-review-settled');
+  });
+
+  test('a TasksFileError propagates and leaves the phase pending', () => {
+    handOut('triage');
+    expect(() =>
+      settleRoundReview({ projectRoot, dataDir }, { readTasksFile: () => { throw new TasksFileError('unreadable'); } }),
+    ).toThrow(TasksFileError);
+    expect(readRoundReview(dataDir).phase).toBe('triage');
+    expect(fs.existsSync(snapshot())).toBe(true);
   });
 });
