@@ -199,7 +199,7 @@ Headless `cairn run` agents are constrained by their prompts and (for the review
 
 - denies any subagent `Edit`/`Write` to `.cairn/tasks.json` (agents must use `cairn task`)
 - limits `post-task-reviewer` to writing inside `.cairn/reviews/` and to read-only git commands (`git diff`, `log`, `show`, `status`, `rev-parse`), denying redirection, backticks, or a `$` anywhere in the command (which subsumes command substitution, `${VAR}` expansion, bare `$VAR`, and `$'...'` quoting) plus git's file-writing `--output` option as a second, exact-token check
-- limits `post-round-reviewer` the same way, with one addition: it may also run exactly `cairn task add --file <path>` (one path argument, nothing else on the command) to create fix tasks. Its writes are likewise confined to `.cairn/reviews/`, and the bans on redirection, backticks, `$` and `--output` still apply
+- limits `post-round-reviewer` the same way, with one addition: it may also run exactly `cairn task add --file <path>` (one path argument, nothing else on the command; an unquoted path may not contain brace, glob or tilde characters, and no path may start with `-`) to create fix tasks. Its writes are likewise confined to `.cairn/reviews/`, and the bans on redirection, backticks, `$` and `--output` still apply
 - does nothing for main sessions or headless `cairn run` agents (they have no subagent id)
 
 Hook denies apply even under `bypassPermissions`. The hook is **fail-open**: if it errors (or `cairn` isn't on PATH), the call goes through. Errors are logged to `.cairn/.cairn_hook_errors.log`, and `cairn round next` shows a warning while that log is non-empty.

@@ -338,9 +338,63 @@ describe('decidePreToolUse: post-round-reviewer containment', () => {
     });
   }
 
+  // The bare path form must not contain anything bash expands into several
+  // words (brace expansion, globs, a leading tilde), and no form may start with
+  // `-` — otherwise "one path argument" holds for the text but not the argv.
+  for (const command of [
+    'cairn task add --file {a.json,--title,X}',
+    'cairn task add --file a{1,2}.json',
+    'cairn task add --file a*.json',
+    'cairn task add --file a?.json',
+    'cairn task add --file [ab].json',
+    'cairn task add --file ~/a.json',
+    'cairn task add --file a~b.json',
+    'cairn task add --file --title',
+    'cairn task add --file -x.json',
+    'cairn task add --file "--title"',
+    "cairn task add --file '-x.json'",
+  ]) {
+    test(`Bash ${JSON.stringify(command)} → deny (expandable or option-like path)`, () => {
+      expect(denyReason(bash(command))).toContain('post-round-reviewer may only run');
+    });
+  }
+
+  for (const command of [
+    'cairn task add --file /tmp/proj/.cairn/reviews/.cairn_round_review_fix_1.json',
+    'cairn task add --file .cairn/reviews/.cairn_round_review_fix_2.json',
+    'cairn task add --file ./a-b.json',
+    'cairn task add --file "/tmp/my proj/fix 1.json"',
+    "cairn task add --file '/tmp/my proj/fix 1.json'",
+    'cairn task add --file "a {b}.json"',
+    "cairn task add --file 'a*.json'",
+    'cairn task add --file "~/a [1]?.json"',
+    'cairn task add --file "a-b.json"',
+  ]) {
+    test(`Bash ${JSON.stringify(command)} → allow (tightened path match)`, () => {
+      expect(bash(command)).toEqual({ decision: 'allow' });
+    });
+  }
+
   test('Bash with a non-string command → deny', () => {
     expect(decidePreToolUse(roundReviewer('Bash', {}), CTX).decision).toBe('deny');
   });
+
+  // A compound command that starts with `cd` is not inspection-only, however
+  // many allowed git commands follow it. Pinned for both reviewer agent types.
+  for (const agentType of ['post-task-reviewer', 'post-round-reviewer']) {
+    for (const command of [
+      'cd /tmp/proj && git diff HEAD~1',
+      'cd /tmp/proj && git log --oneline -3 && git status',
+      'cd /tmp/proj; git status',
+      'cd /tmp/proj\ngit status',
+      'cd /tmp/proj',
+    ]) {
+      test(`${agentType}: Bash ${JSON.stringify(command)} → deny`, () => {
+        const result = decidePreToolUse(subagent(agentType, 'Bash', { command }), CTX);
+        expect(denyReason(result)).toContain(`${agentType} may only run`);
+      });
+    }
+  }
 
   test('an agent_type merely containing the round reviewer name is not contained', () => {
     expect(decidePreToolUse(subagent('post-round-reviewer-2', 'Bash', { command: 'bun test' }), CTX)).toEqual({ decision: 'allow' });
@@ -434,6 +488,29 @@ describe('preToolUseHookCommand', () => {
     });
     expect(code).toBe(0);
     expect(stdout).toBe('');
+  });
+
+  test('post-task-reviewer `cd <project> && git status` → exit 0 with a deny JSON', () => {
+    const code = preToolUseHookCommand({
+      stdinText: JSON.stringify({
+        session_id: 's1',
+        hook_event_name: 'PreToolUse',
+        permission_mode: 'bypassPermissions',
+        cwd: projectRoot,
+        agent_id: 'a1b2c3d4e5f6',
+        agent_type: 'post-task-reviewer',
+        tool_name: 'Bash',
+        tool_input: { command: `cd ${projectRoot} && git status` },
+      }),
+      ...writers(),
+    });
+    expect(code).toBe(0);
+    const out = JSON.parse(stdout);
+    expect(out.hookSpecificOutput.hookEventName).toBe('PreToolUse');
+    expect(out.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(out.hookSpecificOutput.permissionDecisionReason).toContain('post-task-reviewer may only run');
+    expect(stderr).toBe('');
+    expect(fs.existsSync(hookErrorLogPath(dataDir))).toBe(false);
   });
 
   test('main session is allowed without resolving any context (no data dir needed)', () => {

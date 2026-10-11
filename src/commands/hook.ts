@@ -170,8 +170,20 @@ function isInspectionOnly(command: string, alsoAllowed?: (subcommand: string) =>
  * trailing flags or arguments, the other `task` subcommands, `round`, `hook`.
  * The task's text lives in the JSON file, so it never reaches the command
  * line, which is why the `$` / backtick / redirection ban can stay in force.
+ *
+ * The match has to hold for the argv bash delivers, not just for the command
+ * text, so:
+ * - a BARE path may not contain `{`, `}`, `*`, `?`, `[`, `]` or `~`. Brace
+ *   expansion turns `{a.json,--title,X}` into three words, a glob can match
+ *   several files, and a tilde expands to a home directory. The quoted forms
+ *   may contain them: bash expands none of them inside quotes.
+ * - no form may start with `-`, quoted or not, so the argument after `--file`
+ *   can never be read as another option (`--file --title`).
  */
-const TASK_ADD_FILE_RE = new RegExp(`^${BRAND.name} task add --file (?:[^\\s'"\\\\]+|"[^"\\\\]*"|'[^'\\\\]*')$`);
+const BARE_PATH = `(?!-)[^\\s'"\\\\{}*?\\[\\]~]+`;
+const DOUBLE_QUOTED_PATH = `"(?!-)[^"\\\\]*"`;
+const SINGLE_QUOTED_PATH = `'(?!-)[^'\\\\]*'`;
+const TASK_ADD_FILE_RE = new RegExp(`^${BRAND.name} task add --file (?:${BARE_PATH}|${DOUBLE_QUOTED_PATH}|${SINGLE_QUOTED_PATH})$`);
 
 function isTaskAddFile(subcommand: string): boolean {
   return TASK_ADD_FILE_RE.test(subcommand);
@@ -194,7 +206,7 @@ const REVIEWER_SCOPES: readonly ReviewerScope[] = [
     agentType: ROUND_REVIEWER_AGENT_TYPE,
     alsoAllowed: isTaskAddFile,
     bashAllowance: () =>
-      `read-only git inspection commands (${reviewerBashPrefixes().join(', ')}) and \`${BRAND.name} task add --file <path>\` (exactly one path argument, nothing after it)`,
+      `read-only git inspection commands (${reviewerBashPrefixes().join(', ')}) and \`${BRAND.name} task add --file <path>\` (exactly one path argument, nothing after it; an unquoted path may not contain brace, glob or tilde characters, and no path may start with \`-\`)`,
   },
 ];
 
