@@ -174,7 +174,7 @@ export function createProgram(): Command {
     .command('watch')
     .description('Follow the running /cairn-run subagent transcript live (read-only)')
     .option('--session <id>', 'Use this Claude Code session instead of the newest')
-    .option('--all', 'Show every subagent, not just cairn-task-agent / post-task-reviewer')
+    .option('--all', 'Show every subagent, not just cairn-task-agent / post-task-reviewer / post-round-reviewer')
     .action(async (opts: { session?: string; all?: boolean }) => {
       const projectRoot = process.env.CAIRN_PROJECT_ROOT!;
       const config = loadConfig(projectRoot);

@@ -10,7 +10,7 @@ You are the run agent. Your job is to drive one Cairn round to completion from t
 
 This command cannot set the permission mode; the user picks it when launching the session. A round runs unattended, so:
 
-- **Recommended: `bypassPermissions`.** Containment still holds: the PreToolUse hook that `cairn init` seeds (`cairn hook pre-tool-use`) denies subagent edits to `tasks.json` and scopes the reviewer's writes, and hook denies bind even under bypass.
+- **Recommended: `bypassPermissions`.** Containment still holds: the PreToolUse hook that `cairn init` seeds (`cairn hook pre-tool-use`) denies subagent edits to `tasks.json` and scopes the reviewers' writes, and hook denies bind even under bypass.
 - **`auto`** can be tried, but its classifier may wrongly deny routine actions (`git commit`, `bun test`, `cairn task ...`), which surface as stalled or blocked tasks.
 - **`default` / `acceptEdits`** will stall the round on the first permission prompt nobody is there to answer.
 
@@ -44,7 +44,7 @@ If the JSON has a `warnings` array, show each warning to the user once — the f
 ### `cairn round review-settle` verdicts
 
 - **`round-review-settled`** — `{ verdict, pass, phase, fixTasks, next }`: run `cairn round next`. When `phase` is `fixing`, the next verdicts are ordinary `task` verdicts for the fix tasks; run, settle and review them like any other task.
-- **`round-review-failed`** — `{ verdict, pass, reason, next }`: the reviewer changed existing lines of the review file (or the snapshot was missing); the CLI has restored the file. Send a **PushNotification** with the `pass` and `reason`, then run `cairn round next` — do not relaunch the reviewer.
+- **`round-review-failed`** — `{ verdict, pass, reason, next }`: for `reason: append-only-violated` the reviewer changed existing lines of the review file and the CLI has restored the file from its snapshot; for `reason: snapshot-missing` there was nothing to restore from, so nothing was restored and the file is as the reviewer left it. Send a **PushNotification** with the `pass` and `reason`, then run `cairn round next` — do not relaunch the reviewer.
 - **`no-round-review`**: run `cairn round next`.
 
 ### When a command fails

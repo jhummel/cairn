@@ -1486,6 +1486,12 @@ describe('installSlashCommands', () => {
     }
   });
 
+  test('cairn-run.md source distinguishes both round-review-failed reasons', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', '..', 'commands', 'cairn-run.md'), 'utf8');
+    expect(src).toContain('snapshot-missing');
+    expect(src).toContain('append-only-violated');
+  });
+
   test('installs cairn-run.md from a cairnRoot override pointing at the real repo root', () => {
     // Real repo root, not a fixture: this exercises the committed
     // commands/cairn-run.md that interactive rounds are launched from.

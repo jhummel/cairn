@@ -294,11 +294,12 @@ Unpin, from the repo root, after the round:
 ls -la ~/.local/bin/cairn
 
 # Reinstall the agents, slash commands and .cairn/.gitignore entries the round may have changed
+# (cairn init is interactive and prompts, so do not paste this block as a whole)
 cairn init
 
-# Run round-end behavior once with the unpinned binary, from inside a /cairn-run session
-# (tasks.json empty -> round-review if the round has a review file, else round-done)
-cairn round next
+# Run round-end behavior once with the unpinned binary: start an interactive Claude Code
+# session in the repo root and run /cairn-run there (do not run `cairn round next` from a shell).
+# tasks.json empty -> round-review if the round has a review file, else round-done
 ```
 
 The `cairn round next` step matters because round-end behavior added *during* a round never runs at that round's end: the pinned binary that drove the round predates it. Running `cairn round next` once from the repo root after unpinning makes that behavior (e.g. the temp-file sweep) actually run and gets it a live check. This is safe because it happens after unpinning: the ban on running `cairn round` in the project root covers only the round itself.

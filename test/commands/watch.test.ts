@@ -219,3 +219,12 @@ describe("runWatch", () => {
     expect(r.err).toContain(join(tmp, "projects", projectSlug(root), "nope"));
   });
 });
+
+describe("watch command registration", () => {
+  test("--all description names post-round-reviewer", async () => {
+    const { createProgram } = await import("../../src/index");
+    const watchCmd = createProgram().commands.find((c) => c.name() === "watch");
+    const opt = watchCmd!.options.find((o) => o.long === "--all");
+    expect(opt!.description).toContain("post-round-reviewer");
+  });
+});

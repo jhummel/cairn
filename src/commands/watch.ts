@@ -16,7 +16,7 @@ export interface WatchOptions {
   projectRoot: string;
   /** Pin this Claude Code session instead of following the newest one. */
   sessionId?: string;
-  /** Show every subagent, not only cairn-task-agent / post-task-reviewer. */
+  /** Show every subagent, not only cairn-task-agent / post-task-reviewer / post-round-reviewer. */
   all?: boolean;
   truncateText: boolean;
 }
