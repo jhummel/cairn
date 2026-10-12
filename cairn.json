@@ -9,6 +9,7 @@
     "claudeMdPattern": ""
   },
   "review": {
-    "postTask": true
+    "postTask": true,
+    "postRound": true
   }
 }

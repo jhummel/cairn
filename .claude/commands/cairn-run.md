@@ -4,7 +4,7 @@ description: Run a full Cairn round from this session — one task agent at a ti
 
 # Cairn Run
 
-You are the run agent. Your job is to drive one Cairn round to completion from this interactive session: launch a task agent for each task, have the CLI settle it, launch the reviewer when the CLI asks for one, and move on. Every decision about *what* happens next is made by the CLI — you carry out its verdicts.
+You are the run agent. Your job is to drive one Cairn round to completion from this interactive session: launch a task agent for each task, have the CLI settle it, launch the reviewers when the CLI asks for one (per task, then once for the whole round), and move on. Every decision about *what* happens next is made by the CLI — you carry out its verdicts.
 
 ## Before you start: permission mode
 
@@ -27,7 +27,8 @@ Run `cairn round next` and act on the JSON it prints. Every `cairn round` comman
   2. Remember the agent id the Agent tool returns, keyed by `taskId`.
   3. Run `cairn round settle <taskId>` and act on its verdict.
 - **`review`** — `{ verdict, taskId, reviewPromptFile, next }`: handle it exactly like settle's `review` below. (A review left open by a crash or an earlier session is picked up here first.)
-- **`round-done`** — `{ verdict, blocked, next }`: send a **PushNotification** with a short summary (tasks settled this session, and `blocked` if non-zero), then **stop**.
+- **`round-review`** — `{ verdict, pass, promptFile, next }` (`pass` is `triage` or `closing`): launch the **Agent** tool with `subagent_type: "post-round-reviewer"`, a short description such as `Round review (<pass>)`, and prompt `Read <promptFile> and follow it`. Do NOT pass a `model` (the agent definition sets it). It returns one line (`TRIAGED: ...` or `CLOSED: ...`). Then run `cairn round review-settle` and act on its verdict.
+- **`round-done`** — `{ verdict, blocked, unresolved, roundReviewFailed?, next }`: send a **PushNotification** with a short summary (tasks settled this session; `blocked` if non-zero; `unresolved` if non-zero, the round-review items left for the user; and that the round review failed when `roundReviewFailed` is true), then **stop**.
 
 If the JSON has a `warnings` array, show each warning to the user once — the first time you see it, not on every call.
 
@@ -40,13 +41,19 @@ If the JSON has a `warnings` array, show each warning to the user once — the f
 - **`blocked`** — `{ verdict, taskId, reason, next }`: send a **PushNotification** with the task id and a one-line version of `reason`, then run `cairn round next`. Never pause the round to ask the user — do not use AskUserQuestion.
 - **`done`** or **`already-settled`**: run `cairn round next`.
 
+### `cairn round review-settle` verdicts
+
+- **`round-review-settled`** — `{ verdict, pass, phase, fixTasks, next }`: run `cairn round next`. When `phase` is `fixing`, the next verdicts are ordinary `task` verdicts for the fix tasks; run, settle and review them like any other task.
+- **`round-review-failed`** — `{ verdict, pass, reason, next }`: the reviewer changed existing lines of the review file (or the snapshot was missing); the CLI has restored the file. Send a **PushNotification** with the `pass` and `reason`, then run `cairn round next` — do not relaunch the reviewer.
+- **`no-round-review`**: run `cairn round next`.
+
 ### When a command fails
 
-A `cairn round` command exits 0 for every verdict, `blocked` and `already-settled` included. A **non-zero exit** means the command itself could not run (unreadable `tasks.json`, lock timeout, unknown task id). Send a **PushNotification** with its stderr line and **stop** — do not retry, work around it, or repair files yourself.
+A `cairn round` command exits 0 for every verdict, `blocked` and `already-settled` included. A **non-zero exit** means the command itself could not run (unreadable `tasks.json`, lock timeout, unknown task id); this covers `cairn round review-settle` too. Send a **PushNotification** with its stderr line and **stop** — do not retry, work around it, or repair files yourself.
 
 ## Rules
 
-- **One agent at a time.** Never launch agents in parallel. Never nest them: you launch the reviewer, the task agent never does.
-- **The CLI owns state.** Never read `tasks.json`, diffs, or test logs yourself, and never edit `tasks.json`. Everything you need is in the JSON verdicts; everything an agent needs is in its prompt file.
+- **One agent at a time.** Never launch agents in parallel. Never nest them: you launch the task agents, the per-task reviewer and the round reviewer; no agent launches another.
+- **The CLI owns state.** Never read `tasks.json`, diffs, or test logs yourself, and never edit `tasks.json`, and never read or edit the round review file. Everything you need is in the JSON verdicts; everything an agent needs is in its prompt file.
 - **Follow `next`.** When unsure what to do, do what the latest verdict's `next` hint says. That hint is the same whether this session is fresh, resumed, or compacted, so the round behaves identically in all three.
-- **Stay terse.** A round can run ~20 tasks; it must fit without leaning on compaction. Don't restate agent output or JSON — at most one short line per step (e.g. `#12 done`, `#13 retry (validation-failed)`). Task agents return at most 5 lines and the reviewer one; don't ask them for more.
+- **Stay terse.** A round can run ~20 tasks; it must fit without leaning on compaction. Don't restate agent output or JSON — at most one short line per step (e.g. `#12 done`, `#13 retry (validation-failed)`). Task agents return at most 5 lines and the reviewers one; don't ask them for more.
